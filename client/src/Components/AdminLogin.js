@@ -12,8 +12,7 @@ function AdminLogin({ onLoginSuccess }) {
   const [serverError, setServerError] = useState("");
 
 // استبدلي هذا الرابط برابط السيرفر الفعلي من Render
-const API_URL = "https://اسم-السيرفر-الخاص-بك.onrender.com/api/admin/login";
-  const handleChange = (e) => {
+const API_URL = "https://medical-equipment-manager-7.onrender.com/api/admin/login";
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     if (serverError) setServerError("");
@@ -212,6 +211,5 @@ const API_URL = "https://اسم-السيرفر-الخاص-بك.onrender.com/api/
       </div>
     </div>
   );
-}
 
 export default AdminLogin;
