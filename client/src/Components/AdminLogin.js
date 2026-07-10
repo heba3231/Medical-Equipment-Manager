@@ -11,8 +11,8 @@ function AdminLogin({ onLoginSuccess }) {
   const [isLoading, setIsLoading] = useState(false);
   const [serverError, setServerError] = useState("");
 
-  const API_URL = `http://${window.location.hostname}:5000/api/admin/login`;
-
+// استبدلي هذا الرابط برابط السيرفر الفعلي من Render
+const API_URL = "https://اسم-السيرفر-الخاص-بك.onrender.com/api/admin/login";
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
