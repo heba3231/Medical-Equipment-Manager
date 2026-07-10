@@ -6,7 +6,6 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import AISearchService from './AISearchService.js';
 import setupAISearchRoutes from './AISearchRoutes.js';
-
 // Force Node.js to use Google DNS to fix Atlas connection issues
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
@@ -19,6 +18,7 @@ setupAISearchRoutes(app);
 // JWT Secret
 const JWT_SECRET = "your_secret_key_here_medical_equipment_system_2024";
 
+//const uri = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
 const uri = "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
 const client = new MongoClient(uri);
 
