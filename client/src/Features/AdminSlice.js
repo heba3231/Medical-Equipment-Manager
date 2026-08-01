@@ -3,16 +3,13 @@ import axios from 'axios';
 
 // ==================== Async Thunks ====================
 
-// Admin Login
 export const adminLogin = createAsyncThunk(
   'admin/login',
   async ({ name, staff_no, password }, { rejectWithValue }) => {
     try {
-      // استخدام المتغير البيئي، مع قيمة افتراضية للـ development
       const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
       const response = await axios.post(`${API_URL}/admin/login`, { name, staff_no, password });
       
-      // حفظ بيانات الأدمن مع الاسم
       const adminData = {
         ...response.data.admin,
         name: response.data.admin.name || name
@@ -31,7 +28,6 @@ export const adminLogin = createAsyncThunk(
   }
 );
 
-// Admin Logout
 export const adminLogout = createAsyncThunk(
   'admin/logout',
   async () => {
@@ -44,7 +40,6 @@ export const adminLogout = createAsyncThunk(
   }
 );
 
-// Check Auth
 export const checkAdminAuth = createAsyncThunk(
   'admin/checkAuth',
   async () => {
@@ -66,7 +61,6 @@ export const checkAdminAuth = createAsyncThunk(
   }
 );
 
-// Update Admin Profile
 export const updateAdminProfile = createAsyncThunk(
   'admin/updateProfile',
   async (updateData, { getState, rejectWithValue }) => {
@@ -191,8 +185,6 @@ const adminSlice = createSlice({
   }
 });
 
-// ==================== Export Actions & Reducer ====================
-
 export const {
   clearAdminError,
   setAdminPermissions,
@@ -202,8 +194,6 @@ export const {
 } = adminSlice.actions;
 
 export default adminSlice.reducer;
-
-// ==================== Selectors ====================
 
 export const selectAdmin = (state) => state.admin.admin;
 export const selectAdminToken = (state) => state.admin.token;

@@ -6,20 +6,33 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import AISearchService from './AISearchService.js';
 import setupAISearchRoutes from './AISearchRoutes.js';
+import dotenv from 'dotenv';
+
+// تحميل متغيرات البيئة من ملف .env
+dotenv.config();
+
 // Force Node.js to use Google DNS to fix Atlas connection issues
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 const app = express();
-app.use(cors());
+
+// ==================== CORS Configuration ====================
+const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+app.use(cors({
+  origin: clientUrl, // السماح فقط للعميل المحدد
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true, // إذا استخدمت cookies أو sessions
+}));
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 setupAISearchRoutes(app);
 
-// JWT Secret
-const JWT_SECRET = "your_secret_key_here_medical_equipment_system_2024";
+// JWT Secret - استخدام المتغير البيئي إن وجد
+const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
 const MONGODB_UR = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
-//const uri = "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
 const client = new MongoClient(MONGODB_UR);
 
 let equipmentCollection;
@@ -73,7 +86,6 @@ async function connectToMongoDB() {
     if (!existingAdmin) {
       console.log("⚠️ Admin not found! Creating default admin...");
       
-      // ✅ استخدام bcrypt لتشفير كلمة المرور
       const hashedPassword = await bcrypt.hash("123456", 10);
       
       await adminCollection.insertOne({
@@ -274,7 +286,6 @@ app.post('/api/admin/login', async (req, res) => {
   console.log("🔐 Admin login attempt - Name:", name, "Staff No:", staff_no);
   
   try {
-    // ✅ البحث عن الأدمن برقم الموظف فقط (بدون الاسم)
     const admin = await adminCollection.findOne({
       $or: [
         { staff_no: staff_no },
@@ -298,7 +309,6 @@ app.post('/api/admin/login', async (req, res) => {
       });
     }
     
-    // مقارنة كلمة المرور
     let isPasswordValid = false;
     if (admin.password && (admin.password.startsWith('$2a$') || admin.password.startsWith('$2b$'))) {
       isPasswordValid = await bcrypt.compare(password, admin.password);
@@ -332,20 +342,19 @@ app.post('/api/admin/login', async (req, res) => {
         id: admin._id, 
         staff_no: adminStaffNo, 
         role: admin.role || "admin",
-        name: name || admin.name // ✅ استخدام الاسم المدخل من المستخدم
+        name: name || admin.name
       },
       JWT_SECRET,
       { expiresIn: "1d" }
     );
     
-    // ✅ إرجاع الاسم المدخل من المستخدم
     res.json({
       success: true,
       message: "✅ Login successful",
       token,
       admin: {
         id: admin._id,
-        name: name || admin.name, // ✅ استخدام الاسم المدخل
+        name: name || admin.name,
         staff_no: adminStaffNo,
         role: admin.role || "admin",
         email: admin.email || "",
@@ -1215,4 +1224,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🔧 OT Custom Equip API: /api/ot-custom-equipment`);
   console.log(`🤖 AI Search API:       /api/ai-search/instrument?name=...`);
   console.log(`🔧 Debug: /api/test/admins | /api/debug/admin-structure`);
+  console.log(`✅ CORS allowed origin: ${clientUrl}`);
 });
