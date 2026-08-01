@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { QRCodeCanvas } from 'qrcode.react';
 
-const API_BASE = `http://${window.location.hostname}:5000/api`;
+// ✅ استخدم المتغير البيئي إن وجد، وإلا استخدم الرابط المحلي
+const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
 function OTDepartment() {
   const navigate = useNavigate();
@@ -1472,11 +1473,9 @@ function OTDepartment() {
         {/* CSS for print - hide images, show checkmarks, hide header and footer */}
         <style>{`
           @media print {
-            /* Hide all elements with .no-print class */
             .no-print {
               display: none !important;
             }
-            /* Show elements with .print-only class */
             .print-only {
               display: inline !important;
             }
@@ -1487,29 +1486,24 @@ function OTDepartment() {
               box-shadow: none !important;
               border: none !important;
             }
-            /* Keep table borders for print */
             table {
               border-collapse: collapse !important;
             }
             th, td {
               border: 1px solid #000 !important;
             }
-            /* Remove page header and footer */
             @page {
               margin: 0.5in;
               size: portrait;
             }
-            /* Hide header and footer areas */
             .print-header,
             .print-footer {
               display: none !important;
             }
-            /* Ensure the table takes full width */
             table {
               width: 100% !important;
             }
           }
-          /* Screen only - hide print-only elements */
           @media screen {
             .print-only {
               display: none !important;
@@ -1590,32 +1584,16 @@ function OTDepartment() {
         minHeight: '100vh',
         padding: '18px 12px'
       }}>
-        {/* CSS للطباعة */}
         <style>{`
           @media print {
             body { background: #ffffff !important; }
             .ot-no-print { display: none !important; }
             .ot-print-sheet { box-shadow: none !important; border: none !important; }
-            /* ✅ إخفاء عمود الصورة بالكامل عند الطباعة */
-            .image-column {
-              display: none !important;
-            }
-            /* ✅ إخفاء الفوتر */
-            .footer-print-hide {
-              display: none !important;
-            }
-            /* ✅ إخفاء خانات التوقيع */
-            .signature-print-hide {
-              display: none !important;
-            }
-            /* ✅ إخفاء الهيدر */
-            .header-print-hide {
-              display: none !important;
-            }
-            /* ✅ إخفاء صف القسم */
-            .dept-row-print-hide {
-              display: none !important;
-            }
+            .image-column { display: none !important; }
+            .footer-print-hide { display: none !important; }
+            .signature-print-hide { display: none !important; }
+            .header-print-hide { display: none !important; }
+            .dept-row-print-hide { display: none !important; }
           }
         `}</style>
 
@@ -1629,7 +1607,6 @@ function OTDepartment() {
           overflow: 'hidden'
         }}>
 
-          {/* ===== الهيدر الأخضر - يختفي عند الطباعة ===== */}
           <div className="header-print-hide" style={{
             background: '#006341',
             padding: '16px 26px',
@@ -1658,7 +1635,6 @@ function OTDepartment() {
             </div>
           </div>
 
-          {/* ===== صف القسم / القائمة - يختفي عند الطباعة ===== */}
           <div className="dept-row-print-hide" style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
@@ -1682,7 +1658,6 @@ function OTDepartment() {
             </div>
           </div>
 
-          {/* ===== الجدول ===== */}
           <div style={{ padding: '22px 26px 10px' }}>
             {simpleEquipment.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '50px 20px', color: '#9ca3af' }}>
@@ -1693,7 +1668,6 @@ function OTDepartment() {
                 <thead>
                   <tr style={{ background: '#eef5f1' }}>
                     <th style={{ ...thStyle, width: '34px', textAlign: 'center' }}>No.</th>
-                    {/* ✅ عمود الصورة - يختفي عند الطباعة */}
                     <th className="image-column" style={{ ...thStyle, width: '60px', textAlign: 'center' }}>Image</th>
                     <th style={{ ...thStyle, textAlign: 'left' }}>Item Description</th>
                     <th style={{ ...thStyle, width: '110px', textAlign: 'left' }}>Code</th>
@@ -1705,7 +1679,6 @@ function OTDepartment() {
                   {simpleEquipment.map((item, idx) => (
                     <tr key={item.id || item._id} style={{ background: idx % 2 === 0 ? '#ffffff' : '#fafcfb' }}>
                       <td style={{ ...tdStyle, textAlign: 'center', color: '#6b7280' }}>{idx + 1}</td>
-                      {/* ✅ عمود الصورة - يختفي عند الطباعة */}
                       <td className="image-column" style={{ ...tdStyle, textAlign: 'center' }}>
                         {item.image ? (
                           <img
@@ -1749,7 +1722,6 @@ function OTDepartment() {
             )}
           </div>
 
-          {/* ===== خانات التوقيع - تختفي عند الطباعة ===== */}
           <div className="signature-print-hide" style={{
             borderTop: '2px solid #e5e7eb',
             padding: '20px 26px 26px',
@@ -1775,7 +1747,6 @@ function OTDepartment() {
             </div>
           </div>
 
-          {/* ===== الفوتر السفلي - يختفي عند الطباعة ===== */}
           <div className="footer-print-hide" style={{
             textAlign: 'center',
             padding: '10px',
@@ -1788,7 +1759,6 @@ function OTDepartment() {
           </div>
         </div>
 
-        {/* ===== زر الطباعة ===== */}
         <div className="ot-no-print" style={{ textAlign: 'center', marginTop: '18px' }}>
           <button
             onClick={() => window.print()}
