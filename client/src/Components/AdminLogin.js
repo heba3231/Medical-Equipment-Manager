@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-
+// في أعلى الملف، بعد الاستيرادات
+const API_URL = process.env.REACT_APP_API_URL 
+  ? `${process.env.REACT_APP_API_URL}/admin/login`
+  : "https://medical-equipment-manager11.onrender.com/api/admin/login";
 function AdminLogin({ onLoginSuccess }) {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ 

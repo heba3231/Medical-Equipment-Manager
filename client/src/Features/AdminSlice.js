@@ -1,19 +1,18 @@
-// store/slices/adminSlice.js
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 
 // ==================== Async Thunks ====================
 
 // Admin Login
-// Admin Login
 export const adminLogin = createAsyncThunk(
   'admin/login',
   async ({ name, staff_no, password }, { rejectWithValue }) => {
     try {
-      const API_URL = `http://${window.location.hostname}:5000/api/admin/login`;
-      const response = await axios.post(API_URL, { name, staff_no, password });
+      // استخدام المتغير البيئي، مع قيمة افتراضية للـ development
+      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+      const response = await axios.post(`${API_URL}/admin/login`, { name, staff_no, password });
       
-      // ✅ حفظ بيانات الأدمن مع الاسم
+      // حفظ بيانات الأدمن مع الاسم
       const adminData = {
         ...response.data.admin,
         name: response.data.admin.name || name
@@ -31,6 +30,7 @@ export const adminLogin = createAsyncThunk(
     }
   }
 );
+
 // Admin Logout
 export const adminLogout = createAsyncThunk(
   'admin/logout',
@@ -72,8 +72,9 @@ export const updateAdminProfile = createAsyncThunk(
   async (updateData, { getState, rejectWithValue }) => {
     try {
       const { token } = getState().admin;
+      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
       const response = await axios.put(
-        `http://${window.location.hostname}:5000/api/admin/profile`,
+        `${API_URL}/admin/profile`,
         updateData,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -87,8 +88,9 @@ export const updateAdminProfile = createAsyncThunk(
 export const searchInstrument = createAsyncThunk(
   'admin/searchInstrument',
   async (instrumentName) => {
+    const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
     const response = await fetch(
-      `/api/ai-search/instrument?name=${encodeURIComponent(instrumentName)}`
+      `${API_URL}/ai-search/instrument?name=${encodeURIComponent(instrumentName)}`
     );
     return response.json();
   }
