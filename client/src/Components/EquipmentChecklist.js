@@ -151,21 +151,13 @@ function EquipmentChecklist() {
     }
   };
 
-  // ===================== PRINT FUNCTION (MODIFIED) =====================
+  // ===================== PRINT FUNCTION (ONLY TABLE + INSPECTOR NAME) =====================
   const handlePrint = () => {
     // Get inspector name from localStorage or submissionData
     const userName = localStorage.getItem("userName") || 
                      JSON.parse(localStorage.getItem("user") || "{}")?.name || 
                      "Unknown";
-    const submittedByName = submissionData?.submittedBy || userName;
-
-    const printDate = new Date().toLocaleString('en-GB', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    const inspectorName = submissionData?.submittedBy || userName;
 
     // Build table rows
     let tableRows = equipment.map((item, index) => {
@@ -173,12 +165,12 @@ function EquipmentChecklist() {
       const isChecked = checkedItems[itemId] || false;
       return `
         <tr>
-          <td style="text-align:center;padding:8px;border:1px solid #ccc;">${index + 1}</td>
-          <td style="padding:8px;border:1px solid #ccc;">${item.name || ''}</td>
-          <td style="padding:8px;border:1px solid #ccc;">${item.code || '—'}</td>
-          <td style="text-align:center;padding:8px;border:1px solid #ccc;">${item.quantity || 0}</td>
-          <td style="padding:8px;border:1px solid #ccc;">${item.status || 'Available'}</td>
-          <td style="text-align:center;padding:8px;border:1px solid #ccc;">${isChecked ? '✓' : ''}</td>
+          <td style="text-align:center;padding:8px;border:1px solid #000;font-size:13px;">${index + 1}</td>
+          <td style="padding:8px;border:1px solid #000;font-size:13px;">${item.name || ''}</td>
+          <td style="padding:8px;border:1px solid #000;font-size:13px;">${item.code || '—'}</td>
+          <td style="text-align:center;padding:8px;border:1px solid #000;font-size:13px;">${item.quantity || 0}</td>
+          <td style="padding:8px;border:1px solid #000;font-size:13px;">${item.status || 'Available'}</td>
+          <td style="text-align:center;padding:8px;border:1px solid #000;font-size:13px;">${isChecked ? '✓' : ''}</td>
         </tr>
       `;
     }).join('');
@@ -188,87 +180,53 @@ function EquipmentChecklist() {
       <html>
       <head>
         <meta charset="UTF-8">
-        <title>Checklist - ${listName}</title>
+        <title>Checklist</title>
         <style>
           body {
             font-family: Arial, sans-serif;
-            padding: 40px;
-            max-width: 1000px;
-            margin: 0 auto;
+            padding: 30px;
+            margin: 0;
           }
-          .header {
+          .inspector {
             text-align: center;
-            margin-bottom: 30px;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            padding: 8px;
             border-bottom: 2px solid #004d32;
-            padding-bottom: 20px;
-          }
-          .header h1 {
-            color: #004d32;
-            margin: 0 0 10px 0;
-            font-size: 26px;
-          }
-          .header h2 {
-            color: #006341;
-            margin: 5px 0;
-            font-size: 20px;
-            font-weight: normal;
-          }
-          .header .meta {
-            font-size: 14px;
-            color: #555;
-            margin-top: 8px;
-          }
-          .header .meta span {
-            margin: 0 15px;
           }
           table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
           }
           th {
             background: #f0f7f4;
             color: #004d32;
             font-weight: 700;
             padding: 10px 8px;
-            border: 1px solid #ccc;
+            border: 2px solid #000;
             text-align: left;
+            font-size: 13px;
           }
           td {
             padding: 8px;
-            border: 1px solid #ccc;
-          }
-          .footer {
-            margin-top: 30px;
-            text-align: center;
-            font-size: 12px;
-            color: #999;
-            border-top: 1px solid #ddd;
-            padding-top: 15px;
+            border: 1px solid #000;
+            font-size: 13px;
           }
           @media print {
-            body { padding: 20px; }
-            .no-print { display: none; }
+            body { padding: 15px; }
           }
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1>📋 Equipment Checklist</h1>
-          <h2>${listName}</h2>
-          <div class="meta">
-            <span>👤 Inspector: ${submittedByName}</span>
-            <span>📅 ${printDate}</span>
-          </div>
-        </div>
-
+        <div class="inspector">👤 Inspector: ${inspectorName}</div>
         <table>
           <thead>
             <tr>
-              <th style="text-align:center;width:50px;">#</th>
+              <th style="text-align:center;width:40px;">#</th>
               <th style="text-align:left;">Equipment Name</th>
               <th style="text-align:left;">Code</th>
-              <th style="text-align:center;width:70px;">Qty</th>
+              <th style="text-align:center;width:60px;">Qty</th>
               <th style="text-align:left;">Status</th>
               <th style="text-align:center;width:50px;">Checked</th>
             </tr>
@@ -277,10 +235,6 @@ function EquipmentChecklist() {
             ${tableRows}
           </tbody>
         </table>
-
-        <div class="footer">
-          Generated from OT Department • ${new Date().toLocaleDateString()}
-        </div>
       </body>
       </html>
     `;
