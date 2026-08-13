@@ -747,6 +747,160 @@ function OTDepartment() {
     alert("📢 Shortage notification sent to room administrator");
   };
 
+  // ===================== PRINT CHECKLIST FUNCTION (NEW) =====================
+  // Opens a separate, dedicated print window containing ONLY:
+  //   - The technician / admin name
+  //   - The date & time
+  //   - The equipment checklist table
+  // No navbar, sidebar, buttons, filters, search, cards, statistics,
+  // backgrounds, or footer are included, because this is a completely
+  // separate document rather than a print of the current page.
+  const handlePrintChecklist = () => {
+    const technicianName = checkMeta.technician || "Technician";
+    const dateObj = checkMeta.startedAt || new Date();
+    const printDate = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const printTime = dateObj.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+    let tableRows = currentEquipment.map((item, idx) => {
+      const data = checkData[item.id] || { present: item.quantity, damaged: false, note: "" };
+      const status = getItemStatus(item);
+      let statusText = 'Present';
+      if (status === 'missing') statusText = `Missing (${item.quantity - data.present})`;
+      else if (status === 'damaged') statusText = 'Damaged';
+
+      return `
+        <tr>
+          <td class="col-index">${idx + 1}</td>
+          <td class="col-name">${item.name || ''}</td>
+          <td class="col-required">${item.quantity || 0}</td>
+          <td class="col-available">${data.present}</td>
+          <td class="col-status">${statusText}</td>
+          <td class="col-notes">${data.note ? data.note : '—'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const printHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Print Checklist</title>
+        <style>
+          * {
+            box-sizing: border-box;
+          }
+          @page {
+            size: A4;
+            margin: 16mm 14mm;
+          }
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #1f2937;
+          }
+          .print-page {
+            width: 100%;
+          }
+          .meta-line {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 16px;
+            margin-bottom: 18px;
+            padding-bottom: 10px;
+            border-bottom: 1.5px solid #004d32;
+          }
+          .meta-item {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+          }
+          .meta-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #004d32;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .meta-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: #111827;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+          }
+          thead th {
+            background: #f0f7f4;
+            color: #004d32;
+            font-weight: 700;
+            padding: 8px 6px;
+            border: 1px solid #999;
+            text-align: left;
+          }
+          tbody td {
+            padding: 7px 6px;
+            border: 1px solid #999;
+            vertical-align: middle;
+          }
+          .col-index { text-align: center; width: 36px; }
+          .col-name { text-align: left; }
+          .col-required { text-align: center; width: 70px; }
+          .col-available { text-align: center; width: 70px; }
+          .col-status { text-align: left; width: 120px; }
+          .col-notes { text-align: left; width: 140px; }
+          tbody tr:nth-child(even) {
+            background: #fafafa;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-page">
+          <div class="meta-line">
+            <div class="meta-item">
+              <span class="meta-label">Inspector:</span>
+              <span class="meta-value">${technicianName}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Date &amp; Time:</span>
+              <span class="meta-value">${printDate} — ${printTime}</span>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th class="col-index">#</th>
+                <th class="col-name">Item Name</th>
+                <th class="col-required">Required</th>
+                <th class="col-available">Available</th>
+                <th class="col-status">Status</th>
+                <th class="col-notes">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printHTML);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.onload = () => {
+      printWindow.print();
+    };
+  };
+  // ===================== END OF PRINT CHECKLIST FUNCTION =====================
+
   // ===== Upload set image from check page =====
   const handleCheckListImageUpload = (e) => {
     const file = e.target.files[0];
@@ -1435,7 +1589,7 @@ function OTDepartment() {
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             <button
-              onClick={() => window.print()}
+              onClick={handlePrintChecklist}
               style={{
                 display: "flex", alignItems: "center", gap: "6px",
                 padding: "10px 20px", borderRadius: "10px",
