@@ -58,6 +58,8 @@ function OTDepartment() {
   const [checkMeta, setCheckMeta] = useState({ technician: "", startedAt: null });
   const [checkListImage, setCheckListImage] = useState(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  // ========== NEW: Expiry Date State ==========
+  const [expiryDate, setExpiryDate] = useState(null);
 
   // ========== SVG ICONS ==========
   const Icons = {
@@ -666,6 +668,7 @@ function OTDepartment() {
       initial[item.id] = {
         present: item.quantity,
         damaged: false,
+        damagedQuantity: 0, // NEW: to track how many are damaged
         note: ""
       };
     });
@@ -679,13 +682,18 @@ function OTDepartment() {
       technician: userName,
       startedAt: new Date()
     });
+    // NEW: Calculate expiry date (6 months from today)
+    const today = new Date();
+    today.setMonth(today.getMonth() + 6);
+    setExpiryDate(today);
+    
     setCheckListImage(selectedListObj?.image || null);
     setCheckMode(true);
   };
 
   const updateCheckPresent = (itemId, delta, maxQty) => {
     setCheckData(prev => {
-      const current = prev[itemId] || { present: 0, damaged: false, note: "" };
+      const current = prev[itemId] || { present: 0, damaged: false, damagedQuantity: 0, note: "" };
       const nextPresent = Math.max(0, Math.min(maxQty, current.present + delta));
       return { ...prev, [itemId]: { ...current, present: nextPresent } };
     });
@@ -693,21 +701,40 @@ function OTDepartment() {
 
   const toggleCheckDamaged = (itemId) => {
     setCheckData(prev => {
-      const current = prev[itemId] || { present: 0, damaged: false, note: "" };
-      return { ...prev, [itemId]: { ...current, damaged: !current.damaged } };
+      const current = prev[itemId] || { present: 0, damaged: false, damagedQuantity: 0, note: "" };
+      // Toggle damaged status
+      const newDamaged = !current.damaged;
+      // If turning off damaged, reset damagedQuantity to 0
+      const newDamagedQuantity = newDamaged ? (current.damagedQuantity || 0) : 0;
+      // If damaged is turned on, ensure damagedQuantity does not exceed present count
+      const finalDamagedQuantity = newDamaged ? Math.min(newDamagedQuantity, current.present) : 0;
+      return { ...prev, [itemId]: { ...current, damaged: newDamaged, damagedQuantity: finalDamagedQuantity } };
+    });
+  };
+
+  const updateDamagedQuantity = (itemId, value) => {
+    setCheckData(prev => {
+      const current = prev[itemId] || { present: 0, damaged: false, damagedQuantity: 0, note: "" };
+      let newVal = parseInt(value) || 0;
+      // Cap at present quantity
+      newVal = Math.min(newVal, current.present);
+      // If damaged is true, we update the quantity; if damaged is false, we force quantity to 0
+      const finalVal = current.damaged ? newVal : 0;
+      return { ...prev, [itemId]: { ...current, damagedQuantity: finalVal } };
     });
   };
 
   const updateCheckNote = (itemId, note) => {
     setCheckData(prev => {
-      const current = prev[itemId] || { present: 0, damaged: false, note: "" };
+      const current = prev[itemId] || { present: 0, damaged: false, damagedQuantity: 0, note: "" };
       return { ...prev, [itemId]: { ...current, note } };
     });
   };
 
   const getItemStatus = (item) => {
-    const data = checkData[item.id] || { present: item.quantity, damaged: false };
-    if (data.damaged) return "damaged";
+    const data = checkData[item.id] || { present: item.quantity, damaged: false, damagedQuantity: 0 };
+    if (data.damaged && data.damagedQuantity > 0) return "damaged";
+    if (data.damaged && data.damagedQuantity === 0) return "damaged-zero"; // damaged but no quantity specified
     if (data.present >= item.quantity) return "ok";
     return "missing";
   };
@@ -728,9 +755,15 @@ function OTDepartment() {
         return;
       }
       totalPresent += data.present || 0;
-      if (data.damaged) damagedCount += 1;
-      else if (data.present >= item.quantity) okCount += 1;
-      else missingCount += 1;
+      if (data.damaged && data.damagedQuantity > 0) {
+        damagedCount += 1;
+        // For percentage, we consider damaged items as present (they exist but are damaged)
+        // But we might want to adjust totalPresent? No, present is the physical count.
+      } else if (data.present >= item.quantity) {
+        okCount += 1;
+      } else {
+        missingCount += 1;
+      }
     });
 
     const percentage = totalRequired > 0 ? Math.round((totalPresent / totalRequired) * 100) : 0;
@@ -739,167 +772,26 @@ function OTDepartment() {
   }, [currentEquipment, checkData]);
 
   const handleApproveAndSend = () => {
-    alert(`✅ Checklist approved and sent to operations\nCheck percentage: ${checkStats.percentage}%\nPresent: ${checkStats.okCount}\nMissing: ${checkStats.missingCount}\nDamaged: ${checkStats.damagedCount}`);
+    // Build a summary message that includes damaged items with quantities
+    let damagedSummary = "";
+    const damagedItems = currentEquipment.filter(item => {
+      const data = checkData[item.id];
+      return data && data.damaged && data.damagedQuantity > 0;
+    });
+    if (damagedItems.length > 0) {
+      damagedSummary = "\nDamaged Items:\n" + damagedItems.map(item => {
+        const data = checkData[item.id];
+        return `  - ${item.name}: ${data.damagedQuantity} damaged (out of ${item.quantity})`;
+      }).join('\n');
+    }
+
+    alert(`✅ Checklist approved and sent to operations\nCheck percentage: ${checkStats.percentage}%\nPresent: ${checkStats.okCount}\nMissing: ${checkStats.missingCount}\nDamaged: ${checkStats.damagedCount}${damagedSummary}`);
     setCheckMode(false);
   };
 
   const handleReportShortage = () => {
     alert("📢 Shortage notification sent to room administrator");
   };
-
-  // ===================== PRINT CHECKLIST FUNCTION (NEW) =====================
-  // Opens a separate, dedicated print window containing ONLY:
-  //   - The technician / admin name
-  //   - The date & time
-  //   - The equipment checklist table
-  // No navbar, sidebar, buttons, filters, search, cards, statistics,
-  // backgrounds, or footer are included, because this is a completely
-  // separate document rather than a print of the current page.
-  const handlePrintChecklist = () => {
-    const technicianName = checkMeta.technician || "Technician";
-    const dateObj = checkMeta.startedAt || new Date();
-    const printDate = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const printTime = dateObj.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-
-    let tableRows = currentEquipment.map((item, idx) => {
-      const data = checkData[item.id] || { present: item.quantity, damaged: false, note: "" };
-      const status = getItemStatus(item);
-      let statusText = 'Present';
-      if (status === 'missing') statusText = `Missing (${item.quantity - data.present})`;
-      else if (status === 'damaged') statusText = 'Damaged';
-
-      return `
-        <tr>
-          <td class="col-index">${idx + 1}</td>
-          <td class="col-name">${item.name || ''}</td>
-          <td class="col-required">${item.quantity || 0}</td>
-          <td class="col-available">${data.present}</td>
-          <td class="col-status">${statusText}</td>
-          <td class="col-notes">${data.note ? data.note : '—'}</td>
-        </tr>
-      `;
-    }).join('');
-
-    const printHTML = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Print Checklist</title>
-        <style>
-          * {
-            box-sizing: border-box;
-          }
-          @page {
-            size: A4;
-            margin: 16mm 14mm;
-          }
-          body {
-            font-family: Arial, Helvetica, sans-serif;
-            margin: 0;
-            padding: 0;
-            color: #1f2937;
-          }
-          .print-page {
-            width: 100%;
-          }
-          .meta-line {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            gap: 16px;
-            margin-bottom: 18px;
-            padding-bottom: 10px;
-            border-bottom: 1.5px solid #004d32;
-          }
-          .meta-item {
-            display: flex;
-            align-items: baseline;
-            gap: 6px;
-          }
-          .meta-label {
-            font-size: 12px;
-            font-weight: 700;
-            color: #004d32;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          .meta-value {
-            font-size: 14px;
-            font-weight: 700;
-            color: #111827;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-          }
-          thead th {
-            background: #f0f7f4;
-            color: #004d32;
-            font-weight: 700;
-            padding: 8px 6px;
-            border: 1px solid #999;
-            text-align: left;
-          }
-          tbody td {
-            padding: 7px 6px;
-            border: 1px solid #999;
-            vertical-align: middle;
-          }
-          .col-index { text-align: center; width: 36px; }
-          .col-name { text-align: left; }
-          .col-required { text-align: center; width: 70px; }
-          .col-available { text-align: center; width: 70px; }
-          .col-status { text-align: left; width: 120px; }
-          .col-notes { text-align: left; width: 140px; }
-          tbody tr:nth-child(even) {
-            background: #fafafa;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="print-page">
-          <div class="meta-line">
-            <div class="meta-item">
-              <span class="meta-label">Inspector:</span>
-              <span class="meta-value">${technicianName}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Date &amp; Time:</span>
-              <span class="meta-value">${printDate} — ${printTime}</span>
-            </div>
-          </div>
-
-          <table>
-            <thead>
-              <tr>
-                <th class="col-index">#</th>
-                <th class="col-name">Item Name</th>
-                <th class="col-required">Required</th>
-                <th class="col-available">Available</th>
-                <th class="col-status">Status</th>
-                <th class="col-notes">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tableRows}
-            </tbody>
-          </table>
-        </div>
-      </body>
-      </html>
-    `;
-
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(printHTML);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.onload = () => {
-      printWindow.print();
-    };
-  };
-  // ===================== END OF PRINT CHECKLIST FUNCTION =====================
 
   // ===== Upload set image from check page =====
   const handleCheckListImageUpload = (e) => {
@@ -991,6 +883,171 @@ function OTDepartment() {
     } catch (err) {
       alert("❌ Error removing image: " + err.message);
     }
+  };
+
+  // ===================== PRINT CHECKLIST FUNCTION =====================
+  const handlePrintChecklist = () => {
+    const technicianName = checkMeta.technician || "Technician";
+    const dateObj = checkMeta.startedAt || new Date();
+    const printDate = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const printTime = dateObj.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+    // Format expiry date
+    let expiryDateStr = '';
+    if (expiryDate) {
+      expiryDateStr = expiryDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+
+    let tableRows = currentEquipment.map((item, idx) => {
+      const data = checkData[item.id] || { present: item.quantity, damaged: false, damagedQuantity: 0, note: "" };
+      const status = getItemStatus(item);
+      let statusText = '';
+      if (status === 'ok') statusText = '✅ Present';
+      else if (status === 'missing') statusText = `❌ Missing (${item.quantity - data.present})`;
+      else if (status === 'damaged') statusText = `⚠️ Damaged (${data.damagedQuantity})`;
+      else if (status === 'damaged-zero') statusText = '⚠️ Damaged (0)';
+      else statusText = '❓ Undetermined';
+
+      return `
+        <tr>
+          <td class="col-index">${idx + 1}</td>
+          <td class="col-name">${item.name || ''}</td>
+          <td class="col-required">${item.quantity || 0}</td>
+          <td class="col-available">${data.present}</td>
+          <td class="col-status">${statusText}</td>
+          <td class="col-notes">${data.note ? data.note : '—'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const printHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Print Checklist</title>
+        <style>
+          * {
+            box-sizing: border-box;
+          }
+          @page {
+            size: A4;
+            margin: 16mm 14mm;
+          }
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #1f2937;
+          }
+          .print-page {
+            width: 100%;
+          }
+          .meta-line {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 16px;
+            margin-bottom: 18px;
+            padding-bottom: 10px;
+            border-bottom: 1.5px solid #004d32;
+            flex-wrap: wrap;
+          }
+          .meta-item {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+          }
+          .meta-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #004d32;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .meta-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: #111827;
+          }
+          .expiry-date {
+            font-weight: 700;
+            color: #b91c1c;
+            font-size: 14px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+          }
+          thead th {
+            background: #f0f7f4;
+            color: #004d32;
+            font-weight: 700;
+            padding: 8px 6px;
+            border: 1px solid #999;
+            text-align: left;
+          }
+          tbody td {
+            padding: 7px 6px;
+            border: 1px solid #999;
+            vertical-align: middle;
+          }
+          .col-index { text-align: center; width: 36px; }
+          .col-name { text-align: left; }
+          .col-required { text-align: center; width: 70px; }
+          .col-available { text-align: center; width: 70px; }
+          .col-status { text-align: left; width: 120px; }
+          .col-notes { text-align: left; width: 140px; }
+          tbody tr:nth-child(even) {
+            background: #fafafa;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-page">
+          <div class="meta-line">
+            <div class="meta-item">
+              <span class="meta-label">Inspector:</span>
+              <span class="meta-value">${technicianName}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Date &amp; Time:</span>
+              <span class="meta-value">${printDate} — ${printTime}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Expiry Date:</span>
+              <span class="expiry-date">${expiryDateStr}</span>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th class="col-index">#</th>
+                <th class="col-name">Item Name</th>
+                <th class="col-required">Required</th>
+                <th class="col-available">Available</th>
+                <th class="col-status">Status</th>
+                <th class="col-notes">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printHTML);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.onload = () => {
+      printWindow.print();
+    };
   };
 
   // ========== PAPER-STYLE TABLE CELL STYLES ==========
@@ -1333,6 +1390,22 @@ function OTDepartment() {
               </div>
             </div>
 
+            {/* NEW: Expiry Date Display */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, marginLeft: "auto" }}>
+              <div style={{
+                padding: "8px 16px",
+                borderRadius: "8px",
+                background: expiryDate ? "#fee2e2" : "#f3f4f6",
+                border: "1px solid #dc2626",
+                textAlign: "center"
+              }}>
+                <div style={{ fontSize: "11px", fontWeight: "600", color: "#b91c1c" }}>Expiry Date</div>
+                <div style={{ fontSize: "16px", fontWeight: "700", color: "#b91c1c" }}>
+                  {expiryDate ? expiryDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : "—"}
+                </div>
+              </div>
+            </div>
+
             {/* Percentage ring */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
               <div style={{
@@ -1388,9 +1461,9 @@ function OTDepartment() {
                 </thead>
                 <tbody>
                   {currentEquipment.map((item, idx) => {
-                    const data = checkData[item.id] || { present: item.quantity, damaged: false, note: "" };
+                    const data = checkData[item.id] || { present: item.quantity, damaged: false, damagedQuantity: 0, note: "" };
                     const status = getItemStatus(item);
-                    const rowBg = status === "missing" ? "#fdf2f2" : status === "damaged" ? "#fff7ed" : "#ffffff";
+                    const rowBg = status === "missing" ? "#fdf2f2" : status === "damaged" || status === "damaged-zero" ? "#fff7ed" : "#ffffff";
 
                     return (
                       <tr key={item.id} style={{ background: rowBg }}>
@@ -1410,7 +1483,6 @@ function OTDepartment() {
                         </td>
                         <td style={{ ...checkTdStyle, fontWeight: "600", color: "#1f2937" }}>{item.name}</td>
                         <td style={{ ...checkTdStyle, textAlign: "center" }}>
-                          {/* ✅ صورة الأداة - تظهر على الشاشة فقط، تختفي عند الطباعة */}
                           <span className="no-print">
                             {item.image ? (
                               <img
@@ -1427,7 +1499,6 @@ function OTDepartment() {
                               <span style={{ color: "#d1d5db", fontSize: "20px" }}>📷</span>
                             )}
                           </span>
-                          {/* ✅ للطباعة - يظهر علامة (✓) بدلاً من الصورة */}
                           <span className="print-only" style={{ display: "none", fontSize: "18px", color: "#004d32" }}>
                             ✓
                           </span>
@@ -1480,13 +1551,14 @@ function OTDepartment() {
                               <Icons.warnTriangle /> Missing ({item.quantity - data.present})
                             </span>
                           )}
-                          {status === "damaged" && (
+                          {(status === "damaged" || status === "damaged-zero") && (
                             <span style={{
                               display: "inline-flex", alignItems: "center", gap: "4px",
                               background: "#ffedd5", color: "#9a3412", fontSize: "11px", fontWeight: "700",
                               padding: "4px 10px", borderRadius: "999px"
                             }}>
                               <Icons.wrench /> Damaged
+                              {status === "damaged" && ` (${data.damagedQuantity})`}
                             </span>
                           )}
                           <div>
@@ -1503,9 +1575,30 @@ function OTDepartment() {
                               }}
                               className="no-print"
                             >
-                              {status === "damaged" ? "Cancel damaged" : "Mark as damaged"}
+                              {status === "damaged" || status === "damaged-zero" ? "Cancel damaged" : "Mark as damaged"}
                             </button>
                           </div>
+                          {/* NEW: Damaged quantity input */}
+                          {(status === "damaged" || status === "damaged-zero") && (
+                            <div style={{ marginTop: "6px" }} className="no-print">
+                              <label style={{ fontSize: "10px", color: "#6b7280", marginRight: "4px" }}>Damaged count:</label>
+                              <input
+                                type="number"
+                                min="0"
+                                max={item.quantity}
+                                value={data.damagedQuantity || 0}
+                                onChange={(e) => updateDamagedQuantity(item.id, e.target.value)}
+                                style={{
+                                  width: "50px",
+                                  padding: "2px 4px",
+                                  border: "1px solid #d0e8dc",
+                                  borderRadius: "4px",
+                                  fontSize: "12px",
+                                  textAlign: "center"
+                                }}
+                              />
+                            </div>
+                          )}
                         </td>
                         <td style={checkTdStyle}>
                           <input
@@ -1523,7 +1616,6 @@ function OTDepartment() {
                             }}
                             className="no-print"
                           />
-                          {/* ✅ للطباعة - عرض الملاحظات كنص */}
                           <span className="print-only" style={{ display: "none", fontSize: "12px", color: "#1f2937" }}>
                             {data.note || "—"}
                           </span>
