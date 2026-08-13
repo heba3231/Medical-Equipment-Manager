@@ -2589,36 +2589,34 @@ function OTDepartment() {
                         {filteredAndSortedEquipment.map((item, idx) => (
                           <tr key={item.id} style={{ background: idx % 2 === 0 ? "#ffffff" : "#f5f5f5" }}>
                             <td style={{ ...equipTdStyle, textAlign: "center" }}>{idx + 1}</td>
-                            <td style={{ ...equipTdStyle, textAlign: "center" }}>
-                              {item.image ? (
-                                <button
-                                  onClick={() => setImageModal(item.image)}
-                                  title="View image"
-                                  style={{
-                                    width: "22px",
-                                    height: "22px",
-                                    borderRadius: "50%",
-                                    background: "#000000",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    display: "inline-block",
-                                    margin: "0 auto",
-                                    padding: 0,
-                                    transition: "opacity 0.15s"
-                                  }}
-                                  onMouseEnter={(e) => e.currentTarget.style.opacity = "0.65"}
-                                  onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
-                                />
-                              ) : (
-                                <div style={{
-                                  width: "22px",
-                                  height: "22px",
-                                  borderRadius: "50%",
-                                  background: "#cccccc",
-                                  margin: "0 auto"
-                                }} />
-                              )}
-                            </td>
+
+<td style={{ ...equipTdStyle, textAlign: "center" }}>
+  {item.image ? (
+    <img
+      src={item.image}
+      alt={item.name}
+      onClick={() => setImageModal(item.image)}
+      style={{
+        width: "40px",
+        height: "40px",
+        objectFit: "cover",
+        borderRadius: "6px",
+        cursor: "pointer",
+        border: "1px solid #e5e7eb",
+        display: "inline-block"
+      }}
+      onError={(e) => {
+        // في حال فشل تحميل الصورة، نعرض أيقونة افتراضية
+        e.target.style.display = 'none';
+        e.target.parentElement.innerHTML = `<span style="font-size:22px;color:#9ca3af;">📷</span>`;
+      }}
+    />
+  ) : (
+    <span style={{ fontSize: "22px", color: "#9ca3af" }}>📷</span>
+  )}
+</td>
+
+
                             <td style={{ ...equipTdStyle, fontWeight: "600" }}>{item.name}</td>
                             <td style={{ ...equipTdStyle, fontFamily: "monospace" }}>{item.code}</td>
                             <td style={{ ...equipTdStyle, textAlign: "center", fontWeight: "700" }}>{item.quantity}</td>
