@@ -4,6 +4,17 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 
 const API_BASE = `http://${window.location.hostname}:5000/api`;
 
+// ✅ Hook للاستجابة
+function useWindowSize() {
+  const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  useEffect(() => {
+    const handler = () => setSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return size;
+}
+
 function EquipmentChecklist() {
   const { deptCode, listId } = useParams();
   const location = useLocation();
@@ -20,6 +31,10 @@ function EquipmentChecklist() {
   const [submissionData, setSubmissionData] = useState(null);
   const [error, setError] = useState(null);
   const printRef = useRef();
+
+  const { width } = useWindowSize();
+  const isMobile = width < 768;
+  const isTablet = width < 1024 && width >= 768;
 
   useEffect(() => {
     if (!listId) {
@@ -151,18 +166,13 @@ function EquipmentChecklist() {
     }
   };
 
-  // ===================== PRINT FUNCTION (MODIFIED) =====================
-  // Prints ONLY the inspector name + the equipment table.
-  // No navbar, sidebar, buttons, filters, search, cards, statistics,
-  // backgrounds, footer, or any other page element is included.
+  // ===================== PRINT FUNCTION =====================
   const handlePrint = () => {
-    // Get inspector name from localStorage or submissionData
     const userName = localStorage.getItem("userName") || 
                      JSON.parse(localStorage.getItem("user") || "{}")?.name || 
                      "Unknown";
     const submittedByName = submissionData?.submittedBy || userName;
 
-    // Build table rows
     let tableRows = equipment.map((item, index) => {
       const itemId = item._id.toString();
       const isChecked = checkedItems[itemId] || false;
@@ -185,22 +195,10 @@ function EquipmentChecklist() {
         <meta charset="UTF-8">
         <title>Print Checklist</title>
         <style>
-          * {
-            box-sizing: border-box;
-          }
-          @page {
-            size: A4;
-            margin: 16mm 14mm;
-          }
-          body {
-            font-family: Arial, Helvetica, sans-serif;
-            margin: 0;
-            padding: 0;
-            color: #1f2937;
-          }
-          .print-page {
-            width: 100%;
-          }
+          * { box-sizing: border-box; }
+          @page { size: A4; margin: 16mm 14mm; }
+          body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; color: #1f2937; }
+          .print-page { width: 100%; }
           .inspector-line {
             display: flex;
             align-items: baseline;
@@ -209,45 +207,18 @@ function EquipmentChecklist() {
             padding-bottom: 10px;
             border-bottom: 1.5px solid #004d32;
           }
-          .inspector-label {
-            font-size: 13px;
-            font-weight: 700;
-            color: #004d32;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          .inspector-name {
-            font-size: 16px;
-            font-weight: 700;
-            color: #111827;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-          }
-          thead th {
-            background: #f0f7f4;
-            color: #004d32;
-            font-weight: 700;
-            padding: 8px 6px;
-            border: 1px solid #999;
-            text-align: left;
-          }
-          tbody td {
-            padding: 7px 6px;
-            border: 1px solid #999;
-            vertical-align: middle;
-          }
+          .inspector-label { font-size: 13px; font-weight: 700; color: #004d32; text-transform: uppercase; letter-spacing: 0.5px; }
+          .inspector-name { font-size: 16px; font-weight: 700; color: #111827; }
+          table { width: 100%; border-collapse: collapse; font-size: 13px; }
+          thead th { background: #f0f7f4; color: #004d32; font-weight: 700; padding: 8px 6px; border: 1px solid #999; text-align: left; }
+          tbody td { padding: 7px 6px; border: 1px solid #999; vertical-align: middle; }
           .col-index { text-align: center; width: 36px; }
           .col-name { text-align: left; }
           .col-code { text-align: left; width: 90px; }
           .col-qty { text-align: center; width: 60px; }
           .col-status { text-align: left; width: 110px; }
           .col-checked { text-align: center; width: 50px; font-weight: 700; }
-          tbody tr:nth-child(even) {
-            background: #fafafa;
-          }
+          tbody tr:nth-child(even) { background: #fafafa; }
         </style>
       </head>
       <body>
@@ -256,7 +227,6 @@ function EquipmentChecklist() {
             <span class="inspector-label">Inspector:</span>
             <span class="inspector-name">${submittedByName}</span>
           </div>
-
           <table>
             <thead>
               <tr>
@@ -268,9 +238,7 @@ function EquipmentChecklist() {
                 <th class="col-checked">Checked</th>
               </tr>
             </thead>
-            <tbody>
-              ${tableRows}
-            </tbody>
+            <tbody>${tableRows}</tbody>
           </table>
         </div>
       </body>
@@ -281,11 +249,8 @@ function EquipmentChecklist() {
     printWindow.document.write(printHTML);
     printWindow.document.close();
     printWindow.focus();
-    printWindow.onload = () => {
-      printWindow.print();
-    };
+    printWindow.onload = () => { printWindow.print(); };
   };
-  // ===================== END OF PRINT FUNCTION =====================
 
   const getStatusClass = (status) => {
     const statusMap = {
@@ -346,15 +311,15 @@ function EquipmentChecklist() {
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-      {/* Header with buttons */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '1200px', margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ marginBottom: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: '10px', marginBottom: '12px' }}>
           <button
             onClick={() => window.history.back()}
             style={{
               background: 'none', border: 'none', color: '#006341',
-              fontSize: '14px', cursor: 'pointer',
+              fontSize: isMobile ? '13px' : '14px', cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: '6px'
             }}
           >
@@ -364,57 +329,56 @@ function EquipmentChecklist() {
           <button
             onClick={handlePrint}
             style={{
-              display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 20px', background: '#c9a84c', color: '#004d32',
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: isMobile ? '8px 14px' : '10px 20px',
+              background: '#c9a84c', color: '#004d32',
               border: 'none', borderRadius: '8px', cursor: 'pointer',
-              fontSize: '14px', fontWeight: '600'
+              fontSize: isMobile ? '12px' : '14px', fontWeight: '600'
             }}
           >
             🖨️ Print Checklist
           </button>
         </div>
         
-        <div style={{ borderBottom: '2px solid #d0e8dc', paddingBottom: '16px' }}>
-          <h1 style={{ fontSize: '28px', color: '#004d32', margin: '0 0 8px 0' }}>
+        <div style={{ borderBottom: '2px solid #d0e8dc', paddingBottom: '12px' }}>
+          <h1 style={{ fontSize: isMobile ? '22px' : '28px', color: '#004d32', margin: '0 0 4px 0' }}>
             📋 Equipment Checklist
           </h1>
-          <h2 style={{ fontSize: '20px', color: '#006341', margin: '0 0 8px 0' }}>{listName}</h2>
-          <p style={{ color: '#6a8a7a', margin: 0 }}>Department: {deptName || deptCode}</p>
+          <h2 style={{ fontSize: isMobile ? '17px' : '20px', color: '#006341', margin: '0 0 4px 0' }}>{listName}</h2>
+          <p style={{ color: '#6a8a7a', margin: 0, fontSize: isMobile ? '13px' : '14px' }}>Department: {deptName || deptCode}</p>
           {submitted && submissionData && (
-            <div style={{ marginTop: '12px', padding: '10px', background: '#d1fae5', borderRadius: '8px', color: '#065f46', fontSize: '14px' }}>
+            <div style={{ marginTop: '10px', padding: '8px 12px', background: '#d1fae5', borderRadius: '8px', color: '#065f46', fontSize: '13px' }}>
               ✅ Already submitted on: {new Date(submissionData.submittedAt).toLocaleString()} by {submissionData.submittedBy}
             </div>
           )}
         </div>
       </div>
 
-      {/* Printable Content (used only for the print ref, but we're using custom print now) */}
-      <div ref={printRef} style={{ display: 'none' }}>
-        {/* Hidden – we use custom print function */}
-      </div>
+      {/* Printable Content (hidden) */}
+      <div ref={printRef} style={{ display: 'none' }} />
 
-      {/* Controls (only show if not submitted) */}
+      {/* Controls */}
       {!submitted && (
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
           <button 
             onClick={handleSelectAll} 
-            style={{ padding: '10px 20px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+            style={{ padding: isMobile ? '8px 14px' : '10px 20px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '12px' : '14px' }}
           >
             ✓ Select All
           </button>
           <button 
             onClick={handleClearAll} 
-            style={{ padding: '10px 20px', background: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+            style={{ padding: isMobile ? '8px 14px' : '10px 20px', background: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '12px' : '14px' }}
           >
             ✗ Clear All
           </button>
         </div>
       )}
 
-      {/* Progress Bar (only show if not submitted) */}
+      {/* Progress */}
       {!submitted && (
-        <div style={{ marginBottom: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: '#4b5563' }}>
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: isMobile ? '12px' : '14px', color: '#4b5563' }}>
             <span>📊 Progress: {checkedCount} / {totalCount} items checked</span>
             <span>{Math.round(completionPercentage)}%</span>
           </div>
@@ -425,16 +389,16 @@ function EquipmentChecklist() {
       )}
 
       {/* Equipment Table */}
-      <div style={{ overflowX: 'auto', marginBottom: '24px', borderRadius: '12px', border: '1px solid #d0e8dc' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white' }}>
+      <div style={{ overflowX: 'auto', marginBottom: '20px', borderRadius: '12px', border: '1px solid #d0e8dc' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', minWidth: isMobile ? '600px' : 'auto' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '2px solid #d0e8dc' }}>
-              <th style={{ width: '50px', padding: '16px', textAlign: 'center' }}>✓</th>
-              <th style={{ padding: '16px', textAlign: 'left' }}>Image</th>
-              <th style={{ padding: '16px', textAlign: 'left' }}>Equipment Name</th>
-              <th style={{ padding: '16px', textAlign: 'left' }}>Code</th>
-              <th style={{ padding: '16px', textAlign: 'center' }}>Quantity</th>
-              <th style={{ padding: '16px', textAlign: 'left' }}>Status</th>
+              <th style={{ width: '40px', padding: isMobile ? '10px 6px' : '16px', textAlign: 'center', fontSize: isMobile ? '12px' : '14px' }}>✓</th>
+              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'left', fontSize: isMobile ? '12px' : '14px' }}>Image</th>
+              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'left', fontSize: isMobile ? '12px' : '14px' }}>Equipment Name</th>
+              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'left', fontSize: isMobile ? '12px' : '14px' }}>Code</th>
+              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'center', fontSize: isMobile ? '12px' : '14px' }}>Qty</th>
+              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'left', fontSize: isMobile ? '12px' : '14px' }}>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -444,36 +408,39 @@ function EquipmentChecklist() {
               
               return (
                 <tr key={itemId} style={{ borderBottom: '1px solid #e5e7eb', background: isChecked ? '#f0fdf4' : 'white' }}>
-                  <td style={{ padding: '12px', textAlign: 'center' }}>
+                  <td style={{ padding: isMobile ? '8px 4px' : '12px', textAlign: 'center' }}>
                     <input
                       type="checkbox"
                       checked={isChecked}
                       onChange={() => handleCheck(itemId)}
                       disabled={submitted}
                       style={{ 
-                        width: '20px', 
-                        height: '20px', 
+                        width: isMobile ? '18px' : '20px', 
+                        height: isMobile ? '18px' : '20px', 
                         cursor: submitted ? 'not-allowed' : 'pointer',
-                        transform: 'scale(1.2)'
+                        transform: isMobile ? 'scale(1)' : 'scale(1.2)'
                       }}
                     />
                   </td>
-                  <td style={{ padding: '12px' }}>
+                  <td style={{ padding: isMobile ? '8px 4px' : '12px' }}>
                     {item.image ? (
-                      <img src={item.image} alt={item.name} style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '8px' }} />
+                      <img src={item.image} alt={item.name} style={{ width: isMobile ? '30px' : '40px', height: isMobile ? '30px' : '40px', objectFit: 'cover', borderRadius: '8px' }} />
                     ) : (
-                      <div style={{ width: '40px', height: '40px', background: '#f3f4f6', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>📷</div>
+                      <div style={{ width: isMobile ? '30px' : '40px', height: isMobile ? '30px' : '40px', background: '#f3f4f6', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isMobile ? '16px' : '20px' }}>📷</div>
                     )}
                   </td>
-                  <td style={{ padding: '12px', fontWeight: '500' }}>
+                  <td style={{ padding: isMobile ? '8px 4px' : '12px', fontWeight: '500', fontSize: isMobile ? '13px' : '14px' }}>
                     {item.name}
-                    {isChecked && <span style={{ color: '#006341', marginLeft: '8px', fontWeight: 'bold' }}>✓</span>}
+                    {isChecked && <span style={{ color: '#006341', marginLeft: '6px', fontWeight: 'bold' }}>✓</span>}
                   </td>
-                  <td style={{ padding: '12px', color: '#6b7280' }}>{item.code || '—'}</td>
-                  <td style={{ padding: '12px', textAlign: 'center' }}>{item.quantity || 0}</td>
-                  <td style={{ padding: '12px' }}>
+                  <td style={{ padding: isMobile ? '8px 4px' : '12px', color: '#6b7280', fontSize: isMobile ? '12px' : '14px' }}>{item.code || '—'}</td>
+                  <td style={{ padding: isMobile ? '8px 4px' : '12px', textAlign: 'center', fontSize: isMobile ? '13px' : '14px' }}>{item.quantity || 0}</td>
+                  <td style={{ padding: isMobile ? '8px 4px' : '12px' }}>
                     <span style={{
-                      padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '600',
+                      padding: isMobile ? '2px 8px' : '4px 12px',
+                      borderRadius: '20px',
+                      fontSize: isMobile ? '10px' : '12px',
+                      fontWeight: '600',
                       background: item.status === 'Available' ? '#d1fae5' : item.status === 'In Use' ? '#fed7aa' : item.status === 'Under Maintenance' ? '#fee2e2' : '#fef3c7',
                       color: item.status === 'Available' ? '#065f46' : item.status === 'In Use' ? '#92400e' : item.status === 'Under Maintenance' ? '#991b1b' : '#92400e'
                     }}>
@@ -488,36 +455,36 @@ function EquipmentChecklist() {
       </div>
 
       {/* Summary */}
-      <div style={{ padding: '16px', background: '#f9fafb', borderRadius: '12px', marginBottom: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center' }}>
+      <div style={{ padding: isMobile ? '12px' : '16px', background: '#f9fafb', borderRadius: '12px', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center', gap: '8px' }}>
           <div>
-            <div style={{ fontSize: '28px', fontWeight: '700', color: '#006341' }}>{checkedCount}</div>
-            <div style={{ fontSize: '12px', color: '#6b7280' }}>Checked</div>
+            <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#006341' }}>{checkedCount}</div>
+            <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#6b7280' }}>Checked</div>
           </div>
           <div>
-            <div style={{ fontSize: '28px', fontWeight: '700', color: '#6b7280' }}>{totalCount - checkedCount}</div>
-            <div style={{ fontSize: '12px', color: '#6b7280' }}>Remaining</div>
+            <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#6b7280' }}>{totalCount - checkedCount}</div>
+            <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#6b7280' }}>Remaining</div>
           </div>
           <div>
-            <div style={{ fontSize: '28px', fontWeight: '700', color: '#006341' }}>{totalCount}</div>
-            <div style={{ fontSize: '12px', color: '#6b7280' }}>Total</div>
+            <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#006341' }}>{totalCount}</div>
+            <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#6b7280' }}>Total</div>
           </div>
         </div>
       </div>
 
-      {/* Submit Button */}
+      {/* Submit */}
       {!submitted && (
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
           <button 
             onClick={handleSubmit} 
             disabled={saving} 
             style={{ 
-              padding: '12px 32px', 
+              padding: isMobile ? '10px 20px' : '12px 32px', 
               background: '#006341', 
               color: 'white', 
               border: 'none', 
               borderRadius: '10px', 
-              fontSize: '16px', 
+              fontSize: isMobile ? '14px' : '16px', 
               fontWeight: '600', 
               cursor: saving ? 'not-allowed' : 'pointer',
               opacity: saving ? 0.7 : 1
@@ -536,7 +503,7 @@ function EquipmentChecklist() {
           <p>👤 Submitted by: {submissionData.submittedBy}</p>
           <button 
             onClick={() => navigate('/ot-enhanced')}
-            style={{ marginTop: '12px', padding: '8px 20px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            style={{ marginTop: '10px', padding: '8px 18px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
           >
             Go to OT Department →
           </button>

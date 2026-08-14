@@ -3,7 +3,17 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { QRCodeCanvas } from 'qrcode.react';
 
-// ✅ استخدم المتغير البيئي إن وجد، وإلا استخدم الرابط المحلي
+// ✅ Hook للاستجابة
+function useWindowSize() {
+  const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  useEffect(() => {
+    const handler = () => setSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return size;
+}
+
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
 function OTDepartment() {
@@ -58,8 +68,12 @@ function OTDepartment() {
   const [checkMeta, setCheckMeta] = useState({ technician: "", startedAt: null });
   const [checkListImage, setCheckListImage] = useState(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  // ========== NEW: Expiry Date State ==========
   const [expiryDate, setExpiryDate] = useState(null);
+
+  // ========== RESPONSIVE ==========
+  const { width } = useWindowSize();
+  const isMobile = width < 768;
+  const isTablet = width < 1024 && width >= 768;
 
   // ========== SVG ICONS ==========
   const Icons = {
@@ -277,7 +291,6 @@ function OTDepartment() {
     loadDepartments();
   }, []);
 
-  // ========== If QR scan, auto-select the list ==========
   useEffect(() => {
     if (qrListId && qrDeptCode) {
       setSelectedDeptId(qrDeptCode);
@@ -634,7 +647,7 @@ function OTDepartment() {
   const selectedListName = selectedListObj?.name || "";
   const selectedDeptName = departments.find(d => d.id === selectedDeptId)?.name || "";
 
-  // ========== SEARCH & SORT LOGIC ==========
+  // ========== SEARCH & SORT ==========
   const filteredAndSortedEquipment = useMemo(() => {
     let result = [...currentEquipment];
 
@@ -660,7 +673,7 @@ function OTDepartment() {
     return result;
   }, [currentEquipment, searchTerm, sortBy]);
 
-  // ========== CHECK (Checklist) LOGIC ==========
+  // ========== CHECK LOGIC ==========
   const startCheck = () => {
     if (!selectedListId) return alert("Please select a list first");
     const initial = {};
@@ -668,7 +681,7 @@ function OTDepartment() {
       initial[item.id] = {
         present: item.quantity,
         damaged: false,
-        damagedQuantity: 0, // NEW: to track how many are damaged
+        damagedQuantity: 0,
         note: ""
       };
     });
@@ -682,7 +695,6 @@ function OTDepartment() {
       technician: userName,
       startedAt: new Date()
     });
-    // NEW: Calculate expiry date (6 months from today)
     const today = new Date();
     today.setMonth(today.getMonth() + 6);
     setExpiryDate(today);
@@ -702,11 +714,8 @@ function OTDepartment() {
   const toggleCheckDamaged = (itemId) => {
     setCheckData(prev => {
       const current = prev[itemId] || { present: 0, damaged: false, damagedQuantity: 0, note: "" };
-      // Toggle damaged status
       const newDamaged = !current.damaged;
-      // If turning off damaged, reset damagedQuantity to 0
       const newDamagedQuantity = newDamaged ? (current.damagedQuantity || 0) : 0;
-      // If damaged is turned on, ensure damagedQuantity does not exceed present count
       const finalDamagedQuantity = newDamaged ? Math.min(newDamagedQuantity, current.present) : 0;
       return { ...prev, [itemId]: { ...current, damaged: newDamaged, damagedQuantity: finalDamagedQuantity } };
     });
@@ -716,9 +725,7 @@ function OTDepartment() {
     setCheckData(prev => {
       const current = prev[itemId] || { present: 0, damaged: false, damagedQuantity: 0, note: "" };
       let newVal = parseInt(value) || 0;
-      // Cap at present quantity
       newVal = Math.min(newVal, current.present);
-      // If damaged is true, we update the quantity; if damaged is false, we force quantity to 0
       const finalVal = current.damaged ? newVal : 0;
       return { ...prev, [itemId]: { ...current, damagedQuantity: finalVal } };
     });
@@ -734,7 +741,7 @@ function OTDepartment() {
   const getItemStatus = (item) => {
     const data = checkData[item.id] || { present: item.quantity, damaged: false, damagedQuantity: 0 };
     if (data.damaged && data.damagedQuantity > 0) return "damaged";
-    if (data.damaged && data.damagedQuantity === 0) return "damaged-zero"; // damaged but no quantity specified
+    if (data.damaged && data.damagedQuantity === 0) return "damaged-zero";
     if (data.present >= item.quantity) return "ok";
     return "missing";
   };
@@ -757,8 +764,6 @@ function OTDepartment() {
       totalPresent += data.present || 0;
       if (data.damaged && data.damagedQuantity > 0) {
         damagedCount += 1;
-        // For percentage, we consider damaged items as present (they exist but are damaged)
-        // But we might want to adjust totalPresent? No, present is the physical count.
       } else if (data.present >= item.quantity) {
         okCount += 1;
       } else {
@@ -772,7 +777,6 @@ function OTDepartment() {
   }, [currentEquipment, checkData]);
 
   const handleApproveAndSend = () => {
-    // Build a summary message that includes damaged items with quantities
     let damagedSummary = "";
     const damagedItems = currentEquipment.filter(item => {
       const data = checkData[item.id];
@@ -793,7 +797,6 @@ function OTDepartment() {
     alert("📢 Shortage notification sent to room administrator");
   };
 
-  // ===== Upload set image from check page =====
   const handleCheckListImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -892,7 +895,6 @@ function OTDepartment() {
     const printDate = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const printTime = dateObj.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-    // Format expiry date
     let expiryDateStr = '';
     if (expiryDate) {
       expiryDateStr = expiryDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -927,22 +929,10 @@ function OTDepartment() {
         <meta charset="UTF-8">
         <title>Print Checklist</title>
         <style>
-          * {
-            box-sizing: border-box;
-          }
-          @page {
-            size: A4;
-            margin: 16mm 14mm;
-          }
-          body {
-            font-family: Arial, Helvetica, sans-serif;
-            margin: 0;
-            padding: 0;
-            color: #1f2937;
-          }
-          .print-page {
-            width: 100%;
-          }
+          * { box-sizing: border-box; }
+          @page { size: A4; margin: 16mm 14mm; }
+          body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; color: #1f2937; }
+          .print-page { width: 100%; }
           .meta-line {
             display: flex;
             justify-content: space-between;
@@ -953,88 +943,32 @@ function OTDepartment() {
             border-bottom: 1.5px solid #004d32;
             flex-wrap: wrap;
           }
-          .meta-item {
-            display: flex;
-            align-items: baseline;
-            gap: 6px;
-          }
-          .meta-label {
-            font-size: 12px;
-            font-weight: 700;
-            color: #004d32;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          .meta-value {
-            font-size: 14px;
-            font-weight: 700;
-            color: #111827;
-          }
-          .expiry-date {
-            font-weight: 700;
-            color: #b91c1c;
-            font-size: 14px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-          }
-          thead th {
-            background: #f0f7f4;
-            color: #004d32;
-            font-weight: 700;
-            padding: 8px 6px;
-            border: 1px solid #999;
-            text-align: left;
-          }
-          tbody td {
-            padding: 7px 6px;
-            border: 1px solid #999;
-            vertical-align: middle;
-          }
+          .meta-item { display: flex; align-items: baseline; gap: 6px; }
+          .meta-label { font-size: 12px; font-weight: 700; color: #004d32; text-transform: uppercase; letter-spacing: 0.5px; }
+          .meta-value { font-size: 14px; font-weight: 700; color: #111827; }
+          .expiry-date { font-weight: 700; color: #b91c1c; font-size: 14px; }
+          table { width: 100%; border-collapse: collapse; font-size: 13px; }
+          thead th { background: #f0f7f4; color: #004d32; font-weight: 700; padding: 8px 6px; border: 1px solid #999; text-align: left; }
+          tbody td { padding: 7px 6px; border: 1px solid #999; vertical-align: middle; }
           .col-index { text-align: center; width: 36px; }
           .col-name { text-align: left; }
           .col-required { text-align: center; width: 70px; }
           .col-available { text-align: center; width: 70px; }
           .col-status { text-align: left; width: 120px; }
           .col-notes { text-align: left; width: 140px; }
-          tbody tr:nth-child(even) {
-            background: #fafafa;
-          }
+          tbody tr:nth-child(even) { background: #fafafa; }
         </style>
       </head>
       <body>
         <div class="print-page">
           <div class="meta-line">
-            <div class="meta-item">
-              <span class="meta-label">Inspector:</span>
-              <span class="meta-value">${technicianName}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Date &amp; Time:</span>
-              <span class="meta-value">${printDate} — ${printTime}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Expiry Date:</span>
-              <span class="expiry-date">${expiryDateStr}</span>
-            </div>
+            <div class="meta-item"><span class="meta-label">Inspector:</span><span class="meta-value">${technicianName}</span></div>
+            <div class="meta-item"><span class="meta-label">Date &amp; Time:</span><span class="meta-value">${printDate} — ${printTime}</span></div>
+            <div class="meta-item"><span class="meta-label">Expiry Date:</span><span class="expiry-date">${expiryDateStr}</span></div>
           </div>
-
           <table>
-            <thead>
-              <tr>
-                <th class="col-index">#</th>
-                <th class="col-name">Item Name</th>
-                <th class="col-required">Required</th>
-                <th class="col-available">Available</th>
-                <th class="col-status">Status</th>
-                <th class="col-notes">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tableRows}
-            </tbody>
+            <thead><tr><th class="col-index">#</th><th class="col-name">Item Name</th><th class="col-required">Required</th><th class="col-available">Available</th><th class="col-status">Status</th><th class="col-notes">Notes</th></tr></thead>
+            <tbody>${tableRows}</tbody>
           </table>
         </div>
       </body>
@@ -1045,46 +979,45 @@ function OTDepartment() {
     printWindow.document.write(printHTML);
     printWindow.document.close();
     printWindow.focus();
-    printWindow.onload = () => {
-      printWindow.print();
-    };
+    printWindow.onload = () => { printWindow.print(); };
   };
 
   // ========== PAPER-STYLE TABLE CELL STYLES ==========
   const equipThStyle = {
-    padding: "10px 8px",
+    padding: isMobile ? "8px 6px" : "10px 8px",
     border: "2px solid #000000",
-    fontSize: "11px",
+    fontSize: isMobile ? "10px" : "11px",
     color: "#000000",
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: "0.4px"
   };
   const equipTdStyle = {
-    padding: "9px 8px",
+    padding: isMobile ? "7px 6px" : "9px 8px",
     border: "2px solid #000000",
     verticalAlign: "middle",
-    color: "#000000"
+    color: "#000000",
+    fontSize: isMobile ? "11px" : "13px"
   };
 
   // ============================================================
-  // 🟣 CHECK MODE - Displays when "Start Checklist" is clicked
+  // 🟣 CHECK MODE - مع التعديلات المتجاوبة
   // ============================================================
   if (checkMode) {
     const checkThStyle = {
-      padding: "12px 10px",
+      padding: isMobile ? "8px 6px" : "12px 10px",
       background: "#f8fafb",
       borderBottom: "2px solid #e5e7eb",
-      fontSize: "12px",
+      fontSize: isMobile ? "10px" : "12px",
       color: "#6b7280",
       fontWeight: "700",
       textAlign: "left"
     };
     const checkTdStyle = {
-      padding: "12px 10px",
+      padding: isMobile ? "8px 6px" : "12px 10px",
       borderBottom: "1px solid #eef0f2",
       verticalAlign: "middle",
-      fontSize: "13px"
+      fontSize: isMobile ? "11px" : "13px"
     };
 
     return (
@@ -1093,14 +1026,16 @@ function OTDepartment() {
         background: "#eef1f0",
         minHeight: "100vh"
       }}>
-        {/* ===== TOP BAR ===== */}
+        {/* TOP BAR */}
         <div style={{
           background: "#ffffff",
           borderBottom: "1px solid #e5e7eb",
-          padding: "14px 24px",
+          padding: isMobile ? "10px 16px" : "14px 24px",
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between"
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "8px"
         }} className="no-print">
           <button
             onClick={() => setCheckMode(false)}
@@ -1112,7 +1047,7 @@ function OTDepartment() {
               border: "none",
               cursor: "pointer",
               color: "#374151",
-              fontSize: "14px",
+              fontSize: isMobile ? "13px" : "14px",
               fontWeight: "600"
             }}
           >
@@ -1120,11 +1055,16 @@ function OTDepartment() {
             Back
           </button>
 
-          <h1 style={{ fontSize: "20px", fontWeight: "700", color: "#1f2937", margin: 0 }}>
+          <h1 style={{
+            fontSize: isMobile ? "16px" : "20px",
+            fontWeight: "700",
+            color: "#1f2937",
+            margin: 0
+          }}>
             Checking {selectedListName || "Instrument Set"}
           </h1>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "8px" : "18px" }}>
             <div style={{ position: "relative", color: "#374151" }}>
               <Icons.bell />
               <span style={{
@@ -1140,7 +1080,7 @@ function OTDepartment() {
                 lineHeight: "12px"
               }}>3</span>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <div style={{
                 width: "34px",
                 height: "34px",
@@ -1151,11 +1091,11 @@ function OTDepartment() {
                 alignItems: "center",
                 justifyContent: "center",
                 fontWeight: "700",
-                fontSize: "14px"
+                fontSize: isMobile ? "12px" : "14px"
               }}>
                 {(checkMeta.technician || "T").charAt(0)}
               </div>
-              <span style={{ fontSize: "13px", fontWeight: "600", color: "#1f2937" }}>
+              <span style={{ fontSize: isMobile ? "12px" : "13px", fontWeight: "600", color: "#1f2937" }}>
                 {checkMeta.technician || "Technician"}
               </span>
               <Icons.chevronDown />
@@ -1163,24 +1103,23 @@ function OTDepartment() {
           </div>
         </div>
 
-        <div style={{ maxWidth: "1300px", margin: "0 auto", padding: "22px 24px 120px" }}>
-
-          {/* ===== SET INFO CARD ===== */}
+        <div style={{ maxWidth: "1300px", margin: "0 auto", padding: isMobile ? "12px 10px 100px" : "22px 24px 120px" }}>
+          {/* SET INFO CARD */}
           <div style={{
             background: "#ffffff",
             borderRadius: "16px",
-            padding: "20px",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.05)",
+            padding: isMobile ? "14px" : "20px",
             display: "flex",
+            flexDirection: isMobile ? "column" : "row",
             alignItems: "center",
-            gap: "20px",
+            gap: isMobile ? "16px" : "20px",
             flexWrap: "wrap",
             marginBottom: "20px"
           }} className="no-print">
-            {/* Set image - only visible on screen, hidden in print */}
+            {/* Set image */}
             <div style={{
-              width: "150px",
-              height: "110px",
+              width: isMobile ? "100%" : "150px",
+              height: isMobile ? "140px" : "110px",
               borderRadius: "10px",
               overflow: "hidden",
               background: "#f3f4f6",
@@ -1332,9 +1271,9 @@ function OTDepartment() {
             </div>
 
             {/* Name + code */}
-            <div style={{ minWidth: "180px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
-                <span style={{ fontSize: "19px", fontWeight: "700", color: "#1f2937" }}>
+            <div style={{ minWidth: isMobile ? "100%" : "180px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px", flexWrap: "wrap" }}>
+                <span style={{ fontSize: isMobile ? "17px" : "19px", fontWeight: "700", color: "#1f2937" }}>
                   {selectedListName || "Equipment Set"}
                 </span>
                 <span style={{
@@ -1354,28 +1293,29 @@ function OTDepartment() {
             {/* Meta grid */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(4, auto)",
-              gap: "26px",
+              gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, auto)",
+              gap: isMobile ? "8px" : "26px",
               flex: 1,
-              justifyContent: "space-between"
+              width: isMobile ? "100%" : "auto",
+              justifyContent: isMobile ? "space-between" : "space-between"
             }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#9ca3af", fontSize: "12px", marginBottom: "4px" }}>
                   <Icons.eye /> Department
                 </div>
-                <div style={{ fontSize: "14px", fontWeight: "700", color: "#1f2937" }}>{selectedDeptName || "—"}</div>
+                <div style={{ fontSize: isMobile ? "13px" : "14px", fontWeight: "700", color: "#1f2937" }}>{selectedDeptName || "—"}</div>
               </div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#9ca3af", fontSize: "12px", marginBottom: "4px" }}>
                   <Icons.wrench /> Total Items
                 </div>
-                <div style={{ fontSize: "14px", fontWeight: "700", color: "#1f2937" }}>{currentEquipment.length} items</div>
+                <div style={{ fontSize: isMobile ? "13px" : "14px", fontWeight: "700", color: "#1f2937" }}>{currentEquipment.length} items</div>
               </div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#9ca3af", fontSize: "12px", marginBottom: "4px" }}>
                   <Icons.staff /> Technician
                 </div>
-                <div style={{ fontSize: "14px", fontWeight: "700", color: "#1f2937" }}>
+                <div style={{ fontSize: isMobile ? "13px" : "14px", fontWeight: "700", color: "#1f2937" }}>
                   {checkMeta.technician || "Technician"}
                 </div>
               </div>
@@ -1383,24 +1323,24 @@ function OTDepartment() {
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#9ca3af", fontSize: "12px", marginBottom: "4px" }}>
                   <Icons.calendar /> Date & Time
                 </div>
-                <div style={{ fontSize: "14px", fontWeight: "700", color: "#1f2937" }}>
+                <div style={{ fontSize: isMobile ? "13px" : "14px", fontWeight: "700", color: "#1f2937" }}>
                   {(checkMeta.startedAt || new Date()).toLocaleDateString('en-CA')}{"  "}
                   {(checkMeta.startedAt || new Date()).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             </div>
 
-            {/* NEW: Expiry Date Display */}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, marginLeft: "auto" }}>
+            {/* Expiry Date */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, marginLeft: isMobile ? "0" : "auto" }}>
               <div style={{
-                padding: "8px 16px",
+                padding: isMobile ? "6px 12px" : "8px 16px",
                 borderRadius: "8px",
                 background: expiryDate ? "#fee2e2" : "#f3f4f6",
                 border: "1px solid #dc2626",
                 textAlign: "center"
               }}>
-                <div style={{ fontSize: "11px", fontWeight: "600", color: "#b91c1c" }}>Expiry Date</div>
-                <div style={{ fontSize: "16px", fontWeight: "700", color: "#b91c1c" }}>
+                <div style={{ fontSize: isMobile ? "10px" : "11px", fontWeight: "600", color: "#b91c1c" }}>Expiry Date</div>
+                <div style={{ fontSize: isMobile ? "14px" : "16px", fontWeight: "700", color: "#b91c1c" }}>
                   {expiryDate ? expiryDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : "—"}
                 </div>
               </div>
@@ -1409,8 +1349,8 @@ function OTDepartment() {
             {/* Percentage ring */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
               <div style={{
-                width: "84px",
-                height: "84px",
+                width: isMobile ? "72px" : "84px",
+                height: isMobile ? "72px" : "84px",
                 borderRadius: "50%",
                 background: `conic-gradient(#16a34a ${checkStats.percentage * 3.6}deg, #e5e7eb 0deg)`,
                 display: "flex",
@@ -1418,8 +1358,8 @@ function OTDepartment() {
                 justifyContent: "center"
               }}>
                 <div style={{
-                  width: "68px",
-                  height: "68px",
+                  width: isMobile ? "58px" : "68px",
+                  height: isMobile ? "58px" : "68px",
                   borderRadius: "50%",
                   background: "#ffffff",
                   display: "flex",
@@ -1427,19 +1367,19 @@ function OTDepartment() {
                   alignItems: "center",
                   justifyContent: "center"
                 }}>
-                  <span style={{ fontSize: "15px", fontWeight: "800", color: "#1f2937" }}>
+                  <span style={{ fontSize: isMobile ? "13px" : "15px", fontWeight: "800", color: "#1f2937" }}>
                     {checkStats.totalPresent}/{checkStats.totalRequired}
                   </span>
-                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#16a34a" }}>
+                  <span style={{ fontSize: isMobile ? "10px" : "11px", fontWeight: "700", color: "#16a34a" }}>
                     ({checkStats.percentage}%)
                   </span>
                 </div>
               </div>
-              <span style={{ fontSize: "11px", color: "#9ca3af", marginTop: "6px" }}>Check Percentage</span>
+              <span style={{ fontSize: "11px", color: "#9ca3af", marginTop: "4px" }}>Check Percentage</span>
             </div>
           </div>
 
-          {/* ===== CHECK TABLE ===== */}
+          {/* CHECK TABLE */}
           <div style={{
             background: "#ffffff",
             borderRadius: "16px",
@@ -1447,7 +1387,7 @@ function OTDepartment() {
             overflow: "hidden"
           }}>
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? "700px" : "auto" }}>
                 <thead>
                   <tr>
                     <th style={{ ...checkThStyle, textAlign: "center", width: "40px" }}>#</th>
@@ -1489,7 +1429,7 @@ function OTDepartment() {
                                 src={item.image}
                                 alt={item.name}
                                 onClick={() => setImageModal(item.image)}
-                                style={{ width: "34px", height: "34px", objectFit: "cover", borderRadius: "6px", cursor: "pointer", border: "1px solid #e5e7eb" }}
+                                style={{ width: isMobile ? "30px" : "34px", height: isMobile ? "30px" : "34px", objectFit: "cover", borderRadius: "6px", cursor: "pointer", border: "1px solid #e5e7eb" }}
                                 onError={(e) => {
                                   e.target.style.display = 'none';
                                   e.target.parentElement.innerHTML = `<span style="color:#d1d5db;font-size:20px;">📷</span>`;
@@ -1505,12 +1445,22 @@ function OTDepartment() {
                         </td>
                         <td style={{ ...checkTdStyle, textAlign: "center", fontWeight: "700", color: "#374151" }}>{item.quantity}</td>
                         <td style={{ ...checkTdStyle, textAlign: "center" }}>
-                          <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
                             <button
                               onClick={() => updateCheckPresent(item.id, -1, item.quantity)}
                               style={{
-                                width: "26px", height: "26px", borderRadius: "6px", border: "1px solid #d0e8dc",
-                                background: "#f8fafb", cursor: "pointer", fontWeight: "700", color: "#374151"
+                                width: isMobile ? "22px" : "26px",
+                                height: isMobile ? "22px" : "26px",
+                                borderRadius: "6px",
+                                border: "1px solid #d0e8dc",
+                                background: "#f8fafb",
+                                cursor: "pointer",
+                                fontWeight: "700",
+                                color: "#374151",
+                                fontSize: isMobile ? "14px" : "16px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center"
                               }}
                               className="no-print"
                             >−</button>
@@ -1518,15 +1468,26 @@ function OTDepartment() {
                               minWidth: "28px",
                               textAlign: "center",
                               fontWeight: "800",
-                              color: status === "missing" ? "#dc2626" : "#1f2937"
+                              color: status === "missing" ? "#dc2626" : "#1f2937",
+                              fontSize: isMobile ? "14px" : "16px"
                             }}>
                               {data.present}
                             </span>
                             <button
                               onClick={() => updateCheckPresent(item.id, 1, item.quantity)}
                               style={{
-                                width: "26px", height: "26px", borderRadius: "6px", border: "1px solid #d0e8dc",
-                                background: "#f8fafb", cursor: "pointer", fontWeight: "700", color: "#374151"
+                                width: isMobile ? "22px" : "26px",
+                                height: isMobile ? "22px" : "26px",
+                                borderRadius: "6px",
+                                border: "1px solid #d0e8dc",
+                                background: "#f8fafb",
+                                cursor: "pointer",
+                                fontWeight: "700",
+                                color: "#374151",
+                                fontSize: isMobile ? "14px" : "16px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center"
                               }}
                               className="no-print"
                             >+</button>
@@ -1535,27 +1496,45 @@ function OTDepartment() {
                         <td style={{ ...checkTdStyle, textAlign: "center" }}>
                           {status === "ok" && (
                             <span style={{
-                              display: "inline-flex", alignItems: "center", gap: "4px",
-                              background: "#dcfce7", color: "#15803d", fontSize: "11px", fontWeight: "700",
-                              padding: "4px 10px", borderRadius: "999px"
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              background: "#dcfce7",
+                              color: "#15803d",
+                              fontSize: isMobile ? "10px" : "11px",
+                              fontWeight: "700",
+                              padding: isMobile ? "2px 8px" : "4px 10px",
+                              borderRadius: "999px"
                             }}>
                               <Icons.checkCircle /> Present
                             </span>
                           )}
                           {status === "missing" && (
                             <span style={{
-                              display: "inline-flex", alignItems: "center", gap: "4px",
-                              background: "#fee2e2", color: "#b91c1c", fontSize: "11px", fontWeight: "700",
-                              padding: "4px 10px", borderRadius: "999px"
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              background: "#fee2e2",
+                              color: "#b91c1c",
+                              fontSize: isMobile ? "10px" : "11px",
+                              fontWeight: "700",
+                              padding: isMobile ? "2px 8px" : "4px 10px",
+                              borderRadius: "999px"
                             }}>
                               <Icons.warnTriangle /> Missing ({item.quantity - data.present})
                             </span>
                           )}
                           {(status === "damaged" || status === "damaged-zero") && (
                             <span style={{
-                              display: "inline-flex", alignItems: "center", gap: "4px",
-                              background: "#ffedd5", color: "#9a3412", fontSize: "11px", fontWeight: "700",
-                              padding: "4px 10px", borderRadius: "999px"
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              background: "#ffedd5",
+                              color: "#9a3412",
+                              fontSize: isMobile ? "10px" : "11px",
+                              fontWeight: "700",
+                              padding: isMobile ? "2px 8px" : "4px 10px",
+                              borderRadius: "999px"
                             }}>
                               <Icons.wrench /> Damaged
                               {status === "damaged" && ` (${data.damagedQuantity})`}
@@ -1565,11 +1544,11 @@ function OTDepartment() {
                             <button
                               onClick={() => toggleCheckDamaged(item.id)}
                               style={{
-                                marginTop: "6px",
+                                marginTop: "4px",
                                 background: "none",
                                 border: "none",
                                 color: "#6b7280",
-                                fontSize: "10px",
+                                fontSize: isMobile ? "9px" : "10px",
                                 cursor: "pointer",
                                 textDecoration: "underline"
                               }}
@@ -1578,10 +1557,9 @@ function OTDepartment() {
                               {status === "damaged" || status === "damaged-zero" ? "Cancel damaged" : "Mark as damaged"}
                             </button>
                           </div>
-                          {/* NEW: Damaged quantity input */}
                           {(status === "damaged" || status === "damaged-zero") && (
-                            <div style={{ marginTop: "6px" }} className="no-print">
-                              <label style={{ fontSize: "10px", color: "#6b7280", marginRight: "4px" }}>Damaged count:</label>
+                            <div style={{ marginTop: "4px" }} className="no-print">
+                              <label style={{ fontSize: "9px", color: "#6b7280", marginRight: "4px" }}>Damaged count:</label>
                               <input
                                 type="number"
                                 min="0"
@@ -1589,11 +1567,11 @@ function OTDepartment() {
                                 value={data.damagedQuantity || 0}
                                 onChange={(e) => updateDamagedQuantity(item.id, e.target.value)}
                                 style={{
-                                  width: "50px",
+                                  width: "40px",
                                   padding: "2px 4px",
                                   border: "1px solid #d0e8dc",
                                   borderRadius: "4px",
-                                  fontSize: "12px",
+                                  fontSize: "11px",
                                   textAlign: "center"
                                 }}
                               />
@@ -1610,8 +1588,8 @@ function OTDepartment() {
                               width: "100%",
                               border: "1px solid #e5e7eb",
                               borderRadius: "6px",
-                              padding: "6px 8px",
-                              fontSize: "12px",
+                              padding: isMobile ? "4px 6px" : "6px 8px",
+                              fontSize: isMobile ? "11px" : "12px",
                               outline: "none"
                             }}
                             className="no-print"
@@ -1636,7 +1614,7 @@ function OTDepartment() {
           </div>
         </div>
 
-        {/* ===== FIXED BOTTOM BAR ===== */}
+        {/* FIXED BOTTOM BAR */}
         <div style={{
           position: "fixed",
           bottom: 0,
@@ -1644,49 +1622,56 @@ function OTDepartment() {
           right: 0,
           background: "#ffffff",
           borderTop: "1px solid #e5e7eb",
-          padding: "14px 24px",
+          padding: isMobile ? "10px 14px" : "14px 24px",
           display: "flex",
+          flexDirection: isMobile ? "column" : "row",
           alignItems: "center",
           justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: "14px",
+          gap: isMobile ? "10px" : "14px",
           boxShadow: "0 -4px 16px rgba(0,0,0,0.06)"
         }} className="no-print">
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <div style={{ textAlign: "center", background: "#f0fdf4", borderRadius: "10px", padding: "8px 18px", minWidth: "84px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", color: "#16a34a", fontSize: "11px", fontWeight: "700" }}>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center" }}>
+            <div style={{ textAlign: "center", background: "#f0fdf4", borderRadius: "10px", padding: isMobile ? "6px 12px" : "8px 18px", minWidth: isMobile ? "60px" : "84px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", color: "#16a34a", fontSize: isMobile ? "10px" : "11px", fontWeight: "700" }}>
                 <Icons.checkCircle /> Present
               </div>
-              <div style={{ fontSize: "20px", fontWeight: "800", color: "#15803d" }}>{checkStats.okCount}</div>
+              <div style={{ fontSize: isMobile ? "18px" : "20px", fontWeight: "800", color: "#15803d" }}>{checkStats.okCount}</div>
             </div>
-            <div style={{ textAlign: "center", background: "#fef2f2", borderRadius: "10px", padding: "8px 18px", minWidth: "84px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", color: "#d97706", fontSize: "11px", fontWeight: "700" }}>
+            <div style={{ textAlign: "center", background: "#fef2f2", borderRadius: "10px", padding: isMobile ? "6px 12px" : "8px 18px", minWidth: isMobile ? "60px" : "84px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", color: "#d97706", fontSize: isMobile ? "10px" : "11px", fontWeight: "700" }}>
                 <Icons.warnTriangle /> Missing
               </div>
-              <div style={{ fontSize: "20px", fontWeight: "800", color: "#b91c1c" }}>{checkStats.missingCount}</div>
+              <div style={{ fontSize: isMobile ? "18px" : "20px", fontWeight: "800", color: "#b91c1c" }}>{checkStats.missingCount}</div>
             </div>
-            <div style={{ textAlign: "center", background: "#fff7ed", borderRadius: "10px", padding: "8px 18px", minWidth: "84px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", color: "#c2410c", fontSize: "11px", fontWeight: "700" }}>
+            <div style={{ textAlign: "center", background: "#fff7ed", borderRadius: "10px", padding: isMobile ? "6px 12px" : "8px 18px", minWidth: isMobile ? "60px" : "84px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", color: "#c2410c", fontSize: isMobile ? "10px" : "11px", fontWeight: "700" }}>
                 <Icons.wrench /> Damaged
               </div>
-              <div style={{ fontSize: "20px", fontWeight: "800", color: "#9a3412" }}>{checkStats.damagedCount}</div>
+              <div style={{ fontSize: isMobile ? "18px" : "20px", fontWeight: "800", color: "#9a3412" }}>{checkStats.damagedCount}</div>
             </div>
-            <div style={{ textAlign: "center", background: "#f9fafb", borderRadius: "10px", padding: "8px 18px", minWidth: "84px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", color: "#9ca3af", fontSize: "11px", fontWeight: "700" }}>
+            <div style={{ textAlign: "center", background: "#f9fafb", borderRadius: "10px", padding: isMobile ? "6px 12px" : "8px 18px", minWidth: isMobile ? "60px" : "84px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", color: "#9ca3af", fontSize: isMobile ? "10px" : "11px", fontWeight: "700" }}>
                 <Icons.questionCircle /> Undetermined
               </div>
-              <div style={{ fontSize: "20px", fontWeight: "800", color: "#6b7280" }}>{checkStats.undeterminedCount}</div>
+              <div style={{ fontSize: isMobile ? "18px" : "20px", fontWeight: "800", color: "#6b7280" }}>{checkStats.undeterminedCount}</div>
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center" }}>
             <button
               onClick={handlePrintChecklist}
               style={{
-                display: "flex", alignItems: "center", gap: "6px",
-                padding: "10px 20px", borderRadius: "10px",
-                border: "1.5px solid #004d32", background: "white", color: "#004d32",
-                fontWeight: "700", fontSize: "13px", cursor: "pointer"
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                padding: isMobile ? "8px 14px" : "10px 20px",
+                borderRadius: "10px",
+                border: "1.5px solid #004d32",
+                background: "white",
+                color: "#004d32",
+                fontWeight: "700",
+                fontSize: isMobile ? "11px" : "13px",
+                cursor: "pointer"
               }}
             >
               <Icons.printer /> Print List
@@ -1694,10 +1679,17 @@ function OTDepartment() {
             <button
               onClick={handleApproveAndSend}
               style={{
-                display: "flex", alignItems: "center", gap: "6px",
-                padding: "10px 20px", borderRadius: "10px",
-                border: "none", background: "#004d32", color: "white",
-                fontWeight: "700", fontSize: "13px", cursor: "pointer"
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                padding: isMobile ? "8px 14px" : "10px 20px",
+                borderRadius: "10px",
+                border: "none",
+                background: "#004d32",
+                color: "white",
+                fontWeight: "700",
+                fontSize: isMobile ? "11px" : "13px",
+                cursor: "pointer"
               }}
             >
               <Icons.sendCheck /> Approve & Send
@@ -1705,10 +1697,17 @@ function OTDepartment() {
             <button
               onClick={handleReportShortage}
               style={{
-                display: "flex", alignItems: "center", gap: "6px",
-                padding: "10px 20px", borderRadius: "10px",
-                border: "none", background: "#dc2626", color: "white",
-                fontWeight: "700", fontSize: "13px", cursor: "pointer"
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                padding: isMobile ? "8px 14px" : "10px 20px",
+                borderRadius: "10px",
+                border: "none",
+                background: "#dc2626",
+                color: "white",
+                fontWeight: "700",
+                fontSize: isMobile ? "11px" : "13px",
+                cursor: "pointer"
               }}
             >
               <Icons.bell /> Report Shortage
@@ -1716,55 +1715,37 @@ function OTDepartment() {
           </div>
         </div>
 
-        {/* CSS for print - hide images, show checkmarks, hide header and footer */}
         <style>{`
           @media print {
-            .no-print {
-              display: none !important;
-            }
-            .print-only {
-              display: inline !important;
-            }
-            body {
-              background: #ffffff !important;
-            }
-            .ot-print-sheet {
-              box-shadow: none !important;
-              border: none !important;
-            }
-            table {
-              border-collapse: collapse !important;
-            }
-            th, td {
-              border: 1px solid #000 !important;
-            }
-            @page {
-              margin: 0.5in;
-              size: portrait;
-            }
-            .print-header,
-            .print-footer {
-              display: none !important;
-            }
-            table {
-              width: 100% !important;
-            }
+            .no-print { display: none !important; }
+            .print-only { display: inline !important; }
+            body { background: #ffffff !important; }
+            .ot-print-sheet { box-shadow: none !important; border: none !important; }
+            table { border-collapse: collapse !important; }
+            th, td { border: 1px solid #000 !important; }
+            @page { margin: 0.5in; size: portrait; }
+            .print-header, .print-footer { display: none !important; }
+            table { width: 100% !important; }
           }
           @media screen {
-            .print-only {
-              display: none !important;
-            }
+            .print-only { display: none !important; }
           }
         `}</style>
 
-        {/* Image Modal - for zooming in */}
         {imageModal && (
           <div
             style={{
-              position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
               backgroundColor: 'rgba(0,0,0,0.92)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              zIndex: 9999, cursor: 'pointer'
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9999,
+              cursor: 'pointer'
             }}
             className="no-print"
             onClick={() => setImageModal(null)}
@@ -1800,7 +1781,7 @@ function OTDepartment() {
   }
 
   // ============================================================
-  // 🟢 SIMPLE VIEW - Displays when QR code is scanned
+  // 🟢 SIMPLE VIEW - متجاوب
   // ============================================================
   if (isSimpleView && qrListId) {
     const simpleEquipment = equipment[qrListId] || [];
@@ -1809,18 +1790,19 @@ function OTDepartment() {
     const printTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
     const thStyle = {
-      padding: '10px 8px',
+      padding: isMobile ? "6px 4px" : "10px 8px",
       border: '1px solid #cfe3d8',
-      fontSize: '11px',
+      fontSize: isMobile ? "9px" : "11px",
       color: '#004d32',
       fontWeight: '700',
       textTransform: 'uppercase',
       letterSpacing: '0.4px'
     };
     const tdStyle = {
-      padding: '9px 8px',
+      padding: isMobile ? "6px 4px" : "9px 8px",
       border: '1px solid #e5e7eb',
-      verticalAlign: 'middle'
+      verticalAlign: 'middle',
+      fontSize: isMobile ? "11px" : "13px"
     };
 
     return (
@@ -1828,7 +1810,7 @@ function OTDepartment() {
         fontFamily: "'Segoe UI', Arial, sans-serif",
         background: '#eef1f0',
         minHeight: '100vh',
-        padding: '18px 12px'
+        padding: isMobile ? '10px 6px' : '18px 12px'
       }}>
         <style>{`
           @media print {
@@ -1852,13 +1834,14 @@ function OTDepartment() {
           borderRadius: '4px',
           overflow: 'hidden'
         }}>
-
           <div className="header-print-hide" style={{
             background: '#006341',
-            padding: '16px 26px',
+            padding: isMobile ? "12px 16px" : "16px 26px",
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? '6px' : '0',
             borderBottom: '4px solid #c9a84c'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1867,15 +1850,15 @@ function OTDepartment() {
                 <path d="M9 3v4M15 3v4M9 11h2M13 11h2M9 15h2M13 15h2" />
               </svg>
               <div>
-                <div style={{ color: '#ffffff', fontSize: '16px', fontWeight: '700', letterSpacing: '0.4px', lineHeight: 1.2 }}>
+                <div style={{ color: '#ffffff', fontSize: isMobile ? "14px" : "16px", fontWeight: '700', letterSpacing: '0.4px', lineHeight: 1.2 }}>
                   OPERATING THEATER DEPARTMENT
                 </div>
-                <div style={{ color: '#d9ecdf', fontSize: '11px', letterSpacing: '0.4px', marginTop: '2px' }}>
+                <div style={{ color: '#d9ecdf', fontSize: isMobile ? "10px" : "11px", letterSpacing: '0.4px', marginTop: '2px' }}>
                   Instrument &amp; Equipment Inventory Sheet
                 </div>
               </div>
             </div>
-            <div style={{ textAlign: 'right', color: '#eafaf0', fontSize: '11px', lineHeight: 1.5 }}>
+            <div style={{ textAlign: isMobile ? 'center' : 'right', color: '#eafaf0', fontSize: isMobile ? "10px" : "11px", lineHeight: 1.5 }}>
               <div>Date: {printDate}</div>
               <div>Time: {printTime}</div>
             </div>
@@ -1883,97 +1866,99 @@ function OTDepartment() {
 
           <div className="dept-row-print-hide" style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             borderBottom: '2px solid #e5e7eb'
           }}>
-            <div style={{ padding: '14px 26px', borderRight: '1px solid #e5e7eb' }}>
+            <div style={{ padding: isMobile ? "10px 16px" : "14px 26px", borderRight: isMobile ? 'none' : '1px solid #e5e7eb', borderBottom: isMobile ? '1px solid #e5e7eb' : 'none' }}>
               <div style={{ fontSize: '10px', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Department
               </div>
-              <div style={{ fontSize: '16px', fontWeight: '700', color: '#004d32', marginTop: '2px' }}>
+              <div style={{ fontSize: isMobile ? "14px" : "16px", fontWeight: '700', color: '#004d32', marginTop: '2px' }}>
                 {selectedDeptName || "—"}
               </div>
             </div>
-            <div style={{ padding: '14px 26px' }}>
+            <div style={{ padding: isMobile ? "10px 16px" : "14px 26px" }}>
               <div style={{ fontSize: '10px', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Instrument Set / List
               </div>
-              <div style={{ fontSize: '16px', fontWeight: '700', color: '#004d32', marginTop: '2px' }}>
+              <div style={{ fontSize: isMobile ? "14px" : "16px", fontWeight: '700', color: '#004d32', marginTop: '2px' }}>
                 {selectedListName || "Equipment List"}
               </div>
             </div>
           </div>
 
-          <div style={{ padding: '22px 26px 10px' }}>
+          <div style={{ padding: isMobile ? "12px 10px" : "22px 26px 10px" }}>
             {simpleEquipment.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '50px 20px', color: '#9ca3af' }}>
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
                 <p>No equipment found in this list.</p>
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ background: '#eef5f1' }}>
-                    <th style={{ ...thStyle, width: '34px', textAlign: 'center' }}>No.</th>
-                    <th className="image-column" style={{ ...thStyle, width: '60px', textAlign: 'center' }}>Image</th>
-                    <th style={{ ...thStyle, textAlign: 'left' }}>Item Description</th>
-                    <th style={{ ...thStyle, width: '110px', textAlign: 'left' }}>Code</th>
-                    <th style={{ ...thStyle, width: '56px', textAlign: 'center' }}>Qty</th>
-                    <th style={{ ...thStyle, width: '80px', textAlign: 'center' }}>Verified</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {simpleEquipment.map((item, idx) => (
-                    <tr key={item.id || item._id} style={{ background: idx % 2 === 0 ? '#ffffff' : '#fafcfb' }}>
-                      <td style={{ ...tdStyle, textAlign: 'center', color: '#6b7280' }}>{idx + 1}</td>
-                      <td className="image-column" style={{ ...tdStyle, textAlign: 'center' }}>
-                        {item.image ? (
-                          <img
-                            src={item.image}
-                            style={{
-                              width: '36px',
-                              height: '36px',
-                              objectFit: 'cover',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              border: '1px solid #e5e7eb'
-                            }}
-                            onClick={() => setImageModal(item.image)}
-                            alt={item.name}
-                          />
-                        ) : (
-                          <div style={{
-                            width: '36px',
-                            height: '36px',
-                            background: '#f3f4f6',
-                            borderRadius: '6px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '15px',
-                            border: '1px solid #e5e7eb',
-                            margin: '0 auto'
-                          }}>
-                            📷
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ ...tdStyle, fontWeight: '600', color: '#1f2937' }}>{item.name}</td>
-                      <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#4b5563' }}>{item.code || '-'}</td>
-                      <td style={{ ...tdStyle, textAlign: 'center', fontWeight: '700', color: '#004d32' }}>{item.quantity || 0}</td>
-                      <td style={{ ...tdStyle, textAlign: 'center', color: '#c8cdd3', fontSize: '15px' }}>☐</td>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: isMobile ? "11px" : "13px", minWidth: isMobile ? "500px" : "auto" }}>
+                  <thead>
+                    <tr style={{ background: '#eef5f1' }}>
+                      <th style={{ ...thStyle, width: '34px', textAlign: 'center' }}>No.</th>
+                      <th className="image-column" style={{ ...thStyle, width: '60px', textAlign: 'center' }}>Image</th>
+                      <th style={{ ...thStyle, textAlign: 'left' }}>Item Description</th>
+                      <th style={{ ...thStyle, width: '110px', textAlign: 'left' }}>Code</th>
+                      <th style={{ ...thStyle, width: '56px', textAlign: 'center' }}>Qty</th>
+                      <th style={{ ...thStyle, width: '80px', textAlign: 'center' }}>Verified</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {simpleEquipment.map((item, idx) => (
+                      <tr key={item.id || item._id} style={{ background: idx % 2 === 0 ? '#ffffff' : '#fafcfb' }}>
+                        <td style={{ ...tdStyle, textAlign: 'center', color: '#6b7280' }}>{idx + 1}</td>
+                        <td className="image-column" style={{ ...tdStyle, textAlign: 'center' }}>
+                          {item.image ? (
+                            <img
+                              src={item.image}
+                              style={{
+                                width: isMobile ? "28px" : "36px",
+                                height: isMobile ? "28px" : "36px",
+                                objectFit: 'cover',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                border: '1px solid #e5e7eb'
+                              }}
+                              onClick={() => setImageModal(item.image)}
+                              alt={item.name}
+                            />
+                          ) : (
+                            <div style={{
+                              width: isMobile ? "28px" : "36px",
+                              height: isMobile ? "28px" : "36px",
+                              background: '#f3f4f6',
+                              borderRadius: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: isMobile ? "14px" : "15px",
+                              border: '1px solid #e5e7eb',
+                              margin: '0 auto'
+                            }}>
+                              📷
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: '600', color: '#1f2937' }}>{item.name}</td>
+                        <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#4b5563' }}>{item.code || '-'}</td>
+                        <td style={{ ...tdStyle, textAlign: 'center', fontWeight: '700', color: '#004d32' }}>{item.quantity || 0}</td>
+                        <td style={{ ...tdStyle, textAlign: 'center', color: '#c8cdd3', fontSize: isMobile ? "14px" : "15px" }}>☐</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
           <div className="signature-print-hide" style={{
             borderTop: '2px solid #e5e7eb',
-            padding: '20px 26px 26px',
+            padding: isMobile ? "14px 16px 18px" : "20px 26px 26px",
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '24px'
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+            gap: isMobile ? '16px' : '24px'
           }}>
             <div>
               <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '30px', borderBottom: '1px solid #d1d5db', paddingBottom: '4px' }}>
@@ -1995,10 +1980,10 @@ function OTDepartment() {
 
           <div className="footer-print-hide" style={{
             textAlign: 'center',
-            padding: '10px',
+            padding: '8px',
             background: '#f8fafb',
             borderTop: '1px solid #e5e7eb',
-            fontSize: '10px',
+            fontSize: isMobile ? "9px" : "10px",
             color: '#9ca3af'
           }}>
             📱 Generated via QR Code Scan • Internal Asset List • {simpleEquipment.length} item(s) total
@@ -2009,14 +1994,14 @@ function OTDepartment() {
           <button
             onClick={() => window.print()}
             style={{
-              padding: '10px 30px',
+              padding: isMobile ? "8px 20px" : "10px 30px",
               background: '#006341',
               color: 'white',
               border: 'none',
               borderRadius: '8px',
               cursor: 'pointer',
               fontWeight: '600',
-              fontSize: '14px',
+              fontSize: isMobile ? "13px" : "14px",
               boxShadow: '0 2px 8px rgba(0,99,65,0.25)'
             }}
           >
@@ -2054,41 +2039,47 @@ function OTDepartment() {
 
   return (
     <div style={{
-      padding: "30px",
+      padding: isMobile ? "16px" : "30px",
       maxWidth: "1600px",
       margin: "0 auto",
       background: "#f5f7f6",
       minHeight: "100vh"
     }}>
-
       {/* ===== HEADER ===== */}
       <div style={{
         display: "flex",
+        flexDirection: isMobile ? "column" : "row",
         justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: "30px",
-        flexWrap: "wrap",
-        gap: "15px"
+        alignItems: isMobile ? "flex-start" : "center",
+        marginBottom: "24px",
+        gap: "12px"
       }}>
         <div>
-          <h1 style={{ fontSize: "28px", color: "#004d32", margin: 0, display: "flex", alignItems: "center", gap: "10px" }}>
+          <h1 style={{
+            fontSize: isMobile ? "22px" : "28px",
+            color: "#004d32",
+            margin: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: "8px"
+          }}>
             <Icons.hospital />
             OT Department Management
           </h1>
-          <p style={{ color: "#6b7280", margin: "5px 0 0" }}>
+          <p style={{ color: "#6b7280", margin: "5px 0 0", fontSize: isMobile ? "13px" : "14px" }}>
             Manage departments, lists, and equipment
           </p>
         </div>
         <span style={{
-          padding: "6px 16px",
+          padding: "4px 12px",
           borderRadius: "20px",
           background: isAdmin ? "#d1fae5" : "#fef3c7",
           color: isAdmin ? "#065f46" : "#92400e",
-          fontSize: "13px",
+          fontSize: isMobile ? "11px" : "13px",
           fontWeight: "600",
           display: "flex",
           alignItems: "center",
-          gap: "6px"
+          gap: "4px"
         }}>
           {isAdmin ? <Icons.admin /> : <Icons.staff />}
           {isAdmin ? "Admin Mode" : "Staff Mode"}
@@ -2098,27 +2089,21 @@ function OTDepartment() {
       {/* ===== TWO COLUMN LAYOUT ===== */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: "380px 1fr",
-        gap: "24px",
+        gridTemplateColumns: isMobile ? "1fr" : (isTablet ? "1fr 1.5fr" : "380px 1fr"),
+        gap: "20px",
         alignItems: "start"
       }}>
-
         {/* ===== LEFT COLUMN: DEPARTMENTS & LISTS ===== */}
-        <div style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "20px"
-        }}>
-
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
           {/* DEPARTMENTS SECTION */}
           <div style={{
             background: "white",
             borderRadius: "16px",
-            padding: "20px",
+            padding: isMobile ? "14px" : "20px",
             boxShadow: "0 2px 8px rgba(0,0,0,0.05)"
           }}>
             <h2 style={{
-              fontSize: "16px",
+              fontSize: isMobile ? "15px" : "16px",
               color: "#004d32",
               marginBottom: "14px",
               display: "flex",
@@ -2133,8 +2118,8 @@ function OTDepartment() {
               <div style={{
                 display: "flex",
                 flexDirection: "column",
-                gap: "8px",
-                marginBottom: "14px"
+                gap: "6px",
+                marginBottom: "12px"
               }}>
                 <input
                   type="text"
@@ -2143,10 +2128,10 @@ function OTDepartment() {
                   onChange={(e) => setNewDept({ ...newDept, name: e.target.value })}
                   style={{
                     width: "100%",
-                    padding: "8px 12px",
+                    padding: "8px 10px",
                     border: "1.5px solid #d0e8dc",
                     borderRadius: "8px",
-                    fontSize: "13px"
+                    fontSize: isMobile ? "13px" : "14px"
                   }}
                 />
                 <input
@@ -2156,18 +2141,18 @@ function OTDepartment() {
                   onChange={(e) => setNewDept({ ...newDept, description: e.target.value })}
                   style={{
                     width: "100%",
-                    padding: "8px 12px",
+                    padding: "8px 10px",
                     border: "1.5px solid #d0e8dc",
                     borderRadius: "8px",
-                    fontSize: "13px"
+                    fontSize: isMobile ? "13px" : "14px"
                   }}
                 />
-                <div style={{ display: "flex", gap: "8px" }}>
+                <div style={{ display: "flex", gap: "6px" }}>
                   <button
                     onClick={handleAddDept}
                     style={{
                       flex: 1,
-                      padding: "8px 16px",
+                      padding: "8px",
                       background: "#006341",
                       color: "white",
                       border: "none",
@@ -2177,8 +2162,8 @@ function OTDepartment() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: "6px",
-                      fontSize: "13px"
+                      gap: "4px",
+                      fontSize: isMobile ? "12px" : "13px"
                     }}
                   >
                     <Icons.add />
@@ -2188,7 +2173,7 @@ function OTDepartment() {
                     <button
                       onClick={() => { setEditingDeptId(null); setNewDept({ name: "", description: "" }); }}
                       style={{
-                        padding: "8px 16px",
+                        padding: "8px 12px",
                         background: "#e5e7eb",
                         color: "#374151",
                         border: "none",
@@ -2197,7 +2182,7 @@ function OTDepartment() {
                         display: "flex",
                         alignItems: "center",
                         gap: "4px",
-                        fontSize: "13px"
+                        fontSize: isMobile ? "12px" : "13px"
                       }}
                     >
                       <Icons.cancel />
@@ -2208,7 +2193,7 @@ function OTDepartment() {
               </div>
             )}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               {departments.length === 0 ? (
                 <p style={{ color: "#9ca3af", fontSize: "13px" }}>No departments added yet.</p>
               ) : (
@@ -2216,16 +2201,16 @@ function OTDepartment() {
                   <div
                     key={dept.id}
                     style={{
-                      padding: "8px 12px",
+                      padding: "8px 10px",
                       borderRadius: "8px",
                       border: selectedDeptId === dept.id ? "2px solid #006341" : "1px solid #d0e8dc",
                       background: selectedDeptId === dept.id ? "#e6f0ec" : "white",
                       display: "flex",
                       alignItems: "center",
-                      gap: "8px",
+                      gap: "6px",
                       transition: "all 0.2s",
                       cursor: "pointer",
-                      fontSize: "13px"
+                      fontSize: isMobile ? "12px" : "13px"
                     }}
                     onClick={() => {
                       setSelectedDeptId(dept.id);
@@ -2264,11 +2249,11 @@ function OTDepartment() {
             <div style={{
               background: "white",
               borderRadius: "16px",
-              padding: "20px",
+              padding: isMobile ? "14px" : "20px",
               boxShadow: "0 2px 8px rgba(0,0,0,0.05)"
             }}>
               <h2 style={{
-                fontSize: "16px",
+                fontSize: isMobile ? "15px" : "16px",
                 color: "#004d32",
                 marginBottom: "14px",
                 display: "flex",
@@ -2283,8 +2268,8 @@ function OTDepartment() {
                 <div style={{
                   display: "flex",
                   flexDirection: "column",
-                  gap: "8px",
-                  marginBottom: "14px"
+                  gap: "6px",
+                  marginBottom: "12px"
                 }}>
                   <input
                     type="text"
@@ -2293,10 +2278,10 @@ function OTDepartment() {
                     onChange={(e) => setNewList({ ...newList, name: e.target.value })}
                     style={{
                       width: "100%",
-                      padding: "8px 12px",
+                      padding: "8px 10px",
                       border: "1.5px solid #d0e8dc",
                       borderRadius: "8px",
-                      fontSize: "13px"
+                      fontSize: isMobile ? "13px" : "14px"
                     }}
                   />
                   <input
@@ -2306,19 +2291,19 @@ function OTDepartment() {
                     onChange={(e) => setNewList({ ...newList, description: e.target.value })}
                     style={{
                       width: "100%",
-                      padding: "8px 12px",
+                      padding: "8px 10px",
                       border: "1.5px solid #d0e8dc",
                       borderRadius: "8px",
-                      fontSize: "13px"
+                      fontSize: isMobile ? "13px" : "14px"
                     }}
                   />
-                  <div style={{ display: "flex", gap: "8px" }}>
+                  <div style={{ display: "flex", gap: "6px" }}>
                     <button
                       onClick={handleAddList}
                       disabled={saving}
                       style={{
                         flex: 1,
-                        padding: "8px 16px",
+                        padding: "8px",
                         background: "#c9a84c",
                         color: "#004d32",
                         border: "none",
@@ -2329,8 +2314,8 @@ function OTDepartment() {
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        gap: "6px",
-                        fontSize: "13px"
+                        gap: "4px",
+                        fontSize: isMobile ? "12px" : "13px"
                       }}
                     >
                       {saving ? "⏳" : <Icons.add />}
@@ -2340,7 +2325,7 @@ function OTDepartment() {
                       <button
                         onClick={() => { setEditingListId(null); setNewList({ name: "", description: "" }); }}
                         style={{
-                          padding: "8px 16px",
+                          padding: "8px 12px",
                           background: "#e5e7eb",
                           color: "#374151",
                           border: "none",
@@ -2349,7 +2334,7 @@ function OTDepartment() {
                           display: "flex",
                           alignItems: "center",
                           gap: "4px",
-                          fontSize: "13px"
+                          fontSize: isMobile ? "12px" : "13px"
                         }}
                       >
                         <Icons.cancel />
@@ -2360,7 +2345,7 @@ function OTDepartment() {
                 </div>
               )}
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 {currentLists.length === 0 ? (
                   <p style={{ color: "#9ca3af", fontSize: "13px" }}>No lists in this department.</p>
                 ) : (
@@ -2368,16 +2353,16 @@ function OTDepartment() {
                     <div
                       key={list.id}
                       style={{
-                        padding: "8px 12px",
+                        padding: "8px 10px",
                         borderRadius: "8px",
                         border: selectedListId === list.id ? "2px solid #c9a84c" : "1px solid #d0e8dc",
                         background: selectedListId === list.id ? "#fef9ec" : "white",
                         display: "flex",
                         alignItems: "center",
-                        gap: "8px",
+                        gap: "6px",
                         transition: "all 0.2s",
                         cursor: "pointer",
-                        fontSize: "13px"
+                        fontSize: isMobile ? "12px" : "13px"
                       }}
                       onClick={() => {
                         setSelectedListId(list.id);
@@ -2417,19 +2402,19 @@ function OTDepartment() {
         <div style={{
           background: "white",
           borderRadius: "16px",
-          padding: "24px",
+          padding: isMobile ? "16px" : "24px",
           boxShadow: "0 2px 8px rgba(0,0,0,0.05)"
         }}>
           <div style={{
             display: "flex",
+            flexDirection: isMobile ? "column" : "row",
             justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
+            alignItems: isMobile ? "flex-start" : "center",
             gap: "12px",
             marginBottom: "16px"
           }}>
             <h2 style={{
-              fontSize: "18px",
+              fontSize: isMobile ? "16px" : "18px",
               color: "#004d32",
               margin: 0,
               display: "flex",
@@ -2446,15 +2431,15 @@ function OTDepartment() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "8px",
-                  padding: "10px 20px",
+                  gap: "6px",
+                  padding: isMobile ? "8px 14px" : "10px 20px",
                   background: "linear-gradient(135deg, #004d32, #006341)",
                   color: "white",
                   border: "none",
                   borderRadius: "10px",
                   cursor: "pointer",
                   fontWeight: "700",
-                  fontSize: "13px",
+                  fontSize: isMobile ? "12px" : "13px",
                   boxShadow: "0 3px 10px rgba(0,77,50,0.25)"
                 }}
               >
@@ -2465,9 +2450,9 @@ function OTDepartment() {
           </div>
 
           {!selectedListId ? (
-            <div style={{ textAlign: "center", padding: "60px 20px", color: "#9ca3af" }}>
+            <div style={{ textAlign: "center", padding: "40px 20px", color: "#9ca3af" }}>
               <div style={{ marginBottom: "16px" }}><Icons.equipment /></div>
-              <p style={{ fontSize: "16px" }}>Select a list from the left panel to manage equipment</p>
+              <p style={{ fontSize: isMobile ? "14px" : "16px" }}>Select a list from the left panel to manage equipment</p>
             </div>
           ) : (
             <>
@@ -2475,17 +2460,17 @@ function OTDepartment() {
               {isAdmin && (
                 <div style={{
                   background: "#f8fafb",
-                  padding: "16px",
+                  padding: isMobile ? "12px" : "16px",
                   borderRadius: "12px",
-                  marginBottom: "24px"
+                  marginBottom: "20px"
                 }}>
                   <div style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "10px"
+                    gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+                    gap: "8px"
                   }}>
                     <div>
-                      <label style={{ fontSize: "12px", fontWeight: "600", color: "#4b5563", display: "block", marginBottom: "4px" }}>
+                      <label style={{ fontSize: "11px", fontWeight: "600", color: "#4b5563", display: "block", marginBottom: "4px" }}>
                         Name *
                       </label>
                       <input
@@ -2495,15 +2480,15 @@ function OTDepartment() {
                         onChange={(e) => setNewEquipment({ ...newEquipment, name: e.target.value })}
                         style={{
                           width: "100%",
-                          padding: "8px 12px",
+                          padding: "8px",
                           border: "1.5px solid #d0e8dc",
                           borderRadius: "6px",
-                          fontSize: "13px"
+                          fontSize: isMobile ? "13px" : "14px"
                         }}
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: "12px", fontWeight: "600", color: "#4b5563", display: "block", marginBottom: "4px" }}>
+                      <label style={{ fontSize: "11px", fontWeight: "600", color: "#4b5563", display: "block", marginBottom: "4px" }}>
                         Code *
                       </label>
                       <input
@@ -2513,15 +2498,15 @@ function OTDepartment() {
                         onChange={(e) => setNewEquipment({ ...newEquipment, code: e.target.value })}
                         style={{
                           width: "100%",
-                          padding: "8px 12px",
+                          padding: "8px",
                           border: "1.5px solid #d0e8dc",
                           borderRadius: "6px",
-                          fontSize: "13px"
+                          fontSize: isMobile ? "13px" : "14px"
                         }}
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: "12px", fontWeight: "600", color: "#4b5563", display: "block", marginBottom: "4px" }}>
+                      <label style={{ fontSize: "11px", fontWeight: "600", color: "#4b5563", display: "block", marginBottom: "4px" }}>
                         Quantity
                       </label>
                       <input
@@ -2531,28 +2516,29 @@ function OTDepartment() {
                         onChange={(e) => setNewEquipment({ ...newEquipment, quantity: e.target.value })}
                         style={{
                           width: "100%",
-                          padding: "8px 12px",
+                          padding: "8px",
                           border: "1.5px solid #d0e8dc",
                           borderRadius: "6px",
-                          fontSize: "13px"
+                          fontSize: isMobile ? "13px" : "14px"
                         }}
                       />
                     </div>
-                    <div style={{ display: "flex", alignItems: "flex-end", gap: "8px" }}>
+                    <div style={{ display: "flex", gap: "6px", alignItems: "flex-end" }}>
                       <button
                         type="button"
                         onClick={handleCapturePhoto}
                         style={{
-                          padding: "8px 16px",
+                          flex: 1,
+                          padding: "8px",
                           background: "#e5e7eb",
                           border: "none",
                           borderRadius: "6px",
                           cursor: "pointer",
                           display: "flex",
                           alignItems: "center",
-                          gap: "6px",
-                          fontSize: "13px",
-                          flex: 1
+                          justifyContent: "center",
+                          gap: "4px",
+                          fontSize: isMobile ? "11px" : "13px"
                         }}
                       >
                         <Icons.camera />
@@ -2562,16 +2548,17 @@ function OTDepartment() {
                         type="button"
                         onClick={() => document.getElementById('equipFileInput').click()}
                         style={{
-                          padding: "8px 16px",
+                          flex: 1,
+                          padding: "8px",
                           background: "#e5e7eb",
                           border: "none",
                           borderRadius: "6px",
                           cursor: "pointer",
                           display: "flex",
                           alignItems: "center",
-                          gap: "6px",
-                          fontSize: "13px",
-                          flex: 1
+                          justifyContent: "center",
+                          gap: "4px",
+                          fontSize: isMobile ? "11px" : "13px"
                         }}
                       >
                         <Icons.upload />
@@ -2589,11 +2576,11 @@ function OTDepartment() {
                   />
 
                   {imagePreview && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px" }}>
                       <img
                         src={imagePreview}
                         alt="Preview"
-                        style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "6px" }}
+                        style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px" }}
                       />
                       <button
                         onClick={() => { setImagePreview(null); setNewEquipment(prev => ({ ...prev, image: null })); }}
@@ -2609,7 +2596,7 @@ function OTDepartment() {
                       onClick={handleAddEquipment}
                       disabled={saving}
                       style={{
-                        padding: "8px 24px",
+                        padding: isMobile ? "6px 16px" : "8px 24px",
                         background: "#006341",
                         color: "white",
                         border: "none",
@@ -2619,8 +2606,8 @@ function OTDepartment() {
                         opacity: saving ? 0.6 : 1,
                         display: "flex",
                         alignItems: "center",
-                        gap: "6px",
-                        fontSize: "13px"
+                        gap: "4px",
+                        fontSize: isMobile ? "12px" : "13px"
                       }}
                     >
                       {saving ? "⏳" : <Icons.add />}
@@ -2630,7 +2617,7 @@ function OTDepartment() {
                       <button
                         onClick={resetEquipmentForm}
                         style={{
-                          padding: "8px 16px",
+                          padding: isMobile ? "6px 12px" : "8px 16px",
                           background: "#e5e7eb",
                           color: "#374151",
                           border: "none",
@@ -2639,7 +2626,7 @@ function OTDepartment() {
                           display: "flex",
                           alignItems: "center",
                           gap: "4px",
-                          fontSize: "13px"
+                          fontSize: isMobile ? "12px" : "13px"
                         }}
                       >
                         <Icons.cancel />
@@ -2653,9 +2640,9 @@ function OTDepartment() {
               {/* ===== EQUIPMENT LIST HEADER WITH QR CODE ===== */}
               <div style={{
                 display: "flex",
+                flexDirection: isMobile ? "column" : "row",
                 justifyContent: "space-between",
-                alignItems: "center",
-                flexWrap: "wrap",
+                alignItems: isMobile ? "stretch" : "center",
                 gap: "12px",
                 marginBottom: "20px",
                 paddingBottom: "16px",
@@ -2663,7 +2650,7 @@ function OTDepartment() {
               }}>
                 <div>
                   <h3 style={{
-                    fontSize: "20px",
+                    fontSize: isMobile ? "18px" : "20px",
                     fontWeight: "700",
                     color: "#004d32",
                     margin: 0
@@ -2671,7 +2658,7 @@ function OTDepartment() {
                     Instrument Set
                   </h3>
                   <p style={{
-                    fontSize: "14px",
+                    fontSize: isMobile ? "12px" : "14px",
                     color: "#6b7280",
                     margin: "4px 0 0"
                   }}>
@@ -2679,10 +2666,9 @@ function OTDepartment() {
                   </p>
                 </div>
 
-                {/* QR Code & Search */}
                 <div style={{
                   display: "flex",
-                  gap: "12px",
+                  gap: "10px",
                   alignItems: "center",
                   flexWrap: "wrap"
                 }}>
@@ -2692,16 +2678,16 @@ function OTDepartment() {
                     style={{
                       cursor: 'pointer',
                       background: '#ffffff',
-                      padding: '8px 14px',
+                      padding: isMobile ? "4px 8px" : "8px 14px",
                       borderRadius: '10px',
                       border: '2px solid #006341',
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: '4px',
+                      gap: '2px',
                       transition: 'all 0.3s',
                       boxShadow: '0 2px 8px rgba(0,99,65,0.1)',
-                      minWidth: '80px'
+                      minWidth: isMobile ? '60px' : '80px'
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = '#c9a84c';
@@ -2716,14 +2702,14 @@ function OTDepartment() {
                   >
                     <QRCodeCanvas
                       value={getQRUrl()}
-                      size={70}
+                      size={isMobile ? 50 : 70}
                       level="H"
                       includeMargin={true}
                       bgColor="#ffffff"
                       fgColor="#006341"
                     />
                     <div style={{
-                      fontSize: '9px',
+                      fontSize: isMobile ? '7px' : '9px',
                       color: '#006341',
                       fontWeight: '600',
                       textAlign: 'center',
@@ -2737,11 +2723,12 @@ function OTDepartment() {
                   <div style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: "6px",
+                    gap: "4px",
                     background: "white",
                     border: "1.5px solid #d0e8dc",
                     borderRadius: "8px",
-                    padding: "4px 10px"
+                    padding: "2px 8px",
+                    flex: isMobile ? 1 : "auto"
                   }}>
                     <Icons.search />
                     <input
@@ -2752,9 +2739,9 @@ function OTDepartment() {
                       style={{
                         border: "none",
                         padding: "6px 4px",
-                        fontSize: "13px",
+                        fontSize: isMobile ? "12px" : "13px",
                         outline: "none",
-                        width: "120px",
+                        width: isMobile ? "80px" : "120px",
                         background: "transparent"
                       }}
                     />
@@ -2779,10 +2766,10 @@ function OTDepartment() {
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value)}
                     style={{
-                      padding: "8px 12px",
+                      padding: isMobile ? "4px 6px" : "8px 12px",
                       border: "1.5px solid #d0e8dc",
                       borderRadius: "8px",
-                      fontSize: "13px",
+                      fontSize: isMobile ? "12px" : "13px",
                       background: "white",
                       cursor: "pointer",
                       outline: "none"
@@ -2798,7 +2785,7 @@ function OTDepartment() {
               {filteredAndSortedEquipment.length === 0 ? (
                 <div style={{
                   textAlign: "center",
-                  padding: "60px 20px",
+                  padding: "40px 20px",
                   color: "#9ca3af"
                 }}>
                   <div style={{ marginBottom: "16px" }}>
@@ -2820,7 +2807,12 @@ function OTDepartment() {
                   overflow: "hidden"
                 }}>
                   <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                    <table style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: isMobile ? "11px" : "13px",
+                      minWidth: isMobile ? "600px" : "auto"
+                    }}>
                       <thead>
                         <tr style={{ background: "#e5e5e5" }}>
                           <th style={equipThStyle}>No.</th>
@@ -2835,49 +2827,44 @@ function OTDepartment() {
                         {filteredAndSortedEquipment.map((item, idx) => (
                           <tr key={item.id} style={{ background: idx % 2 === 0 ? "#ffffff" : "#f5f5f5" }}>
                             <td style={{ ...equipTdStyle, textAlign: "center" }}>{idx + 1}</td>
-
-<td style={{ ...equipTdStyle, textAlign: "center" }}>
-  {item.image ? (
-    <img
-      src={item.image}
-      alt={item.name}
-      onClick={() => setImageModal(item.image)}
-      style={{
-        width: "40px",
-        height: "40px",
-        objectFit: "cover",
-        borderRadius: "6px",
-        cursor: "pointer",
-        border: "1px solid #e5e7eb",
-        display: "inline-block"
-      }}
-      onError={(e) => {
-        // في حال فشل تحميل الصورة، نعرض أيقونة افتراضية
-        e.target.style.display = 'none';
-        e.target.parentElement.innerHTML = `<span style="font-size:22px;color:#9ca3af;">📷</span>`;
-      }}
-    />
-  ) : (
-    <span style={{ fontSize: "22px", color: "#9ca3af" }}>📷</span>
-  )}
-</td>
-
-
+                            <td style={{ ...equipTdStyle, textAlign: "center" }}>
+                              {item.image ? (
+                                <img
+                                  src={item.image}
+                                  alt={item.name}
+                                  onClick={() => setImageModal(item.image)}
+                                  style={{
+                                    width: isMobile ? "30px" : "40px",
+                                    height: isMobile ? "30px" : "40px",
+                                    objectFit: "cover",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                    border: "1px solid #e5e7eb"
+                                  }}
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.parentElement.innerHTML = `<span style="font-size:20px;color:#9ca3af;">📷</span>`;
+                                  }}
+                                />
+                              ) : (
+                                <span style={{ fontSize: "20px", color: "#9ca3af" }}>📷</span>
+                              )}
+                            </td>
                             <td style={{ ...equipTdStyle, fontWeight: "600" }}>{item.name}</td>
                             <td style={{ ...equipTdStyle, fontFamily: "monospace" }}>{item.code}</td>
                             <td style={{ ...equipTdStyle, textAlign: "center", fontWeight: "700" }}>{item.quantity}</td>
                             {isAdmin && (
                               <td style={{ ...equipTdStyle, textAlign: "center" }}>
-                                <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
+                                <div style={{ display: "flex", gap: "4px", justifyContent: "center" }}>
                                   <button
                                     onClick={() => handleEditEquipment(item)}
                                     title="Edit"
                                     style={{
-                                      padding: "6px 8px",
+                                      padding: "4px 6px",
                                       background: "#c9a84c",
                                       color: "#004d32",
                                       border: "none",
-                                      borderRadius: "6px",
+                                      borderRadius: "4px",
                                       cursor: "pointer",
                                       display: "flex",
                                       alignItems: "center",
@@ -2890,11 +2877,11 @@ function OTDepartment() {
                                     onClick={() => handleDeleteEquipment(item.id, item.name)}
                                     title="Delete"
                                     style={{
-                                      padding: "6px 8px",
+                                      padding: "4px 6px",
                                       background: "#fee2e2",
                                       color: "#991b1b",
                                       border: "none",
-                                      borderRadius: "6px",
+                                      borderRadius: "4px",
                                       cursor: "pointer",
                                       display: "flex",
                                       alignItems: "center",
@@ -2913,10 +2900,10 @@ function OTDepartment() {
                   </div>
                   <div style={{
                     textAlign: "center",
-                    padding: "10px",
+                    padding: "6px",
                     background: "#f0f0f0",
                     borderTop: "2px solid #000000",
-                    fontSize: "10px",
+                    fontSize: isMobile ? "8px" : "10px",
                     color: "#000000"
                   }}>
                     Internal Asset List • {filteredAndSortedEquipment.length} item(s) total
@@ -2948,7 +2935,7 @@ function OTDepartment() {
           <div
             style={{
               background: 'white',
-              padding: '40px',
+              padding: isMobile ? "24px" : "40px",
               borderRadius: '20px',
               textAlign: 'center',
               maxWidth: '90%',
@@ -2960,11 +2947,11 @@ function OTDepartment() {
               onClick={() => setShowQRModal(false)}
               style={{
                 position: 'absolute',
-                top: '12px',
-                right: '16px',
+                top: '8px',
+                right: '12px',
                 background: 'none',
                 border: 'none',
-                fontSize: '24px',
+                fontSize: isMobile ? "18px" : "24px",
                 cursor: 'pointer',
                 color: '#999'
               }}
@@ -2972,37 +2959,37 @@ function OTDepartment() {
               ✕
             </button>
 
-            <h3 style={{ marginBottom: '5px', color: '#004d32', marginTop: '0' }}>
+            <h3 style={{ marginBottom: '4px', color: '#004d32', marginTop: '0', fontSize: isMobile ? "16px" : "20px" }}>
               📋 {selectedListName || "Instrument Set"}
             </h3>
-            <p style={{ fontSize: '12px', color: '#666', marginBottom: '20px' }}>
+            <p style={{ fontSize: isMobile ? "10px" : "12px", color: '#666', marginBottom: '16px' }}>
               {selectedDeptName || "Department"} • Scan this QR to view equipment list only
             </p>
 
             <QRCodeCanvas
               value={getQRUrl()}
-              size={280}
+              size={isMobile ? 180 : 280}
               level="H"
               includeMargin={true}
               bgColor="#ffffff"
               fgColor="#006341"
             />
 
-            <p style={{ fontSize: '11px', color: '#999', marginTop: '15px', wordBreak: 'break-all' }}>
+            <p style={{ fontSize: isMobile ? "9px" : "11px", color: '#999', marginTop: '12px', wordBreak: 'break-all' }}>
               {getQRUrl()}
             </p>
 
             <button
               onClick={() => setShowQRModal(false)}
               style={{
-                marginTop: '15px',
-                padding: '8px 30px',
+                marginTop: '12px',
+                padding: isMobile ? "6px 18px" : "8px 30px",
                 background: '#006341',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
                 cursor: 'pointer',
-                fontSize: '14px'
+                fontSize: isMobile ? "13px" : "14px"
               }}
             >
               Close
