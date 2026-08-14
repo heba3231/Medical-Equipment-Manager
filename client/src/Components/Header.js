@@ -24,7 +24,9 @@ function Header({ user, onLogout }) {
   const location = useLocation();
   const isActive = (path) => location.pathname === path;
   const [deptOpen, setDeptOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const dropRef = useRef(null);
+  const menuRef = useRef(null);
 
   const handleLogout = () => {
     onLogout();
@@ -37,9 +39,23 @@ function Header({ user, onLogout }) {
       if (dropRef.current && !dropRef.current.contains(e.target)) {
         setDeptOpen(false);
       }
+      if (menuRef.current && !menuRef.current.contains(e.target) && window.innerWidth <= 768) {
+        setMenuOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  // Close menu on window resize to desktop
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 768) {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   return (
@@ -61,33 +77,51 @@ function Header({ user, onLogout }) {
           </div>
         </div>
 
+        {/* Hamburger Menu (visible on mobile) */}
+        <button
+          className="hamburger-btn"
+          onClick={() => setMenuOpen(!menuOpen)}
+          aria-label="Toggle menu"
+          style={{
+            display: "none", // يتم التحكم به عبر CSS
+            background: "none",
+            border: "none",
+            color: "white",
+            fontSize: "28px",
+            cursor: "pointer",
+            padding: "4px 8px",
+          }}
+        >
+          ☰
+        </button>
+
         {/* Navigation */}
-        <nav className="header-nav">
+        <nav className={`header-nav ${menuOpen ? "mobile-open" : ""}`} ref={menuRef}>
           {/* Home Button */}
           {user && (
             <button
               className={`nav-btn ${isActive("/") ? "active" : ""}`}
-              onClick={() => navigate("/")}
+              onClick={() => { navigate("/"); setMenuOpen(false); }}
             >
               Home
             </button>
           )}
 
-          {/* Search Instrument Button - نفس ستايل الأزرار */}
+          {/* Search Instrument Button */}
           {user && (
             <button
               className={`nav-btn ${location.pathname === "/ai-search" ? "active" : ""}`}
-              onClick={() => navigate("/ai-search")}
+              onClick={() => { navigate("/ai-search"); setMenuOpen(false); }}
             >
               🔍 Search Instrument
             </button>
           )}
 
-          {/* OT Department Button - نفس ستايل الأزرار */}
+          {/* OT Department Button */}
           {user && (
             <button
               className={`nav-btn ${location.pathname === "/ot-enhanced" ? "active" : ""}`}
-              onClick={() => navigate("/ot-enhanced")}
+              onClick={() => { navigate("/ot-enhanced"); setMenuOpen(false); }}
             >
               🏥 OT Department
             </button>
@@ -97,7 +131,7 @@ function Header({ user, onLogout }) {
           {user && (
             <button
               className={`nav-btn ${location.pathname.startsWith("/ot") && location.pathname !== "/ot-enhanced" ? "active" : ""}`}
-              onClick={() => navigate("/ot")}
+              onClick={() => { navigate("/ot"); setMenuOpen(false); }}
             >
               OT Dept
             </button>
@@ -134,7 +168,7 @@ function Header({ user, onLogout }) {
                       <button
                         key={i}
                         className={`dept-dropdown-item ${location.pathname === d.path ? "dept-item-active" : ""}`}
-                        onClick={() => { navigate(d.path); setDeptOpen(false); }}
+                        onClick={() => { navigate(d.path); setDeptOpen(false); setMenuOpen(false); }}
                       >
                         {d.name}
                       </button>
@@ -149,7 +183,7 @@ function Header({ user, onLogout }) {
           {user?.role === "admin" && (
             <button
               className={`nav-btn ${isActive("/dashboard") ? "active" : ""}`}
-              onClick={() => navigate("/dashboard")}
+              onClick={() => { navigate("/dashboard"); setMenuOpen(false); }}
             >
               Dashboard
             </button>
@@ -183,6 +217,129 @@ function Header({ user, onLogout }) {
         </div>
 
       </div>
+
+      {/* أنماط إضافية للهيدر المتجاوب (تضاف مباشرة هنا لتكون مع المكون) */}
+      <style>{`
+        /* إظهار زر الهامبرغر على الشاشات الصغيرة */
+        @media (max-width: 768px) {
+          .hamburger-btn {
+            display: block !important;
+          }
+          .header-nav {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #006341;
+            flex-direction: column;
+            align-items: stretch;
+            padding: 16px;
+            gap: 6px;
+            border-top: 2px solid #c9a84c;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+            transform: scaleY(0);
+            transform-origin: top;
+            transition: transform 0.25s ease;
+            pointer-events: none;
+            border-radius: 0 0 12px 12px;
+            z-index: 999;
+          }
+          .header-nav.mobile-open {
+            transform: scaleY(1);
+            pointer-events: auto;
+          }
+          .header-nav .nav-btn {
+            width: 100%;
+            justify-content: center;
+            padding: 10px;
+            font-size: 15px;
+            border-radius: 8px;
+          }
+          .header-nav .dept-dropdown-wrap {
+            width: 100%;
+          }
+          .header-nav .dept-dropdown-wrap .dept-nav-btn {
+            width: 100%;
+            justify-content: center;
+          }
+          .dept-dropdown {
+            position: static !important;
+            transform: none !important;
+            width: 100% !important;
+            min-width: auto !important;
+            margin-top: 6px;
+            box-shadow: none;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.08);
+            backdrop-filter: blur(4px);
+          }
+          .dept-dropdown .dept-dropdown-header {
+            color: #c9a84c;
+            border-bottom-color: rgba(255,255,255,0.15);
+          }
+          .dept-dropdown .dept-dropdown-item {
+            background: rgba(255,255,255,0.06);
+            color: #fff;
+            border-color: rgba(255,255,255,0.1);
+          }
+          .dept-dropdown .dept-dropdown-item:hover {
+            background: #c9a84c;
+            color: #004d32;
+          }
+          .dept-dropdown .dept-item-active {
+            background: #c9a84c;
+            color: #004d32;
+          }
+          .header-actions {
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 6px;
+          }
+          .user-info .user-name {
+            font-size: 12px;
+          }
+          .header-btn {
+            padding: 5px 12px;
+            font-size: 12px;
+          }
+        }
+
+        /* تحسينات إضافية للشاشات الصغيرة جداً */
+        @media (max-width: 480px) {
+          .header-container {
+            padding: 0 10px;
+          }
+          .header-left img {
+            width: 180px !important;
+            height: 90px !important;
+          }
+          .header-actions .user-info {
+            padding: 3px 8px;
+          }
+          .header-actions .user-role-badge {
+            font-size: 8px;
+            padding: 1px 5px;
+          }
+          .header-actions .user-name {
+            font-size: 11px;
+          }
+          .header-btn {
+            font-size: 11px;
+            padding: 4px 10px;
+          }
+          .header-nav .nav-btn {
+            font-size: 13px;
+            padding: 8px;
+          }
+        }
+
+        /* تحسين مظهر الهامبرغر على الشاشات الكبيرة (يختفي) */
+        @media (min-width: 769px) {
+          .hamburger-btn {
+            display: none !important;
+          }
+        }
+      `}</style>
     </header>
   );
 }
