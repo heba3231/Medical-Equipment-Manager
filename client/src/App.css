@@ -164,7 +164,7 @@ html { scroll-behavior: smooth; }
 
 .dept-dropdown-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
 
@@ -208,8 +208,8 @@ html { scroll-behavior: smooth; }
   .dept-dropdown-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 600px) {
-  .header-nav { width: 100%; justify-content: center; flex-wrap: wrap; }
-  .header-actions { width: 100%; justify-content: center; flex-wrap: wrap; }
+  .header-nav { width: 100%; justify-content: center; }
+  .header-actions { width: 100%; justify-content: center; }
   .dept-dropdown { min-width: calc(100vw - 28px); left: 50%; transform: translateX(-50%); }
 }
 @media (max-width: 480px) {
@@ -244,7 +244,7 @@ html { scroll-behavior: smooth; }
 }
 
 .footer-copyright { color: rgba(255,255,255,0.65); font-size: 13px; }
-.footer-links { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.footer-links { display: flex; align-items: center; gap: 16px; }
 .footer-stat { color: rgba(255,255,255,0.4); font-size: 12px; }
 .footer-admin-section { margin-top: 4px; }
 
@@ -298,7 +298,7 @@ html { scroll-behavior: smooth; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 6px; /* تقليل المسافة بين العناصر */
 }
 
 .auth-brand img {
@@ -315,14 +315,14 @@ html { scroll-behavior: smooth; }
 }
 
 .auth-brand-sub {
-  font-size: 15px;
+  font-size: 15px; /* كان 13px */
   color: rgba(255,255,255,0.80);
   margin-bottom: 0;
   font-weight: 500;
 }
 
 .auth-brand-hospital {
-  font-size: 14px;
+  font-size: 14px; /* كان 12px */
   color: #c9a84c;
   font-weight: 700;
   padding: 5px 16px;
@@ -641,7 +641,7 @@ html { scroll-behavior: smooth; }
   width: 100%;
   max-width: 1140px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   padding: 32px 40px 0;
   animation: slideInUp 0.6s ease-out both;
@@ -732,7 +732,7 @@ html { scroll-behavior: smooth; }
 
 .cards-container {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 14px;
   width: 100%;
   max-width: 1140px;
@@ -802,11 +802,11 @@ html { scroll-behavior: smooth; }
 
 @media (max-width: 900px) {
   .home-hero { padding: 40px 28px; flex-direction: column; gap: 28px; }
-  .home-hero-visual { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+  .home-hero-visual { flex-direction: row; }
   .home-hero-title { font-size: 30px; }
   .home-features { padding: 24px 20px 0; gap: 12px; }
   .home-dept-section { padding: 24px 20px 0; }
-  .cards-container { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .cards-container { grid-template-columns: repeat(2, 1fr); gap: 12px; }
   .home-title { font-size: 28px; }
 }
 
@@ -816,7 +816,6 @@ html { scroll-behavior: smooth; }
   .home-hero-visual { flex-wrap: wrap; justify-content: center; }
   .home-features { grid-template-columns: 1fr; padding: 18px 14px 0; }
   .home-dept-section { padding: 18px 14px 0; }
-  .cards-container { grid-template-columns: 1fr; gap: 10px; }
 }
 
 @media (max-width: 480px) {
@@ -994,6 +993,7 @@ button, .card, .action-btn, .add-equipment-btn,
 
 
 
+
 /* WHY DETAILS SECTION */
 .why-details {
   display: grid;
@@ -1149,7 +1149,7 @@ button, .card, .action-btn, .add-equipment-btn,
   width: 100%;
   max-width: 1140px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   padding: 32px 40px 0;
 }
@@ -1205,6 +1205,12 @@ button, .card, .action-btn, .add-equipment-btn,
     transform: none;
   }
 }
+
+
+
+
+
+
 
 
 
@@ -1974,6 +1980,16 @@ button, .card, .action-btn, .add-equipment-btn,
 
 
 
+
+
+
+
+
+
+
+
+
+
 /**
  * أنماط مكون نظام التحقق من الأدوات
   * EquipmentChecklist.js
@@ -2019,7 +2035,7 @@ button, .card, .action-btn, .add-equipment-btn,
 /* الإحصائيات */
 .statistics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 20px;
   margin-bottom: 30px;
 }
@@ -2376,7 +2392,7 @@ button, .card, .action-btn, .add-equipment-btn,
   }
 
   .statistics {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .controls {
@@ -2389,7 +2405,6 @@ button, .card, .action-btn, .add-equipment-btn,
 
   .button-group {
     width: 100%;
-    justify-content: stretch;
   }
 
   .btn {
@@ -2411,20 +2426,6 @@ button, .card, .action-btn, .add-equipment-btn,
   }
 }
 
-@media (max-width: 480px) {
-  .statistics {
-    grid-template-columns: 1fr;
-  }
-
-  .button-group {
-    flex-direction: column;
-  }
-
-  .btn {
-    width: 100%;
-  }
-}
-
 /* حالة التحميل */
 .loading {
   text-align: center;
@@ -2432,7 +2433,6 @@ button, .card, .action-btn, .add-equipment-btn,
   color: #666;
   font-size: 18px;
 }
-
 
 
 
@@ -2487,7 +2487,7 @@ button, .card, .action-btn, .add-equipment-btn,
 /* الحاوية الرئيسية */
 .ot-container {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 300px 1fr;
   gap: 20px;
   max-width: 1400px;
   margin: 0 auto;
@@ -2645,7 +2645,7 @@ button, .card, .action-btn, .add-equipment-btn,
 }
 
 .sets-container.grid {
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 }
 
 .sets-container.list {
@@ -2881,11 +2881,11 @@ button, .card, .action-btn, .add-equipment-btn,
 /* استجابة الهاتف */
 @media (max-width: 1024px) {
   .ot-container {
-    grid-template-columns: 240px 1fr;
+    grid-template-columns: 250px 1fr;
   }
 
   .sets-container.grid {
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   }
 }
 
@@ -2935,35 +2935,7 @@ button, .card, .action-btn, .add-equipment-btn,
   }
 }
 
-@media (max-width: 480px) {
-  .ot-department-enhanced {
-    padding: 10px;
-  }
 
-  .ot-main-content {
-    padding: 16px;
-  }
-
-  .surgery-details h2 {
-    font-size: 18px;
-  }
-
-  .set-image {
-    width: 80px;
-    height: 80px;
-  }
-
-  .view-controls {
-    flex-wrap: wrap;
-  }
-
-  .view-btn {
-    flex: 1;
-    min-width: 80px;
-    padding: 8px 12px;
-    font-size: 12px;
-  }
-}
 
 
 
@@ -3132,7 +3104,6 @@ button, .card, .action-btn, .add-equipment-btn,
   border-bottom: 2px solid #e5ede9;
   padding: 0 8px;
   gap: 4px;
-  flex-wrap: wrap;
 }
 
 .tab {
@@ -3260,7 +3231,7 @@ button, .card, .action-btn, .add-equipment-btn,
 /* ----- Images Tab (مثل شبكة البطاقات) ----- */
 .images-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 18px;
 }
 
@@ -3508,4 +3479,84 @@ button, .card, .action-btn, .add-equipment-btn,
 /* تحسين التمرير */
 .ai-instrument-search * {
   -webkit-tap-highlight-color: transparent;
+}
+
+
+/* ================================================================
+   ✅ إضافة جديدة: طبقة استجابة موحّدة (لابتوب / تاب / موبايل)
+   ================================================================
+   نظام نقاط التوقف الموحّد المستخدم في كل الملف:
+   - Desktop / لابتوب كبير  : أكبر من 1280px  (الوضع الافتراضي أعلاه)
+   - Laptop صغير            : 1025px - 1280px
+   - Tablet / تاب            : 768px  - 1024px
+   - Mobile كبير / تاب صغير  : 481px  - 767px
+   - Mobile / موبايل         : 480px فأقل
+
+   الهدف من هذا القسم: إضافة نقطة توقف "لابتوب/تاب" (1024px) لم تكن
+   موجودة لبعض المكونات، بحيث يتغيّر التخطيط تدريجياً بدل القفز مباشرة
+   من ديسكتوب لموبايل. هذا القسم لا يلغي أي شيء فوق، فقط يضيف/يهذّب.
+   ================================================================ */
+
+/* ---------- لابتوب صغير (1025px - 1280px): تصغير هوامش الحاوية ---------- */
+@media (max-width: 1280px) {
+  .header-container { padding: 0 20px; }
+  .home-hero { padding: 50px 40px 48px; }
+  .home-features { padding: 28px 28px 0; }
+  .home-dept-section { padding: 26px 28px 0; }
+  .cards-container { max-width: 100%; }
+}
+
+/* ---------- تاب / لابتوب صغير جداً (≤1024px) ---------- */
+@media (max-width: 1024px) {
+  /* الهيدر: تصغير التنقل قليلاً بدل الانتقال المباشر لوضع الموبايل */
+  .header-container { height: auto; padding: 10px 18px; flex-wrap: wrap; gap: 10px; }
+  .header-nav { flex-wrap: wrap; justify-content: center; }
+  .nav-btn { padding: 6px 13px; font-size: 13px; }
+  .dept-dropdown-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* صفحات الدخول: تقليل عرض العمود الجانبي */
+  .auth-page-left { width: 260px; padding: 38px 22px; }
+  .auth-brand-name { font-size: 22px; }
+  .auth-page-right { padding: 30px 24px; }
+
+  /* الصفحة الرئيسية */
+  .home-hero { flex-direction: column; align-items: flex-start; gap: 26px; padding: 44px 30px; }
+  .home-hero-visual { flex-direction: row; width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .home-hero-title { font-size: 32px; }
+  .home-features { grid-template-columns: repeat(2, 1fr); padding: 26px 24px 0; }
+  .cards-container { grid-template-columns: repeat(2, 1fr); }
+
+  /* بطاقات ميزات إضافية */
+  .why-details { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); padding: 26px 18px 44px; }
+
+  /* شبكات الأقسام الطبية (OT / أدوات) */
+  .ot-container { grid-template-columns: 220px 1fr; gap: 16px; }
+  .surgeries-sidebar { padding: 16px; }
+  .sets-container.grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+
+  /* البحث الذكي عن الأدوات */
+  .ai-instrument-search { margin: 24px; }
+  .images-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+
+  /* الإحصائيات في قائمة التحقق */
+  .statistics { grid-template-columns: repeat(2, 1fr); }
+  .equipment-item { flex-wrap: wrap; }
+}
+
+/* ---------- تاب عمودي / موبايل كبير (768px وأقل) — تدعيم إضافي ---------- */
+@media (max-width: 768px) {
+  .home-features { grid-template-columns: 1fr; }
+  .cards-container { grid-template-columns: 1fr 1fr; }
+  .ot-container { grid-template-columns: 1fr; }
+  .statistics { grid-template-columns: 1fr 1fr; }
+  .why-details { grid-template-columns: 1fr 1fr; gap: 14px; }
+}
+
+/* ---------- موبايل (≤480px) — لمسات أخيرة موحّدة ---------- */
+@media (max-width: 480px) {
+  .cards-container { grid-template-columns: 1fr; }
+  .statistics { grid-template-columns: 1fr; }
+  .why-details { grid-template-columns: 1fr; }
+  .home-features { padding: 16px 12px 0; }
+  .ai-instrument-search { margin: 10px; }
 }
