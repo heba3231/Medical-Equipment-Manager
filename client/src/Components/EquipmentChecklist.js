@@ -4,7 +4,7 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 
 const API_BASE = `http://${window.location.hostname}:5000/api`;
 
-// ✅ Hook للاستجابة
+// ✅ Hook للاستجابة (محسّن)
 function useWindowSize() {
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   useEffect(() => {
@@ -33,8 +33,11 @@ function EquipmentChecklist() {
   const printRef = useRef();
 
   const { width } = useWindowSize();
-  const isMobile = width < 768;
-  const isTablet = width < 1024 && width >= 768;
+  // نقاط قطع أكثر دقة
+  const isMobile = width < 640;
+  const isTablet = width < 1024 && width >= 640;
+  // حجم الخط الأساسي حسب الجهاز
+  const baseFontSize = isMobile ? '12px' : isTablet ? '13px' : '14px';
 
   useEffect(() => {
     if (!listId) {
@@ -268,13 +271,13 @@ function EquipmentChecklist() {
 
   if (error) {
     return (
-      <div style={{ textAlign: 'center', padding: '60px', maxWidth: '600px', margin: '0 auto' }}>
-        <div style={{ fontSize: '48px', marginBottom: '20px' }}>❌</div>
-        <h2 style={{ color: '#dc2626', marginBottom: '10px' }}>Error</h2>
-        <p style={{ color: '#6b7280', marginBottom: '20px' }}>{error}</p>
+      <div style={{ textAlign: 'center', padding: isMobile ? '30px' : '60px', maxWidth: '600px', margin: '0 auto' }}>
+        <div style={{ fontSize: isMobile ? '36px' : '48px', marginBottom: '20px' }}>❌</div>
+        <h2 style={{ color: '#dc2626', marginBottom: '10px', fontSize: isMobile ? '18px' : '24px' }}>Error</h2>
+        <p style={{ color: '#6b7280', marginBottom: '20px', fontSize: baseFontSize }}>{error}</p>
         <button 
           onClick={() => window.history.back()} 
-          style={{ padding: '10px 24px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+          style={{ padding: isMobile ? '8px 16px' : '10px 24px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: baseFontSize }}
         >
           Go Back
         </button>
@@ -284,9 +287,9 @@ function EquipmentChecklist() {
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: '60px' }}>
-        <div style={{ width: '40px', height: '40px', border: '3px solid #e5ede9', borderTop: '3px solid #006341', borderRadius: '50%', animation: 'spin 0.7s linear infinite', margin: '0 auto 16px' }}></div>
-        <p>Loading checklist...</p>
+      <div style={{ textAlign: 'center', padding: isMobile ? '30px' : '60px' }}>
+        <div style={{ width: isMobile ? '30px' : '40px', height: isMobile ? '30px' : '40px', border: '3px solid #e5ede9', borderTop: '3px solid #006341', borderRadius: '50%', animation: 'spin 0.7s linear infinite', margin: '0 auto 16px' }}></div>
+        <p style={{ fontSize: baseFontSize }}>Loading checklist...</p>
         <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
       </div>
     );
@@ -294,15 +297,15 @@ function EquipmentChecklist() {
 
   if (equipment.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '60px', maxWidth: '600px', margin: '0 auto' }}>
-        <div style={{ fontSize: '48px', marginBottom: '20px' }}>📋</div>
-        <h2 style={{ color: '#004d32', marginBottom: '10px' }}>No Equipment Found</h2>
-        <p style={{ color: '#6b7280', marginBottom: '20px' }}>
+      <div style={{ textAlign: 'center', padding: isMobile ? '30px' : '60px', maxWidth: '600px', margin: '0 auto' }}>
+        <div style={{ fontSize: isMobile ? '36px' : '48px', marginBottom: '20px' }}>📋</div>
+        <h2 style={{ color: '#004d32', marginBottom: '10px', fontSize: isMobile ? '18px' : '24px' }}>No Equipment Found</h2>
+        <p style={{ color: '#6b7280', marginBottom: '20px', fontSize: baseFontSize }}>
           This list has no equipment items yet. Please ask the admin to add equipment to this list.
         </p>
         <button 
           onClick={() => window.history.back()} 
-          style={{ padding: '10px 24px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+          style={{ padding: isMobile ? '8px 16px' : '10px 24px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: baseFontSize }}
         >
           Go Back
         </button>
@@ -311,16 +314,29 @@ function EquipmentChecklist() {
   }
 
   return (
-    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '1200px', margin: '0 auto' }}>
+    <div style={{ 
+      padding: isMobile ? '8px' : isTablet ? '16px' : '24px', 
+      maxWidth: '1200px', 
+      margin: '0 auto',
+      fontSize: baseFontSize
+    }}>
       {/* Header */}
-      <div style={{ marginBottom: '20px' }}>
-        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: '10px', marginBottom: '12px' }}>
+      <div style={{ marginBottom: isMobile ? '12px' : '20px' }}>
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: isMobile ? 'column' : 'row', 
+          justifyContent: 'space-between', 
+          alignItems: isMobile ? 'stretch' : 'center', 
+          gap: isMobile ? '6px' : '10px', 
+          marginBottom: isMobile ? '8px' : '12px' 
+        }}>
           <button
             onClick={() => window.history.back()}
             style={{
               background: 'none', border: 'none', color: '#006341',
-              fontSize: isMobile ? '13px' : '14px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: '6px'
+              fontSize: isMobile ? '12px' : '14px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: isMobile ? '4px 0' : '0'
             }}
           >
             ← Back
@@ -330,24 +346,45 @@ function EquipmentChecklist() {
             onClick={handlePrint}
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
-              padding: isMobile ? '8px 14px' : '10px 20px',
+              padding: isMobile ? '6px 12px' : '10px 20px',
               background: '#c9a84c', color: '#004d32',
               border: 'none', borderRadius: '8px', cursor: 'pointer',
-              fontSize: isMobile ? '12px' : '14px', fontWeight: '600'
+              fontSize: isMobile ? '11px' : '14px', fontWeight: '600',
+              alignSelf: isMobile ? 'stretch' : 'auto',
+              justifyContent: 'center'
             }}
           >
             🖨️ Print Checklist
           </button>
         </div>
         
-        <div style={{ borderBottom: '2px solid #d0e8dc', paddingBottom: '12px' }}>
-          <h1 style={{ fontSize: isMobile ? '22px' : '28px', color: '#004d32', margin: '0 0 4px 0' }}>
+        <div style={{ borderBottom: '2px solid #d0e8dc', paddingBottom: isMobile ? '8px' : '12px' }}>
+          <h1 style={{ 
+            fontSize: isMobile ? '20px' : isTablet ? '24px' : '28px', 
+            color: '#004d32', 
+            margin: '0 0 2px 0' 
+          }}>
             📋 Equipment Checklist
           </h1>
-          <h2 style={{ fontSize: isMobile ? '17px' : '20px', color: '#006341', margin: '0 0 4px 0' }}>{listName}</h2>
-          <p style={{ color: '#6a8a7a', margin: 0, fontSize: isMobile ? '13px' : '14px' }}>Department: {deptName || deptCode}</p>
+          <h2 style={{ 
+            fontSize: isMobile ? '15px' : isTablet ? '18px' : '20px', 
+            color: '#006341', 
+            margin: '0 0 2px 0' 
+          }}>{listName}</h2>
+          <p style={{ 
+            color: '#6a8a7a', 
+            margin: 0, 
+            fontSize: isMobile ? '12px' : '14px' 
+          }}>Department: {deptName || deptCode}</p>
           {submitted && submissionData && (
-            <div style={{ marginTop: '10px', padding: '8px 12px', background: '#d1fae5', borderRadius: '8px', color: '#065f46', fontSize: '13px' }}>
+            <div style={{ 
+              marginTop: isMobile ? '6px' : '10px', 
+              padding: isMobile ? '6px 10px' : '8px 12px', 
+              background: '#d1fae5', 
+              borderRadius: '8px', 
+              color: '#065f46', 
+              fontSize: isMobile ? '11px' : '13px' 
+            }}>
               ✅ Already submitted on: {new Date(submissionData.submittedAt).toLocaleString()} by {submissionData.submittedBy}
             </div>
           )}
@@ -359,16 +396,41 @@ function EquipmentChecklist() {
 
       {/* Controls */}
       {!submitted && (
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div style={{ 
+          display: 'flex', 
+          gap: isMobile ? '6px' : '10px', 
+          marginBottom: isMobile ? '10px' : '16px', 
+          flexWrap: 'wrap' 
+        }}>
           <button 
             onClick={handleSelectAll} 
-            style={{ padding: isMobile ? '8px 14px' : '10px 20px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '12px' : '14px' }}
+            style={{ 
+              padding: isMobile ? '6px 12px' : '10px 20px', 
+              background: '#006341', 
+              color: 'white', 
+              border: 'none', 
+              borderRadius: '8px', 
+              cursor: 'pointer', 
+              fontWeight: '600', 
+              fontSize: isMobile ? '11px' : '14px',
+              flex: isMobile ? '1 1 auto' : 'none'
+            }}
           >
             ✓ Select All
           </button>
           <button 
             onClick={handleClearAll} 
-            style={{ padding: isMobile ? '8px 14px' : '10px 20px', background: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '12px' : '14px' }}
+            style={{ 
+              padding: isMobile ? '6px 12px' : '10px 20px', 
+              background: '#e5e7eb', 
+              color: '#374151', 
+              border: 'none', 
+              borderRadius: '8px', 
+              cursor: 'pointer', 
+              fontWeight: '600', 
+              fontSize: isMobile ? '11px' : '14px',
+              flex: isMobile ? '1 1 auto' : 'none'
+            }}
           >
             ✗ Clear All
           </button>
@@ -377,28 +439,82 @@ function EquipmentChecklist() {
 
       {/* Progress */}
       {!submitted && (
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: isMobile ? '12px' : '14px', color: '#4b5563' }}>
+        <div style={{ marginBottom: isMobile ? '12px' : '20px' }}>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            marginBottom: '4px', 
+            fontSize: isMobile ? '11px' : '14px', 
+            color: '#4b5563' 
+          }}>
             <span>📊 Progress: {checkedCount} / {totalCount} items checked</span>
             <span>{Math.round(completionPercentage)}%</span>
           </div>
-          <div style={{ height: '8px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${completionPercentage}%`, background: '#006341', borderRadius: '4px', transition: 'width 0.3s ease' }}></div>
+          <div style={{ 
+            height: isMobile ? '6px' : '8px', 
+            background: '#e5e7eb', 
+            borderRadius: '4px', 
+            overflow: 'hidden' 
+          }}>
+            <div style={{ 
+              height: '100%', 
+              width: `${completionPercentage}%`, 
+              background: '#006341', 
+              borderRadius: '4px', 
+              transition: 'width 0.3s ease' 
+            }}></div>
           </div>
         </div>
       )}
 
       {/* Equipment Table */}
-      <div style={{ overflowX: 'auto', marginBottom: '20px', borderRadius: '12px', border: '1px solid #d0e8dc' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', minWidth: isMobile ? '600px' : 'auto' }}>
+      <div style={{ 
+        overflowX: 'auto', 
+        marginBottom: isMobile ? '12px' : '20px', 
+        borderRadius: '12px', 
+        border: '1px solid #d0e8dc',
+        WebkitOverflowScrolling: 'touch' // للتمرير السلس على iOS
+      }}>
+        <table style={{ 
+          width: '100%', 
+          borderCollapse: 'collapse', 
+          background: 'white', 
+          minWidth: isMobile ? '480px' : 'auto',
+          fontSize: isMobile ? '12px' : '14px'
+        }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '2px solid #d0e8dc' }}>
-              <th style={{ width: '40px', padding: isMobile ? '10px 6px' : '16px', textAlign: 'center', fontSize: isMobile ? '12px' : '14px' }}>✓</th>
-              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'left', fontSize: isMobile ? '12px' : '14px' }}>Image</th>
-              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'left', fontSize: isMobile ? '12px' : '14px' }}>Equipment Name</th>
-              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'left', fontSize: isMobile ? '12px' : '14px' }}>Code</th>
-              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'center', fontSize: isMobile ? '12px' : '14px' }}>Qty</th>
-              <th style={{ padding: isMobile ? '10px 6px' : '16px', textAlign: 'left', fontSize: isMobile ? '12px' : '14px' }}>Status</th>
+              <th style={{ 
+                width: isMobile ? '32px' : '40px', 
+                padding: isMobile ? '6px 4px' : '16px', 
+                textAlign: 'center',
+                fontSize: isMobile ? '11px' : '14px'
+              }}>✓</th>
+              <th style={{ 
+                padding: isMobile ? '6px 4px' : '16px', 
+                textAlign: 'left',
+                fontSize: isMobile ? '11px' : '14px'
+              }}>Image</th>
+              <th style={{ 
+                padding: isMobile ? '6px 4px' : '16px', 
+                textAlign: 'left',
+                fontSize: isMobile ? '11px' : '14px'
+              }}>Equipment Name</th>
+              <th style={{ 
+                padding: isMobile ? '6px 4px' : '16px', 
+                textAlign: 'left',
+                fontSize: isMobile ? '11px' : '14px'
+              }}>Code</th>
+              <th style={{ 
+                padding: isMobile ? '6px 4px' : '16px', 
+                textAlign: 'center',
+                fontSize: isMobile ? '11px' : '14px'
+              }}>Qty</th>
+              <th style={{ 
+                padding: isMobile ? '6px 4px' : '16px', 
+                textAlign: 'left',
+                fontSize: isMobile ? '11px' : '14px'
+              }}>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -408,41 +524,69 @@ function EquipmentChecklist() {
               
               return (
                 <tr key={itemId} style={{ borderBottom: '1px solid #e5e7eb', background: isChecked ? '#f0fdf4' : 'white' }}>
-                  <td style={{ padding: isMobile ? '8px 4px' : '12px', textAlign: 'center' }}>
+                  <td style={{ padding: isMobile ? '4px 2px' : '12px', textAlign: 'center' }}>
                     <input
                       type="checkbox"
                       checked={isChecked}
                       onChange={() => handleCheck(itemId)}
                       disabled={submitted}
                       style={{ 
-                        width: isMobile ? '18px' : '20px', 
-                        height: isMobile ? '18px' : '20px', 
+                        width: isMobile ? '16px' : '20px', 
+                        height: isMobile ? '16px' : '20px', 
                         cursor: submitted ? 'not-allowed' : 'pointer',
-                        transform: isMobile ? 'scale(1)' : 'scale(1.2)'
+                        transform: isMobile ? 'scale(0.9)' : 'scale(1.2)'
                       }}
                     />
                   </td>
-                  <td style={{ padding: isMobile ? '8px 4px' : '12px' }}>
+                  <td style={{ padding: isMobile ? '4px 2px' : '12px' }}>
                     {item.image ? (
-                      <img src={item.image} alt={item.name} style={{ width: isMobile ? '30px' : '40px', height: isMobile ? '30px' : '40px', objectFit: 'cover', borderRadius: '8px' }} />
+                      <img src={item.image} alt={item.name} style={{ 
+                        width: isMobile ? '24px' : '40px', 
+                        height: isMobile ? '24px' : '40px', 
+                        objectFit: 'cover', 
+                        borderRadius: '6px' 
+                      }} />
                     ) : (
-                      <div style={{ width: isMobile ? '30px' : '40px', height: isMobile ? '30px' : '40px', background: '#f3f4f6', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isMobile ? '16px' : '20px' }}>📷</div>
+                      <div style={{ 
+                        width: isMobile ? '24px' : '40px', 
+                        height: isMobile ? '24px' : '40px', 
+                        background: '#f3f4f6', 
+                        borderRadius: '6px', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        fontSize: isMobile ? '14px' : '20px' 
+                      }}>📷</div>
                     )}
                   </td>
-                  <td style={{ padding: isMobile ? '8px 4px' : '12px', fontWeight: '500', fontSize: isMobile ? '13px' : '14px' }}>
+                  <td style={{ 
+                    padding: isMobile ? '4px 2px' : '12px', 
+                    fontWeight: '500',
+                    fontSize: isMobile ? '11px' : '14px'
+                  }}>
                     {item.name}
-                    {isChecked && <span style={{ color: '#006341', marginLeft: '6px', fontWeight: 'bold' }}>✓</span>}
+                    {isChecked && <span style={{ color: '#006341', marginLeft: '4px', fontWeight: 'bold' }}>✓</span>}
                   </td>
-                  <td style={{ padding: isMobile ? '8px 4px' : '12px', color: '#6b7280', fontSize: isMobile ? '12px' : '14px' }}>{item.code || '—'}</td>
-                  <td style={{ padding: isMobile ? '8px 4px' : '12px', textAlign: 'center', fontSize: isMobile ? '13px' : '14px' }}>{item.quantity || 0}</td>
-                  <td style={{ padding: isMobile ? '8px 4px' : '12px' }}>
+                  <td style={{ 
+                    padding: isMobile ? '4px 2px' : '12px', 
+                    color: '#6b7280',
+                    fontSize: isMobile ? '10px' : '14px'
+                  }}>{item.code || '—'}</td>
+                  <td style={{ 
+                    padding: isMobile ? '4px 2px' : '12px', 
+                    textAlign: 'center',
+                    fontSize: isMobile ? '11px' : '14px'
+                  }}>{item.quantity || 0}</td>
+                  <td style={{ padding: isMobile ? '4px 2px' : '12px' }}>
                     <span style={{
-                      padding: isMobile ? '2px 8px' : '4px 12px',
+                      padding: isMobile ? '2px 6px' : '4px 12px',
                       borderRadius: '20px',
-                      fontSize: isMobile ? '10px' : '12px',
+                      fontSize: isMobile ? '9px' : '12px',
                       fontWeight: '600',
                       background: item.status === 'Available' ? '#d1fae5' : item.status === 'In Use' ? '#fed7aa' : item.status === 'Under Maintenance' ? '#fee2e2' : '#fef3c7',
-                      color: item.status === 'Available' ? '#065f46' : item.status === 'In Use' ? '#92400e' : item.status === 'Under Maintenance' ? '#991b1b' : '#92400e'
+                      color: item.status === 'Available' ? '#065f46' : item.status === 'In Use' ? '#92400e' : item.status === 'Under Maintenance' ? '#991b1b' : '#92400e',
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap'
                     }}>
                       {item.status || 'Available'}
                     </span>
@@ -455,19 +599,50 @@ function EquipmentChecklist() {
       </div>
 
       {/* Summary */}
-      <div style={{ padding: isMobile ? '12px' : '16px', background: '#f9fafb', borderRadius: '12px', marginBottom: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center', gap: '8px' }}>
+      <div style={{ 
+        padding: isMobile ? '10px' : '16px', 
+        background: '#f9fafb', 
+        borderRadius: '12px', 
+        marginBottom: isMobile ? '12px' : '16px' 
+      }}>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-around', 
+          textAlign: 'center', 
+          gap: isMobile ? '4px' : '8px' 
+        }}>
           <div>
-            <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#006341' }}>{checkedCount}</div>
-            <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#6b7280' }}>Checked</div>
+            <div style={{ 
+              fontSize: isMobile ? '20px' : isTablet ? '24px' : '28px', 
+              fontWeight: '700', 
+              color: '#006341' 
+            }}>{checkedCount}</div>
+            <div style={{ 
+              fontSize: isMobile ? '10px' : '12px', 
+              color: '#6b7280' 
+            }}>Checked</div>
           </div>
           <div>
-            <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#6b7280' }}>{totalCount - checkedCount}</div>
-            <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#6b7280' }}>Remaining</div>
+            <div style={{ 
+              fontSize: isMobile ? '20px' : isTablet ? '24px' : '28px', 
+              fontWeight: '700', 
+              color: '#6b7280' 
+            }}>{totalCount - checkedCount}</div>
+            <div style={{ 
+              fontSize: isMobile ? '10px' : '12px', 
+              color: '#6b7280' 
+            }}>Remaining</div>
           </div>
           <div>
-            <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#006341' }}>{totalCount}</div>
-            <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#6b7280' }}>Total</div>
+            <div style={{ 
+              fontSize: isMobile ? '20px' : isTablet ? '24px' : '28px', 
+              fontWeight: '700', 
+              color: '#006341' 
+            }}>{totalCount}</div>
+            <div style={{ 
+              fontSize: isMobile ? '10px' : '12px', 
+              color: '#6b7280' 
+            }}>Total</div>
           </div>
         </div>
       </div>
@@ -479,15 +654,16 @@ function EquipmentChecklist() {
             onClick={handleSubmit} 
             disabled={saving} 
             style={{ 
-              padding: isMobile ? '10px 20px' : '12px 32px', 
+              padding: isMobile ? '8px 16px' : '12px 32px', 
               background: '#006341', 
               color: 'white', 
               border: 'none', 
               borderRadius: '10px', 
-              fontSize: isMobile ? '14px' : '16px', 
+              fontSize: isMobile ? '13px' : '16px', 
               fontWeight: '600', 
               cursor: saving ? 'not-allowed' : 'pointer',
-              opacity: saving ? 0.7 : 1
+              opacity: saving ? 0.7 : 1,
+              width: isMobile ? '100%' : 'auto'
             }}
           >
             {saving ? '⏳ Submitting...' : '✅ Submit & Confirm'}
@@ -497,13 +673,30 @@ function EquipmentChecklist() {
 
       {/* Submitted Message */}
       {submitted && submissionData && (
-        <div style={{ marginTop: '20px', textAlign: 'center', padding: '16px', background: '#d1fae5', borderRadius: '10px', color: '#065f46' }}>
+        <div style={{ 
+          marginTop: isMobile ? '12px' : '20px', 
+          textAlign: 'center', 
+          padding: isMobile ? '12px' : '16px', 
+          background: '#d1fae5', 
+          borderRadius: '10px', 
+          color: '#065f46',
+          fontSize: isMobile ? '12px' : '14px'
+        }}>
           <p>✅ This checklist has been confirmed and submitted to OT Department.</p>
           <p>📅 Submitted on: {new Date(submissionData.submittedAt).toLocaleString()}</p>
           <p>👤 Submitted by: {submissionData.submittedBy}</p>
           <button 
             onClick={() => navigate('/ot-enhanced')}
-            style={{ marginTop: '10px', padding: '8px 18px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            style={{ 
+              marginTop: '8px', 
+              padding: isMobile ? '6px 14px' : '8px 18px', 
+              background: '#006341', 
+              color: 'white', 
+              border: 'none', 
+              borderRadius: '8px', 
+              cursor: 'pointer',
+              fontSize: isMobile ? '12px' : '14px'
+            }}
           >
             Go to OT Department →
           </button>
