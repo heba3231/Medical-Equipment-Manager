@@ -255,9 +255,77 @@ function EquipmentChecklist() {
     printWindow.onload = () => { printWindow.print(); };
   };
 
+  // ===================== REPORT SHORTAGE FUNCTION =====================
+  const handleReportShortage = async () => {
+    // جمع العناصر غير المحققة (مفقودة)
+    const missingItems = equipment.filter(item => {
+      const itemId = item._id.toString();
+      return !checkedItems[itemId];
+    });
+
+    if (missingItems.length === 0) {
+      alert('✅ All items are checked. No shortage to report.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `⚠️ You are about to report a shortage for ${missingItems.length} item(s).\n\n` +
+      missingItems.map(i => `- ${i.name} (${i.code || 'no code'})`).join('\n') +
+      '\n\n📢 This will notify the Operations Manager. Do you want to proceed?'
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    try {
+      const userName = localStorage.getItem("userName") ||
+                       JSON.parse(localStorage.getItem("user") || "{}")?.name ||
+                       "Staff";
+
+      const payload = {
+        listId,
+        deptCode,
+        listName,
+        deptName,
+        items: missingItems.map(item => ({
+          itemId: item._id.toString(),
+          name: item.name,
+          code: item.code || '',
+          quantity: item.quantity || 0,
+          present: 0,   // لأنها غير موجودة
+          damaged: false,
+          damagedQuantity: 0,
+          note: `Reported from checklist`
+        })),
+        reportedBy: userName,
+        notes: 'Shortage detected during routine checklist',
+        priority: 'high',
+        status: 'pending'
+      };
+
+      const response = await fetch(`${API_BASE}/shortage-reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        alert('✅ Shortage report sent to Operations Manager successfully!');
+      } else {
+        alert('❌ Error: ' + (data.message || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('Error reporting shortage:', err);
+      alert('❌ Network error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const checkedCount = Object.values(checkedItems).filter(v => v === true).length;
   const totalCount = equipment.length;
   const completionPercentage = totalCount > 0 ? (checkedCount / totalCount) * 100 : 0;
+  const allChecked = totalCount > 0 && checkedCount === totalCount;
 
   const statusStyle = (status) => ({
     background: status === 'Available' ? '#d1fae5' : status === 'In Use' ? '#fed7aa' : status === 'Under Maintenance' ? '#fee2e2' : '#fef3c7',
@@ -679,7 +747,7 @@ function EquipmentChecklist() {
         </div>
       </div>
 
-      {/* Submit — sticky bottom bar on mobile so it's always reachable with the thumb */}
+      {/* Submit & Report Shortage — sticky bottom bar on mobile */}
       {!submitted && (
         <div style={isMobile ? {
           position: 'fixed',
@@ -689,7 +757,10 @@ function EquipmentChecklist() {
           padding: '10px 12px calc(10px + env(safe-area-inset-bottom))',
           background: 'white',
           boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
-          zIndex: 20
+          zIndex: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px'
         } : { display: 'flex', justifyContent: 'center', gap: '12px' }}>
           <button
             onClick={handleSubmit}
@@ -709,6 +780,30 @@ function EquipmentChecklist() {
             }}
           >
             {saving ? '⏳ Submitting...' : '✅ Submit & Confirm'}
+          </button>
+
+          <button
+            onClick={handleReportShortage}
+            disabled={saving || allChecked}
+            style={{
+              padding: isMobile ? '13px 16px' : '12px 32px',
+              background: '#dc2626',
+              color: 'white',
+              border: 'none',
+              borderRadius: '10px',
+              fontSize: isMobile ? '14px' : '16px',
+              fontWeight: '600',
+              cursor: (saving || allChecked) ? 'not-allowed' : 'pointer',
+              opacity: (saving || allChecked) ? 0.5 : 1,
+              width: isMobile ? '100%' : 'auto',
+              minHeight: '48px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
+            }}
+          >
+            🚨 Report Shortage
           </button>
         </div>
       )}

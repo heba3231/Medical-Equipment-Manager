@@ -70,6 +70,11 @@ function OTDepartment() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [expiryDate, setExpiryDate] = useState(null);
 
+  // ========== SHORTAGE REPORTS STATE ==========
+  const [showShortageReports, setShowShortageReports] = useState(false);
+  const [shortageReports, setShortageReports] = useState([]);
+  const [loadingReports, setLoadingReports] = useState(false);
+
   // ========== RESPONSIVE ==========
   const { width } = useWindowSize();
   const isMobile = width < 768;
@@ -299,6 +304,13 @@ function OTDepartment() {
     }
   }, [qrListId, qrDeptCode]);
 
+  // ========== SHORTAGE REPORTS EFFECT ==========
+  useEffect(() => {
+    if (showShortageReports) {
+      loadShortageReports();
+    }
+  }, [showShortageReports]);
+
   const loadDepartments = async () => {
     try {
       setLoading(true);
@@ -395,6 +407,63 @@ function OTDepartment() {
       }
     } catch (err) {
       console.error("Error fetching equipment:", err);
+    }
+  };
+
+  // ========== SHORTAGE REPORTS CRUD ==========
+  const loadShortageReports = async () => {
+    try {
+      setLoadingReports(true);
+      const response = await fetch(`${API_BASE}/shortage-reports`);
+      const data = await response.json();
+      if (data.success) {
+        setShortageReports(data.data);
+      } else {
+        console.error("Failed to load reports:", data.message);
+      }
+    } catch (err) {
+      console.error("Error loading shortage reports:", err);
+    } finally {
+      setLoadingReports(false);
+    }
+  };
+
+  const updateReportStatus = async (reportId, newStatus) => {
+    try {
+      const response = await fetch(`${API_BASE}/shortage-reports/${reportId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setShortageReports(prev =>
+          prev.map(r => r._id === reportId ? { ...r, status: newStatus } : r)
+        );
+        alert(`✅ Report status updated to "${newStatus}"`);
+      } else {
+        alert('❌ Error: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error updating status: ' + err.message);
+    }
+  };
+
+  const deleteReport = async (reportId) => {
+    if (!window.confirm('Delete this report permanently?')) return;
+    try {
+      const response = await fetch(`${API_BASE}/shortage-reports/${reportId}`, {
+        method: 'DELETE'
+      });
+      const data = await response.json();
+      if (data.success) {
+        setShortageReports(prev => prev.filter(r => r._id !== reportId));
+        alert('✅ Report deleted successfully.');
+      } else {
+        alert('❌ Error: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error deleting report: ' + err.message);
     }
   };
 
@@ -2037,6 +2106,7 @@ function OTDepartment() {
     );
   }
 
+  // ========== MAIN RETURN ==========
   return (
     <div style={{
       padding: isMobile ? "16px" : "30px",
@@ -2070,20 +2140,59 @@ function OTDepartment() {
             Manage departments, lists, and equipment
           </p>
         </div>
-        <span style={{
-          padding: "4px 12px",
-          borderRadius: "20px",
-          background: isAdmin ? "#d1fae5" : "#fef3c7",
-          color: isAdmin ? "#065f46" : "#92400e",
-          fontSize: isMobile ? "11px" : "13px",
-          fontWeight: "600",
-          display: "flex",
-          alignItems: "center",
-          gap: "4px"
-        }}>
-          {isAdmin ? <Icons.admin /> : <Icons.staff />}
-          {isAdmin ? "Admin Mode" : "Staff Mode"}
-        </span>
+
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+          {/* SHORTAGE REPORTS BUTTON - ADMIN ONLY */}
+          {isAdmin && (
+            <button
+              onClick={() => setShowShortageReports(true)}
+              style={{
+                padding: "6px 16px",
+                background: shortageReports.filter(r => r.status === 'pending').length > 0 ? '#dc2626' : '#004d32',
+                color: 'white',
+                border: 'none',
+                borderRadius: '20px',
+                fontSize: isMobile ? "12px" : "14px",
+                fontWeight: "600",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+              }}
+            >
+              <Icons.bell />
+              Reports
+              {shortageReports.filter(r => r.status === 'pending').length > 0 && (
+                <span style={{
+                  background: 'white',
+                  color: '#dc2626',
+                  borderRadius: '50%',
+                  padding: '0 8px',
+                  fontSize: '11px',
+                  fontWeight: '800'
+                }}>
+                  {shortageReports.filter(r => r.status === 'pending').length}
+                </span>
+              )}
+            </button>
+          )}
+
+          <span style={{
+            padding: "4px 12px",
+            borderRadius: "20px",
+            background: isAdmin ? "#d1fae5" : "#fef3c7",
+            color: isAdmin ? "#065f46" : "#92400e",
+            fontSize: isMobile ? "11px" : "13px",
+            fontWeight: "600",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px"
+          }}>
+            {isAdmin ? <Icons.admin /> : <Icons.staff />}
+            {isAdmin ? "Admin Mode" : "Staff Mode"}
+          </span>
+        </div>
       </div>
 
       {/* ===== TWO COLUMN LAYOUT ===== */}
@@ -2994,6 +3103,119 @@ function OTDepartment() {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== SHORTAGE REPORTS MODAL ===== */}
+      {showShortageReports && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.6)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+          onClick={() => setShowShortageReports(false)}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '20px',
+              maxWidth: '1300px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              padding: isMobile ? '16px' : '24px',
+              position: 'relative',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ margin: 0, color: '#004d32', fontSize: isMobile ? '18px' : '24px' }}>🚨 Shortage Reports</h2>
+              <button onClick={() => setShowShortageReports(false)} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            {loadingReports ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
+            ) : shortageReports.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>No shortage reports yet.</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: isMobile ? '12px' : '14px' }}>
+                  <thead style={{ background: '#f3f4f6' }}>
+                    <tr>
+                      <th style={{ padding: '12px', textAlign: 'left' }}>#</th>
+                      <th style={{ padding: '12px', textAlign: 'left' }}>List</th>
+                      <th style={{ padding: '12px', textAlign: 'left' }}>Department</th>
+                      <th style={{ padding: '12px', textAlign: 'left' }}>Reported By</th>
+                      <th style={{ padding: '12px', textAlign: 'left' }}>Items</th>
+                      <th style={{ padding: '12px', textAlign: 'left' }}>Status</th>
+                      <th style={{ padding: '12px', textAlign: 'left' }}>Date</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shortageReports.map((report, idx) => (
+                      <tr key={report._id} style={{ borderBottom: '1px solid #e5e7eb', background: report.status === 'pending' ? '#fef2f2' : 'white' }}>
+                        <td style={{ padding: '12px' }}>{idx + 1}</td>
+                        <td style={{ padding: '12px' }}>{report.listName || '—'}</td>
+                        <td style={{ padding: '12px' }}>{report.deptName || report.deptCode}</td>
+                        <td style={{ padding: '12px' }}>{report.reportedBy}</td>
+                        <td style={{ padding: '12px' }}>
+                          {report.items && report.items.length > 0 ? (
+                            <details>
+                              <summary style={{ cursor: 'pointer', color: '#006341' }}>{report.items.length} item(s)</summary>
+                              <ul style={{ paddingLeft: '16px', margin: '8px 0 0', listStyle: 'disc' }}>
+                                {report.items.map(item => (
+                                  <li key={item.itemId || item._id}>{item.name} (Qty: {item.quantity})</li>
+                                ))}
+                              </ul>
+                            </details>
+                          ) : '—'}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{
+                            padding: '4px 10px',
+                            borderRadius: '20px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            background: report.status === 'pending' ? '#fee2e2' : report.status === 'in-progress' ? '#fef3c7' : report.status === 'resolved' ? '#d1fae5' : '#e5e7eb',
+                            color: report.status === 'pending' ? '#991b1b' : report.status === 'in-progress' ? '#92400e' : report.status === 'resolved' ? '#065f46' : '#6b7280'
+                          }}>
+                            {report.status || 'pending'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px' }}>{new Date(report.createdAt).toLocaleDateString()}</td>
+                        <td style={{ padding: '12px', textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                            {report.status !== 'resolved' && (
+                              <>
+                                <button onClick={() => updateReportStatus(report._id, 'in-progress')} style={{ padding: '4px 10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px' }}>In Progress</button>
+                                <button onClick={() => updateReportStatus(report._id, 'resolved')} style={{ padding: '4px 10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px' }}>Resolve</button>
+                              </>
+                            )}
+                            <button onClick={() => deleteReport(report._id)} style={{ padding: '4px 10px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px' }}>Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #e5e7eb', paddingTop: '12px' }}>
+              <span style={{ fontSize: '13px', color: '#6b7280' }}>Total: {shortageReports.length}</span>
+              <button onClick={() => setShowShortageReports(false)} style={{ padding: '8px 20px', background: '#004d32', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Close</button>
+            </div>
           </div>
         </div>
       )}
