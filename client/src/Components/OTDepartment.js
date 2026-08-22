@@ -14,7 +14,8 @@ function useWindowSize() {
   return size;
 }
 
-const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
+// ✅ تحديد الـ API Base بشكل صحيح (للإنتاج والتطوير)
+const API_BASE = process.env.REACT_APP_API_URL || `${window.location.origin}/api`;
 
 function OTDepartment() {
   const navigate = useNavigate();
@@ -79,6 +80,19 @@ function OTDepartment() {
   const { width } = useWindowSize();
   const isMobile = width < 768;
   const isTablet = width < 1024 && width >= 768;
+
+  // ========== HELPER: GET AUTH HEADERS ==========
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem("token") || localStorage.getItem("adminToken");
+    if (!token) {
+      console.warn("⚠️ No token found in localStorage");
+      return { "Content-Type": "application/json" };
+    }
+    return {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    };
+  };
 
   // ========== SVG ICONS ==========
   const Icons = {
@@ -414,12 +428,17 @@ function OTDepartment() {
   const loadShortageReports = async () => {
     try {
       setLoadingReports(true);
-      const response = await fetch(`${API_BASE}/shortage-reports`);
+      const response = await fetch(`${API_BASE}/shortage-reports`, {
+        headers: getAuthHeaders()
+      });
       const data = await response.json();
       if (data.success) {
         setShortageReports(data.data);
       } else {
         console.error("Failed to load reports:", data.message);
+        if (response.status === 401) {
+          alert("⚠️ Session expired. Please login again.");
+        }
       }
     } catch (err) {
       console.error("Error loading shortage reports:", err);
@@ -432,7 +451,7 @@ function OTDepartment() {
     try {
       const response = await fetch(`${API_BASE}/shortage-reports/${reportId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ status: newStatus })
       });
       const data = await response.json();
@@ -453,7 +472,8 @@ function OTDepartment() {
     if (!window.confirm('Delete this report permanently?')) return;
     try {
       const response = await fetch(`${API_BASE}/shortage-reports/${reportId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
       const data = await response.json();
       if (data.success) {
