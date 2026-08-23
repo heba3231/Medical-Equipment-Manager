@@ -17,9 +17,13 @@ dns.setServers(["8.8.8.8", "8.8.4.4"]);
 const app = express();
 
 // ==================== CORS Configuration ====================
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+// السماح بكل النطاقات مؤقتاً للاختبار (يمكنك تحديد نطاق معين في الإنتاج)
+const allowedOrigins = process.env.CLIENT_URL 
+  ? [process.env.CLIENT_URL, 'https://medical-equipment-manager-13.onrender.com']
+  : ['*'];
+
 app.use(cors({
-  origin: clientUrl,
+  origin: allowedOrigins, // أو استخدم '*' للسماح للجميع
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -1282,5 +1286,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🔧 OT Custom Equip API: /api/ot-custom-equipment`);
   console.log(`🤖 AI Search API:       /api/ai-search/instrument?name=...`);
   console.log(`🔧 Debug: /api/test/admins | /api/debug/admin-structure`);
-  console.log(`✅ CORS allowed origin: ${clientUrl}`);
+  console.log(`✅ CORS allowed origin: ${allowedOrigins}`);
 });
