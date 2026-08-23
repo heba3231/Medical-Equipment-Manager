@@ -17,13 +17,12 @@ dns.setServers(["8.8.8.8", "8.8.4.4"]);
 const app = express();
 
 // ==================== CORS Configuration ====================
-// السماح بكل النطاقات مؤقتاً للاختبار (يمكنك تحديد نطاق معين في الإنتاج)
 const allowedOrigins = process.env.CLIENT_URL 
   ? [process.env.CLIENT_URL, 'https://medical-equipment-manager-13.onrender.com']
   : ['*'];
 
 app.use(cors({
-  origin: allowedOrigins, // أو استخدم '*' للسماح للجميع
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -635,16 +634,14 @@ app.delete("/api/dept-equipment/:id", async (req, res) => {
   }
 });
 
-// ==================== CHECKLIST ROUTES (مع التعديلات) ====================
+// ==================== CHECKLIST ROUTES (مع التعديلات المحسنة) ====================
 
 app.get('/api/checklist/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
     console.log(`📡 Fetching saved checklist for: ${listId}`);
-    
     const checklist = await checklistsCollection.findOne({ listId });
     console.log(`✅ Checklist found: ${checklist ? 'Yes' : 'No'}`);
-    
     res.json({ success: true, data: checklist || null });
   } catch (error) {
     console.error('❌ Error fetching checklist:', error);
@@ -654,29 +651,30 @@ app.get('/api/checklist/:listId', async (req, res) => {
 
 app.post('/api/checklist/save', async (req, res) => {
   try {
-    // استقبال الحقول الجديدة: expiryDate, source
     const { listId, deptCode, listName, checkedItems, submitted, submittedAt, submittedBy, userRole, expiryDate, source } = req.body;
     
     console.log(`📤 Saving checklist for: ${listId}`);
     console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
     console.log(`   Expiry: ${expiryDate}, Source: ${source}`);
 
-    // بناء كائن التحديث
+    // تحويل submitted إلى قيمة منطقية
+    const isSubmitted = submitted === true || submitted === 'true';
+
     const updateData = {
       listId,
       deptCode,
       listName,
       checkedItems,
-      submitted: submitted || false,
+      submitted: isSubmitted,
       submittedAt: submittedAt || new Date().toISOString(),
       submittedBy: submittedBy || 'Staff',
       userRole: userRole || 'staff',
       updatedAt: new Date()
     };
 
-    // إضافة الحقول الإضافية إن وجدت
-    if (expiryDate) updateData.expiryDate = expiryDate;
-    if (source) updateData.source = source;
+    // حفظ expiryDate و source دائماً (حتى إذا كانت null)
+    updateData.expiryDate = expiryDate || null;
+    updateData.source = source || null;
 
     const result = await checklistsCollection.updateOne(
       { listId },
@@ -684,19 +682,18 @@ app.post('/api/checklist/save', async (req, res) => {
       { upsert: true }
     );
     
-    console.log(`✅ Checklist saved successfully`);
-    res.json({ success: true, data: { listId, submitted: submitted || false } });
+    console.log(`✅ Checklist saved successfully. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}, Upserted: ${result.upsertedId ? 'yes' : 'no'}`);
+    res.json({ success: true, data: { listId, submitted: isSubmitted } });
   } catch (error) {
     console.error('❌ Error saving checklist:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// جلب كل القوائم المؤكدة (للتقارير)
+// جلب كل القوائم المؤكدة (للتقارير) - مع سجلات إضافية
 app.get('/api/checklist/confirmed/all', async (req, res) => {
   try {
     console.log(`📡 Fetching all confirmed checklists`);
-    
     const checklists = await checklistsCollection
       .find({ submitted: true })
       .sort({ submittedAt: -1 })
@@ -760,8 +757,10 @@ app.get("/api/checklist/reports", async (req, res) => {
 app.get('/api/checklist/all', async (req, res) => {
   try {
     const all = await checklistsCollection.find({}).toArray();
+    console.log(`🔍 Total checklists in DB: ${all.length}`);
     res.json({ success: true, data: all });
   } catch (err) {
+    console.error('❌ Error fetching all checklists:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -1279,6 +1278,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📋 Checklist API:       /api/checklist/:listId`);
   console.log(`✅ Checklist Save API:  /api/checklist/save`);
   console.log(`📋 Reports API:         /api/checklist/reports`);
+  console.log(`🔍 All Checklists API:  /api/checklist/all (debug)`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
   console.log(`🆕 OT Equipment API:    /api/ot/equipment/:setId`);
