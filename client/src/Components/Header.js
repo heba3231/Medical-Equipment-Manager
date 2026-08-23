@@ -185,7 +185,7 @@ function Header({ user, onLogout }) {
               className={`nav-btn ${isActive("/reports") ? "active" : ""}`}
               onClick={() => { navigate("/reports"); setMenuOpen(false); }}
             >
-              📋 Reports
+               Reports
             </button>
           )}
 

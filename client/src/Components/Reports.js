@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
 function Reports() {
-  const [reports, setReports] = useState([]);
+  const [reports, setReports] = useState([]); // ✅ تأكد من أنها مصفوفة فارغة
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -15,13 +15,17 @@ function Reports() {
   const fetchReports = async () => {
     try {
       const response = await fetch(`${API_BASE}/checklist/reports`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data = await response.json();
       if (data.success) {
-        setReports(data.data);
+        setReports(data.data || []); // تأكد من أنها مصفوفة
       } else {
         setError(data.message || 'Failed to fetch reports');
       }
     } catch (err) {
+      console.error('Error fetching reports:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -29,113 +33,53 @@ function Reports() {
   };
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '60px' }}>⏳ Loading reports...</div>;
+    return <div style={{ textAlign: 'center', padding: '40px' }}>⏳ Loading reports...</div>;
   }
 
   if (error) {
-    return <div style={{ textAlign: 'center', padding: '60px', color: 'red' }}>❌ Error: {error}</div>;
+    return <div style={{ textAlign: 'center', padding: '40px', color: 'red' }}>❌ Error: {error}</div>;
   }
 
-  if (reports.length === 0) {
-    return <div style={{ textAlign: 'center', padding: '60px', color: '#6b7280' }}>📭 No reports submitted yet.</div>;
+  if (!reports || reports.length === 0) {
+    return <div style={{ textAlign: 'center', padding: '40px' }}>📭 No reports submitted yet.</div>;
   }
 
   return (
-    <div style={{ padding: '20px 24px', maxWidth: '1400px', margin: '0 auto' }}>
-      <h1 style={{ color: '#004d32', fontSize: '28px', marginBottom: '8px' }}>📋 Submitted Checklists Reports</h1>
-      <p style={{ color: '#6b7280', marginBottom: '24px' }}>All submitted checklists from OT Department and other departments</p>
-
-      {reports.map((report, idx) => (
-        <div key={report._id || idx} style={{
-          border: '1px solid #d0e8dc',
-          margin: '16px 0',
-          padding: '20px 24px',
-          borderRadius: '12px',
-          background: '#ffffff',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
-        }}>
-          <div style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            gap: '12px',
-            marginBottom: '12px'
-          }}>
-            <div>
-              <h3 style={{ margin: '0 0 4px 0', color: '#004d32', fontSize: '18px' }}>
-                {report.listName || 'Unnamed List'}
-              </h3>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '14px', color: '#4b5563' }}>
-                <span><strong>Department:</strong> {report.deptCode || '—'}</span>
-                <span><strong>Source:</strong> {report.source === 'ot' ? '🏥 OT' : '📋 Department'}</span>
-                <span><strong>Submitted by:</strong> {report.submittedBy || '—'}</span>
-                <span><strong>Submitted at:</strong> {new Date(report.submittedAt).toLocaleString()}</span>
-                {report.expiryDate && (
-                  <span><strong>Expiry Date:</strong> <span style={{ color: '#b91c1c', fontWeight: '600' }}>{new Date(report.expiryDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span></span>
-                )}
-              </div>
-            </div>
-            <div style={{
-              padding: '4px 14px',
-              borderRadius: '20px',
-              fontSize: '12px',
-              fontWeight: '600',
-              background: '#d1fae5',
-              color: '#065f46'
-            }}>
-              ✅ Submitted
-            </div>
-          </div>
-
-          <details style={{ marginTop: '8px' }}>
-            <summary style={{
-              cursor: 'pointer',
-              fontWeight: '600',
-              color: '#006341',
-              fontSize: '14px',
-              padding: '6px 0'
-            }}>
-              🔍 Show Equipment Details ({report.equipmentDetails?.length || 0} items)
-            </summary>
-            <div style={{ overflowX: 'auto', marginTop: '10px' }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                fontSize: '13px',
-                minWidth: '500px'
-              }}>
+    <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+      <h1 style={{ color: '#004d32' }}>📋 Submitted Checklists Reports</h1>
+      {reports.map((report) => (
+        <div key={report._id} style={{ border: '1px solid #ccc', margin: '20px 0', padding: '16px', borderRadius: '8px', background: '#fff' }}>
+          <h3 style={{ margin: '0 0 8px 0', color: '#004d32' }}>{report.listName || 'Unnamed List'}</h3>
+          <p><strong>Department:</strong> {report.deptCode}</p>
+          <p><strong>Submitted by:</strong> {report.submittedBy}</p>
+          <p><strong>Submitted at:</strong> {new Date(report.submittedAt).toLocaleString()}</p>
+          {report.expiryDate && <p><strong>Expiry Date:</strong> {new Date(report.expiryDate).toLocaleDateString()}</p>}
+          <p><strong>Items checked:</strong> {Object.values(report.checkedItems || {}).filter(v => v).length} / {report.equipmentDetails?.length || 0}</p>
+          <details>
+            <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#006341' }}>🔍 Show Equipment Details</summary>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize: '14px' }}>
                 <thead>
-                  <tr style={{ background: '#f0f7f4' }}>
-                    <th style={{ border: '1px solid #d0e8dc', padding: '8px 10px', textAlign: 'left' }}>#</th>
-                    <th style={{ border: '1px solid #d0e8dc', padding: '8px 10px', textAlign: 'left' }}>Name</th>
-                    <th style={{ border: '1px solid #d0e8dc', padding: '8px 10px', textAlign: 'left' }}>Code</th>
-                    <th style={{ border: '1px solid #d0e8dc', padding: '8px 10px', textAlign: 'center' }}>Qty</th>
-                    <th style={{ border: '1px solid #d0e8dc', padding: '8px 10px', textAlign: 'center' }}>Checked</th>
-                    <th style={{ border: '1px solid #d0e8dc', padding: '8px 10px', textAlign: 'center' }}>Status</th>
+                  <tr style={{ background: '#f0f0f0' }}>
+                    <th style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'left' }}>#</th>
+                    <th style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'left' }}>Name</th>
+                    <th style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'left' }}>Code</th>
+                    <th style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'center' }}>Qty</th>
+                    <th style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'center' }}>Checked</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(report.equipmentDetails || []).map((item, idx) => {
-                    const itemId = item.id || item._id;
-                    const checked = report.checkedItems?.[itemId]?.present !== undefined
-                      ? (report.checkedItems[itemId].present > 0)
-                      : (report.checkedItems?.[itemId] || false);
-                    const checkData = report.checkedItems?.[itemId] || {};
-                    let statusText = '✅ Present';
-                    if (checkData.damaged && checkData.damagedQuantity > 0) {
-                      statusText = `⚠️ Damaged (${checkData.damagedQuantity})`;
-                    } else if (!checked) {
-                      statusText = '❌ Missing';
-                    }
+                    // استخدام id المناسب (قد يكون _id أو id)
+                    const itemId = item._id?.toString() || item.id;
+                    const checked = report.checkedItems?.[itemId] || false;
                     return (
-                      <tr key={item._id || item.id || idx} style={{ background: idx % 2 === 0 ? '#ffffff' : '#fafcfb' }}>
-                        <td style={{ border: '1px solid #e5e7eb', padding: '8px 10px' }}>{idx + 1}</td>
-                        <td style={{ border: '1px solid #e5e7eb', padding: '8px 10px' }}>{item.name}</td>
-                        <td style={{ border: '1px solid #e5e7eb', padding: '8px 10px', fontFamily: 'monospace' }}>{item.code || '—'}</td>
-                        <td style={{ border: '1px solid #e5e7eb', padding: '8px 10px', textAlign: 'center' }}>{item.quantity || 0}</td>
-                        <td style={{ border: '1px solid #e5e7eb', padding: '8px 10px', textAlign: 'center' }}>{checked ? '✅' : '❌'}</td>
-                        <td style={{ border: '1px solid #e5e7eb', padding: '8px 10px', textAlign: 'center' }}>{statusText}</td>
+                      <tr key={itemId || idx}>
+                        <td style={{ border: '1px solid #ccc', padding: '8px' }}>{idx + 1}</td>
+                        <td style={{ border: '1px solid #ccc', padding: '8px' }}>{item.name}</td>
+                        <td style={{ border: '1px solid #ccc', padding: '8px' }}>{item.code || '—'}</td>
+                        <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'center' }}>{item.quantity || 0}</td>
+                        <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'center' }}>{checked ? '✅' : '❌'}</td>
                       </tr>
                     );
                   })}
