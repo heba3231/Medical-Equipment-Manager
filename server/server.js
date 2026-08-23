@@ -1,4 +1,3 @@
-// server.js
 import express from "express";
 import { MongoClient, ObjectId } from "mongodb";
 import cors from "cors";
@@ -30,7 +29,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 setupAISearchRoutes(app);
 
-// JWT Secret - استخدام المتغير البيئي إن وجد
+// JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
 const MONGODB_UR = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
@@ -46,8 +45,6 @@ let otSetsCollection;
 let checklistsCollection;
 let otCustomListsCollection;
 let otCustomEquipmentCollection;
-// ========== NEW: Shortage Reports Collection ==========
-let shortageReportsCollection;
 
 async function connectToMongoDB() {
   try {
@@ -64,8 +61,6 @@ async function connectToMongoDB() {
     checklistsCollection = db.collection("checklists");
     otCustomListsCollection = db.collection("ot_custom_lists");
     otCustomEquipmentCollection = db.collection("ot_custom_equipment");
-    // ========== NEW: Initialize Shortage Reports Collection ==========
-    shortageReportsCollection = db.collection("shortage_reports");
 
     // Indexes
     await equipmentCollection.createIndex({ category: 1 });
@@ -78,10 +73,6 @@ async function connectToMongoDB() {
     await otCustomListsCollection.createIndex({ deptCode: 1 });
     await otCustomListsCollection.createIndex({ roomId: 1 });
     await otCustomEquipmentCollection.createIndex({ listId: 1 });
-    // ========== NEW: Index for shortage reports ==========
-    await shortageReportsCollection.createIndex({ listId: 1 });
-    await shortageReportsCollection.createIndex({ status: 1 });
-    await shortageReportsCollection.createIndex({ reportedBy: 1 });
 
     const collections = await db.listCollections().toArray();
     console.log("📚 Available collections:", collections.map(c => c.name));
@@ -392,19 +383,6 @@ const verifyAdminToken = (req, res, next) => {
   }
 };
 
-// ========== NEW: General Token Verification Middleware ==========
-const verifyToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ success: false, message: "Unauthorized" });
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded; // contains id, staff_no, role, name, etc.
-    next();
-  } catch (error) {
-    return res.status(401).json({ success: false, message: "Invalid token" });
-  }
-};
-
 app.get('/api/admin/profile', verifyAdminToken, async (req, res) => {
   try {
     const admin = await adminCollection.findOne({ _id: new ObjectId(req.admin.id) });
@@ -653,7 +631,7 @@ app.delete("/api/dept-equipment/:id", async (req, res) => {
   }
 });
 
-// ==================== CHECKLIST ROUTES ====================
+// ==================== CHECKLIST ROUTES (مع التعديلات) ====================
 
 app.get('/api/checklist/:listId', async (req, res) => {
   try {
@@ -672,37 +650,45 @@ app.get('/api/checklist/:listId', async (req, res) => {
 
 app.post('/api/checklist/save', async (req, res) => {
   try {
-    const { listId, deptCode, listName, checkedItems, submitted, submittedAt, submittedBy, userRole } = req.body;
+    // استقبال الحقول الجديدة: expiryDate, source
+    const { listId, deptCode, listName, checkedItems, submitted, submittedAt, submittedBy, userRole, expiryDate, source } = req.body;
     
     console.log(`📤 Saving checklist for: ${listId}`);
     console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
-    
+    console.log(`   Expiry: ${expiryDate}, Source: ${source}`);
+
+    // بناء كائن التحديث
+    const updateData = {
+      listId,
+      deptCode,
+      listName,
+      checkedItems,
+      submitted: submitted || false,
+      submittedAt: submittedAt || new Date().toISOString(),
+      submittedBy: submittedBy || 'Staff',
+      userRole: userRole || 'staff',
+      updatedAt: new Date()
+    };
+
+    // إضافة الحقول الإضافية إن وجدت
+    if (expiryDate) updateData.expiryDate = expiryDate;
+    if (source) updateData.source = source;
+
     const result = await checklistsCollection.updateOne(
       { listId },
-      { 
-        $set: {
-          listId,
-          deptCode,
-          listName,
-          checkedItems,
-          submitted: submitted || false,
-          submittedAt: submittedAt || new Date().toISOString(),
-          submittedBy: submittedBy || 'Staff',
-          userRole: userRole || 'staff',
-          updatedAt: new Date()
-        }
-      },
+      { $set: updateData },
       { upsert: true }
     );
     
     console.log(`✅ Checklist saved successfully`);
-    res.json({ success: true, data: { listId, submitted } });
+    res.json({ success: true, data: { listId, submitted: submitted || false } });
   } catch (error) {
     console.error('❌ Error saving checklist:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
+// جلب كل القوائم المؤكدة (للتقارير)
 app.get('/api/checklist/confirmed/all', async (req, res) => {
   try {
     console.log(`📡 Fetching all confirmed checklists`);
@@ -713,9 +699,17 @@ app.get('/api/checklist/confirmed/all', async (req, res) => {
       .toArray();
     
     for (let checklist of checklists) {
-      const equipmentItems = await deptEquipmentCollection
-        .find({ listId: checklist.listId })
-        .toArray();
+      // محاولة جلب المعدات من مصادر مختلفة (حسب المصدر)
+      let equipmentItems = [];
+      if (checklist.source === 'ot') {
+        equipmentItems = await otCustomEquipmentCollection
+          .find({ listId: checklist.listId })
+          .toArray();
+      } else {
+        equipmentItems = await deptEquipmentCollection
+          .find({ listId: checklist.listId })
+          .toArray();
+      }
       checklist.equipmentDetails = equipmentItems;
     }
     
@@ -723,6 +717,35 @@ app.get('/api/checklist/confirmed/all', async (req, res) => {
     res.json({ success: true, data: checklists });
   } catch (error) {
     console.error('❌ Error fetching confirmed checklists:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ====== نقطة نهاية جديدة للتقارير (بمعدات مفصلة) ======
+app.get("/api/checklist/reports", async (req, res) => {
+  try {
+    const reports = await checklistsCollection
+      .find({ submitted: true })
+      .sort({ submittedAt: -1 })
+      .toArray();
+
+    for (let report of reports) {
+      let equipmentItems = [];
+      if (report.source === 'ot') {
+        equipmentItems = await otCustomEquipmentCollection
+          .find({ listId: report.listId })
+          .toArray();
+      } else {
+        equipmentItems = await deptEquipmentCollection
+          .find({ listId: report.listId })
+          .toArray();
+      }
+      report.equipmentDetails = equipmentItems;
+    }
+
+    res.json({ success: true, data: reports });
+  } catch (error) {
+    console.error('Error fetching reports:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -1229,176 +1252,6 @@ app.get('/api/image-proxy', async (req, res) => {
   }
 });
 
-// ==================== SHORTAGE REPORTS ROUTES (NEW) ====================
-
-/**
- * POST /api/shortage-reports
- * إنشاء تقرير نقص جديد (يتم استدعاؤه من EquipmentChecklist)
- * يتطلب توكن صالح (staff أو admin)
- */
-app.post('/api/shortage-reports', verifyToken, async (req, res) => {
-  try {
-    const {
-      listId,
-      deptCode,
-      listName,
-      deptName,
-      items,
-      reportedBy,
-      notes,
-      priority = 'high',
-      status = 'pending'
-    } = req.body;
-
-    // التحقق من البيانات الأساسية
-    if (!listId || !deptCode || !items || !items.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields: listId, deptCode, items'
-      });
-    }
-
-    // استخدام اسم المبلغ من التوكن إذا لم يُرسل
-    const reporterName = reportedBy || req.user?.name || req.user?.staffNumber || 'Unknown';
-
-    const report = {
-      listId,
-      deptCode,
-      listName: listName || '',
-      deptName: deptName || '',
-      items: items.map(item => ({
-        itemId: item.itemId || item._id?.toString() || '',
-        name: item.name || '',
-        code: item.code || '',
-        quantity: parseInt(item.quantity) || 0,
-        present: parseInt(item.present) || 0,
-        damaged: !!item.damaged,
-        damagedQuantity: parseInt(item.damagedQuantity) || 0,
-        note: item.note || ''
-      })),
-      reportedBy: reporterName,
-      notes: notes || '',
-      priority: priority || 'medium',
-      status: status || 'pending',
-      assignedTo: null,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-
-    const result = await shortageReportsCollection.insertOne(report);
-    console.log(`✅ New shortage report created (ID: ${result.insertedId})`);
-
-    // هنا يمكن إضافة إشعار بريد إلكتروني أو WebSocket لمسؤول العمليات
-
-    res.status(201).json({
-      success: true,
-      data: { ...report, _id: result.insertedId }
-    });
-  } catch (error) {
-    console.error('❌ Error creating shortage report:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-/**
- * GET /api/shortage-reports
- * جلب جميع التقارير (للأدمن) أو تقارير المستخدم الحالي (للموظف)
- * يتطلب توكن صالح
- */
-app.get('/api/shortage-reports', verifyToken, async (req, res) => {
-  try {
-    const user = req.user;
-    let filter = {};
-
-    // إذا لم يكن أدمن، نعرض تقاريره فقط (حسب reportedBy أو userId)
-    if (user.role !== 'admin' && user.role !== 'super_admin') {
-      const staffNumber = user.staffNumber || user.staff_no || user.id;
-      filter.reportedBy = staffNumber;
-    }
-
-    const reports = await shortageReportsCollection
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .toArray();
-
-    res.json({ success: true, data: reports });
-  } catch (error) {
-    console.error('❌ Error fetching shortage reports:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-/**
- * PUT /api/shortage-reports/:id
- * تحديث تقرير النقص (عادةً لتغيير الحالة أو تعيين مسؤول)
- * يتطلب صلاحيات أدمن
- */
-app.put('/api/shortage-reports/:id', verifyToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, assignedTo } = req.body;
-
-    // التحقق من أن المستخدم أدمن (لأن التحديث يتطلب صلاحية)
-    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Forbidden: Only admin can update reports'
-      });
-    }
-
-    const updateData = {
-      updatedAt: new Date()
-    };
-    if (status) updateData.status = status;
-    if (assignedTo !== undefined) updateData.assignedTo = assignedTo;
-
-    const result = await shortageReportsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
-
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ success: false, message: 'Report not found' });
-    }
-
-    const updatedReport = await shortageReportsCollection.findOne({ _id: new ObjectId(id) });
-    console.log(`✅ Shortage report ${id} updated to status: ${status}`);
-    res.json({ success: true, data: updatedReport });
-  } catch (error) {
-    console.error('❌ Error updating shortage report:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-/**
- * DELETE /api/shortage-reports/:id
- * حذف تقرير نقص
- * يتطلب صلاحيات أدمن
- */
-app.delete('/api/shortage-reports/:id', verifyToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Forbidden: Only admin can delete reports'
-      });
-    }
-
-    const result = await shortageReportsCollection.deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ success: false, message: 'Report not found' });
-    }
-
-    console.log(`✅ Shortage report ${id} deleted`);
-    res.json({ success: true, message: 'Report deleted successfully' });
-  } catch (error) {
-    console.error('❌ Error deleting shortage report:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
 // ==================== SERVER START ====================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, "0.0.0.0", () => {
@@ -1409,13 +1262,13 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📦 Dept Equipment API:  /api/dept-equipment/:deptCode/:listId`);
   console.log(`📋 Checklist API:       /api/checklist/:listId`);
   console.log(`✅ Checklist Save API:  /api/checklist/save`);
+  console.log(`📋 Reports API:         /api/checklist/reports`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
   console.log(`🆕 OT Equipment API:    /api/ot/equipment/:setId`);
   console.log(`📋 OT Custom Lists API: /api/ot-custom-lists`);
   console.log(`🔧 OT Custom Equip API: /api/ot-custom-equipment`);
   console.log(`🤖 AI Search API:       /api/ai-search/instrument?name=...`);
-  console.log(`🚨 Shortage Reports API:/api/shortage-reports (POST, GET, PUT, DELETE)`);
   console.log(`🔧 Debug: /api/test/admins | /api/debug/admin-structure`);
   console.log(`✅ CORS allowed origin: ${clientUrl}`);
 });

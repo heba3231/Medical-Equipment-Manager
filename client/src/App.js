@@ -29,6 +29,9 @@ import SetEquipment from "./Components/SetEquipment";
 import AddSetEquipment from "./Components/AddSetEquipment";
 import EditSetEquipment from "./Components/EditSetEquipment";
 
+// ✅ Reports Component
+import Reports from './Components/Reports';
+
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
 
@@ -51,6 +54,14 @@ function App() {
     localStorage.removeItem("adminToken");
     localStorage.removeItem("userRole");
     setCurrentUser(null);
+  };
+
+  // مكون wrapper للصفحات التي تتطلب صلاحية مدير
+  const AdminRoute = ({ children }) => {
+    if (!currentUser || currentUser.role !== "admin") {
+      return <Navigate to="/" replace />;
+    }
+    return children;
   };
 
   return (
@@ -114,6 +125,16 @@ function App() {
 
             {/* OT Department Enhanced Route */}
             <Route path="/ot-enhanced" element={<OTDepartmentEnhanced />} />
+
+            {/* ✅ Reports Route - Only Admin */}
+            <Route
+              path="/reports"
+              element={
+                <AdminRoute>
+                  <Reports />
+                </AdminRoute>
+              }
+            />
           </Routes>
         </Row>
         <Footer />
