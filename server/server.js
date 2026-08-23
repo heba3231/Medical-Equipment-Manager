@@ -699,7 +699,6 @@ app.get('/api/checklist/confirmed/all', async (req, res) => {
       .toArray();
     
     for (let checklist of checklists) {
-      // محاولة جلب المعدات من مصادر مختلفة (حسب المصدر)
       let equipmentItems = [];
       if (checklist.source === 'ot') {
         equipmentItems = await otCustomEquipmentCollection
@@ -724,10 +723,13 @@ app.get('/api/checklist/confirmed/all', async (req, res) => {
 // ====== نقطة نهاية جديدة للتقارير (بمعدات مفصلة) ======
 app.get("/api/checklist/reports", async (req, res) => {
   try {
+    console.log('📡 Fetching reports...');
     const reports = await checklistsCollection
       .find({ submitted: true })
       .sort({ submittedAt: -1 })
       .toArray();
+
+    console.log(`✅ Found ${reports.length} reports`);
 
     for (let report of reports) {
       let equipmentItems = [];
@@ -745,8 +747,18 @@ app.get("/api/checklist/reports", async (req, res) => {
 
     res.json({ success: true, data: reports });
   } catch (error) {
-    console.error('Error fetching reports:', error);
+    console.error('❌ Error fetching reports:', error);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ====== نقطة نهاية للتصحيح: عرض جميع القوائم (حتى غير المؤكدة) ======
+app.get('/api/checklist/all', async (req, res) => {
+  try {
+    const all = await checklistsCollection.find({}).toArray();
+    res.json({ success: true, data: all });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
