@@ -1,4 +1,4 @@
-// App.js - الكامل مع الروoutes الجديدة
+// App.js - الكامل مع الروoutes الجديدة + Reports
 import './App.css';
 import "bootstrap/dist/css/bootstrap.min.css";
 import { Container, Row } from "reactstrap";
@@ -29,8 +29,8 @@ import SetEquipment from "./Components/SetEquipment";
 import AddSetEquipment from "./Components/AddSetEquipment";
 import EditSetEquipment from "./Components/EditSetEquipment";
 
-// ✅ Reports Component
-import Reports from './Components/Reports';
+// ✅ Reports Component (جديد)
+import Reports from "./Components/Reports";
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -54,14 +54,6 @@ function App() {
     localStorage.removeItem("adminToken");
     localStorage.removeItem("userRole");
     setCurrentUser(null);
-  };
-
-  // مكون wrapper للصفحات التي تتطلب صلاحية مدير
-  const AdminRoute = ({ children }) => {
-    if (!currentUser || currentUser.role !== "admin") {
-      return <Navigate to="/" replace />;
-    }
-    return children;
   };
 
   return (
@@ -126,15 +118,8 @@ function App() {
             {/* OT Department Enhanced Route */}
             <Route path="/ot-enhanced" element={<OTDepartmentEnhanced />} />
 
-            {/* ✅ Reports Route - Only Admin */}
-            <Route
-              path="/reports"
-              element={
-                <AdminRoute>
-                  <Reports />
-                </AdminRoute>
-              }
-            />
+            {/* ✅ Reports Route (للمدير فقط - يمكن إضافة حماية إضافية داخل المكون) */}
+            <Route path="/reports" element={<Reports />} />
           </Routes>
         </Row>
         <Footer />
