@@ -1,7 +1,12 @@
 // Components/Reports.js
 import React, { useState, useEffect } from 'react';
 
-const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
+// ===================== التعديل الأساسي =====================
+const API_BASE = process.env.REACT_APP_API_URL || 
+  (process.env.NODE_ENV === 'development' 
+    ? `http://${window.location.hostname}:5000/api` 
+    : '/api');
+// ============================================================
 
 function Reports() {
   const [reports, setReports] = useState([]);
@@ -14,26 +19,30 @@ function Reports() {
 
   const fetchReports = async () => {
     try {
+      console.log('📡 Fetching reports from:', `${API_BASE}/checklist/reports`);
       const response = await fetch(`${API_BASE}/checklist/reports`);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      console.log('📦 Response status:', response.status);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data = await response.json();
+      console.log('📦 Reports data:', data);
       if (data.success) {
         setReports(data.data || []);
       } else {
         setError(data.message || 'Failed to fetch reports');
       }
     } catch (err) {
-      console.error('Error fetching reports:', err);
+      console.error('❌ Error fetching reports:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // ========== Helper: get status from checkedItems (supports both boolean and object) ==========
+  // ========== Helper: get item status (supports boolean and object) ==========
   const getItemStatus = (item, checkedData) => {
     const required = item.quantity || 0;
-    // If checkedData is a boolean (simple checklist)
     if (typeof checkedData === 'boolean') {
       return {
         present: checkedData ? required : 0,
@@ -44,7 +53,6 @@ function Reports() {
         isBoolean: true
       };
     }
-    // If checkedData is an object (OT checklist)
     if (checkedData && typeof checkedData === 'object') {
       const present = checkedData.present || 0;
       const damaged = checkedData.damaged ? (checkedData.damagedQuantity || 0) : 0;
@@ -62,7 +70,6 @@ function Reports() {
         isBoolean: false
       };
     }
-    // Fallback
     return { present: 0, damaged: 0, missing: required, note: '', statusText: '❓ Unknown', isBoolean: false };
   };
 
@@ -188,7 +195,6 @@ function Reports() {
       {reports.map((report) => {
         const items = report.equipmentDetails || [];
         const checkedItems = report.checkedItems || {};
-        // حساب إحصائيات سريعة
         let totalPresent = 0, totalDamaged = 0, totalMissing = 0;
         items.forEach(item => {
           const itemId = item._id?.toString() || item.id;
