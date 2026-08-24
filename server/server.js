@@ -650,14 +650,29 @@ app.get('/api/checklist/:listId', async (req, res) => {
 
 app.post('/api/checklist/save', async (req, res) => {
   try {
-    const { listId, deptCode, listName, checkedItems, submitted, submittedAt, submittedBy, userRole } = req.body;
-    
+    const {
+      listId,
+      deptCode,
+      listName,
+      checkedItems,
+      submitted,
+      submittedAt,
+      submittedBy,
+      userRole,
+      totalItems,
+      checkedCount,
+      missingCount,
+      damagedCount,
+      expiryDate
+    } = req.body;
+
     console.log(`📤 Saving checklist for: ${listId}`);
     console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
-    
+    console.log(`   Total: ${totalItems}, Checked: ${checkedCount}, Missing: ${missingCount}, Damaged: ${damagedCount}`);
+
     const result = await checklistsCollection.updateOne(
       { listId },
-      { 
+      {
         $set: {
           listId,
           deptCode,
@@ -667,12 +682,17 @@ app.post('/api/checklist/save', async (req, res) => {
           submittedAt: submittedAt || new Date().toISOString(),
           submittedBy: submittedBy || 'Staff',
           userRole: userRole || 'staff',
+          totalItems: totalItems || 0,
+          checkedCount: checkedCount || 0,
+          missingCount: missingCount || 0,
+          damagedCount: damagedCount || 0,
+          expiryDate: expiryDate || null,
           updatedAt: new Date()
         }
       },
       { upsert: true }
     );
-    
+
     console.log(`✅ Checklist saved successfully`);
     res.json({ success: true, data: { listId, submitted } });
   } catch (error) {
@@ -691,7 +711,7 @@ app.get('/api/checklists', async (req, res) => {
       .sort({ submittedAt: -1 })
       .toArray();
     
-    // إضافة تفاصيل المعدات لكل قائمة (اختياري)
+    // إضافة تفاصيل المعدات لكل قائمة
     for (let checklist of checklists) {
       const equipmentItems = await deptEquipmentCollection
         .find({ listId: checklist.listId })
@@ -703,6 +723,31 @@ app.get('/api/checklists', async (req, res) => {
     res.json({ success: true, data: checklists });
   } catch (error) {
     console.error('❌ Error fetching checklists:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// إضافة مسار بديل للتوافق مع الإصدارات القديمة
+app.get('/api/checklist/reports', async (req, res) => {
+  try {
+    console.log(`📡 Fetching reports (legacy endpoint)`);
+    
+    const checklists = await checklistsCollection
+      .find({ submitted: true })
+      .sort({ submittedAt: -1 })
+      .toArray();
+    
+    for (let checklist of checklists) {
+      const equipmentItems = await deptEquipmentCollection
+        .find({ listId: checklist.listId })
+        .toArray();
+      checklist.equipmentDetails = equipmentItems;
+    }
+    
+    console.log(`✅ Found ${checklists.length} submitted checklists`);
+    res.json({ success: true, data: checklists });
+  } catch (error) {
+    console.error('❌ Error fetching reports:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -1220,6 +1265,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📋 Checklist API:       /api/checklist/:listId`);
   console.log(`✅ Checklist Save API:  /api/checklist/save`);
   console.log(`📊 Reports API:         /api/checklists (GET all submitted)`);
+  console.log(`📊 Reports legacy API:  /api/checklist/reports (GET all submitted)`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
   console.log(`🆕 OT Equipment API:    /api/ot/equipment/:setId`);
