@@ -14,7 +14,12 @@ function useWindowSize() {
   return size;
 }
 
-const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
+// ===================== التعديل الأساسي هنا =====================
+const API_BASE = process.env.REACT_APP_API_URL || 
+  (process.env.NODE_ENV === 'development' 
+    ? `http://${window.location.hostname}:5000/api` 
+    : '/api');
+// ================================================================
 
 function OTDepartment() {
   const navigate = useNavigate();

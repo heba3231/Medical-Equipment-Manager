@@ -2,7 +2,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 
-const API_BASE = `http://${window.location.hostname}:5000/api`;
+// ===================== التعديل الأساسي هنا =====================
+const API_BASE = process.env.REACT_APP_API_URL || 
+  (process.env.NODE_ENV === 'development' 
+    ? `http://${window.location.hostname}:5000/api` 
+    : '/api');
+// ================================================================
 
 // ✅ Hook للاستجابة (محسّن)
 function useWindowSize() {
