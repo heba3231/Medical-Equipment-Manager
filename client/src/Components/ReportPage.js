@@ -2,10 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-// استخدام نفس نمط API_BASE المستخدم في باقي المكونات
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
-// Hook للاستجابة
 function useWindowSize() {
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   useEffect(() => {
@@ -28,18 +26,14 @@ function ReportPage() {
   const { width } = useWindowSize();
   const isMobile = width < 768;
 
-  // جلب جميع التقارير من المسار الصحيح
   useEffect(() => {
     fetchReports();
   }, []);
 
   const fetchReports = async () => {
     try {
-      console.log('📡 Fetching reports from:', `${API_BASE}/checklists`);
       const response = await fetch(`${API_BASE}/checklists`);
-      console.log('📦 Response status:', response.status);
       const data = await response.json();
-      console.log('📦 Reports data:', data);
       if (data.success) {
         setChecklists(data.data);
       } else {
@@ -52,11 +46,10 @@ function ReportPage() {
     }
   };
 
-  // التصفية
   const filteredChecklists = useMemo(() => {
     let result = [...checklists];
     if (filterDept) {
-      result = result.filter(c => 
+      result = result.filter(c =>
         c.deptCode?.toLowerCase().includes(filterDept.toLowerCase()) ||
         c.deptName?.toLowerCase().includes(filterDept.toLowerCase()) ||
         c.listName?.toLowerCase().includes(filterDept.toLowerCase())
@@ -68,28 +61,19 @@ function ReportPage() {
         return d.toISOString().slice(0, 10) === filterDate;
       });
     }
-    // ترتيب حسب الأحدث
     result.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return result;
   }, [checklists, filterDept, filterDate]);
 
-  // عرض التفاصيل
-  const openDetails = (checklist) => {
-    setSelectedChecklist(checklist);
-  };
+  const openDetails = (checklist) => setSelectedChecklist(checklist);
+  const closeDetails = () => setSelectedChecklist(null);
 
-  const closeDetails = () => {
-    setSelectedChecklist(null);
-  };
-
-  // حساب الإحصائيات
   const stats = useMemo(() => {
     const total = checklists.length;
     const depts = new Set(checklists.map(c => c.deptCode || c.deptName)).size;
     return { total, depts };
   }, [checklists]);
 
-  // أيقونات SVG بسيطة
   const Icon = ({ name }) => {
     const icons = {
       back: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>,
@@ -98,6 +82,8 @@ function ReportPage() {
       user: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
       eye: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
       close: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+      warning: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+      checkCircle: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>,
     };
     return icons[name] ? icons[name]() : null;
   };
@@ -143,7 +129,7 @@ function ReportPage() {
             <Icon name="list" /> Reports Dashboard
           </h1>
           <p style={{ color: '#6b7280', margin: '4px 0 0', fontSize: isMobile ? '13px' : '14px' }}>
-            All submitted checklists
+            All submitted checklists with full details
           </p>
         </div>
         <button
@@ -166,10 +152,10 @@ function ReportPage() {
         </button>
       </div>
 
-      {/* Stats cards */}
+      {/* Stats */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)',
+        gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
         gap: '12px',
         marginBottom: '24px'
       }}>
@@ -182,10 +168,16 @@ function ReportPage() {
           <div style={{ fontSize: '12px', color: '#6b7280' }}>Departments</div>
         </div>
         <div style={{ background: 'white', padding: '16px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
-          <div style={{ fontSize: '28px', fontWeight: '700', color: '#006341' }}>
+          <div style={{ fontSize: '28px', fontWeight: '700', color: '#16a34a' }}>
             {checklists.filter(c => c.submitted).length}
           </div>
           <div style={{ fontSize: '12px', color: '#6b7280' }}>Confirmed</div>
+        </div>
+        <div style={{ background: 'white', padding: '16px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
+          <div style={{ fontSize: '28px', fontWeight: '700', color: '#dc2626' }}>
+            {checklists.reduce((sum, c) => sum + (c.missingCount || 0), 0)}
+          </div>
+          <div style={{ fontSize: '12px', color: '#6b7280' }}>Total Missing</div>
         </div>
       </div>
 
@@ -306,6 +298,17 @@ function ReportPage() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Icon name="calendar" /> {item.submittedAt ? new Date(item.submittedAt).toLocaleString() : '—'}
                   </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Icon name="warning" /> Missing: {item.missingCount || 0}
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    ✅ Checked: {item.checkedCount || 0} / {item.totalItems || 0}
+                  </span>
+                  {item.expiryDate && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b91c1c' }}>
+                      🗓️ Expires: {new Date(item.expiryDate).toLocaleDateString()}
+                    </span>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -366,12 +369,38 @@ function ReportPage() {
             </button>
 
             <h2 style={{ color: '#004d32', marginTop: 0 }}>{selectedChecklist.listName || 'Checklist Details'}</h2>
+
+            {/* Summary cards */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
+              gap: '10px',
+              marginBottom: '16px'
+            }}>
+              <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: '#16a34a' }}>{selectedChecklist.checkedCount || 0}</div>
+                <div style={{ fontSize: '11px', color: '#6b7280' }}>Checked</div>
+              </div>
+              <div style={{ background: '#fef2f2', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: '#dc2626' }}>{selectedChecklist.missingCount || 0}</div>
+                <div style={{ fontSize: '11px', color: '#6b7280' }}>Missing</div>
+              </div>
+              <div style={{ background: '#fffbeb', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: '#d97706' }}>{selectedChecklist.damagedCount || 0}</div>
+                <div style={{ fontSize: '11px', color: '#6b7280' }}>Damaged</div>
+              </div>
+              <div style={{ background: '#f3f4f6', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: '#374151' }}>{selectedChecklist.totalItems || 0}</div>
+                <div style={{ fontSize: '11px', color: '#6b7280' }}>Total Items</div>
+              </div>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div><strong>Department:</strong> {selectedChecklist.deptCode || selectedChecklist.deptName || '—'}</div>
               <div><strong>Submitted By:</strong> {selectedChecklist.submittedBy || '—'}</div>
               <div><strong>Submitted At:</strong> {selectedChecklist.submittedAt ? new Date(selectedChecklist.submittedAt).toLocaleString() : '—'}</div>
+              <div><strong>Expiry Date:</strong> {selectedChecklist.expiryDate ? new Date(selectedChecklist.expiryDate).toLocaleDateString() : '—'}</div>
               <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
-              <div><strong>Total Items:</strong> {selectedChecklist.equipmentDetails?.length || Object.keys(selectedChecklist.checkedItems || {}).length}</div>
             </div>
 
             {selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 && (
@@ -402,32 +431,6 @@ function ReportPage() {
                           </tr>
                         );
                       })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {selectedChecklist.checkedItems && !selectedChecklist.equipmentDetails && (
-              <div>
-                <h4 style={{ borderBottom: '2px solid #e5e7eb', paddingBottom: '8px' }}>Items Checked</h4>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc' }}>
-                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>Item ID</th>
-                        <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Checked</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(selectedChecklist.checkedItems).map(([id, checked]) => (
-                        <tr key={id}>
-                          <td style={{ padding: '8px', border: '1px solid #e5e7eb' }}>{id}</td>
-                          <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
-                            {checked ? '✅' : '⬜'}
-                          </td>
-                        </tr>
-                      ))}
                     </tbody>
                   </table>
                 </div>
