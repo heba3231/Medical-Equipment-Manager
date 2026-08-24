@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+// استخدام نفس نمط API_BASE المستخدم في باقي المكونات
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
 // Hook للاستجابة
@@ -22,20 +23,23 @@ function ReportPage() {
   const [error, setError] = useState(null);
   const [filterDept, setFilterDept] = useState('');
   const [filterDate, setFilterDate] = useState('');
-  const [selectedChecklist, setSelectedChecklist] = useState(null); // للتفاصيل
+  const [selectedChecklist, setSelectedChecklist] = useState(null);
 
   const { width } = useWindowSize();
   const isMobile = width < 768;
 
-  // جلب جميع التقارير
+  // جلب جميع التقارير من المسار الصحيح
   useEffect(() => {
     fetchReports();
   }, []);
 
   const fetchReports = async () => {
     try {
+      console.log('📡 Fetching reports from:', `${API_BASE}/checklists`);
       const response = await fetch(`${API_BASE}/checklists`);
+      console.log('📦 Response status:', response.status);
       const data = await response.json();
+      console.log('📦 Reports data:', data);
       if (data.success) {
         setChecklists(data.data);
       } else {
@@ -52,7 +56,11 @@ function ReportPage() {
   const filteredChecklists = useMemo(() => {
     let result = [...checklists];
     if (filterDept) {
-      result = result.filter(c => c.deptCode === filterDept || c.deptName?.toLowerCase().includes(filterDept.toLowerCase()));
+      result = result.filter(c => 
+        c.deptCode?.toLowerCase().includes(filterDept.toLowerCase()) ||
+        c.deptName?.toLowerCase().includes(filterDept.toLowerCase()) ||
+        c.listName?.toLowerCase().includes(filterDept.toLowerCase())
+      );
     }
     if (filterDate) {
       result = result.filter(c => {
@@ -194,7 +202,7 @@ function ReportPage() {
       }}>
         <input
           type="text"
-          placeholder="Filter by department..."
+          placeholder="Filter by department or list name..."
           value={filterDept}
           onChange={(e) => setFilterDept(e.target.value)}
           style={{
@@ -246,7 +254,7 @@ function ReportPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {filteredChecklists.map((item) => (
             <div
-              key={item._id || item.id}
+              key={item._id || item.id || item.listId}
               style={{
                 background: 'white',
                 borderRadius: '12px',
@@ -363,32 +371,63 @@ function ReportPage() {
               <div><strong>Submitted By:</strong> {selectedChecklist.submittedBy || '—'}</div>
               <div><strong>Submitted At:</strong> {selectedChecklist.submittedAt ? new Date(selectedChecklist.submittedAt).toLocaleString() : '—'}</div>
               <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
+              <div><strong>Total Items:</strong> {selectedChecklist.equipmentDetails?.length || Object.keys(selectedChecklist.checkedItems || {}).length}</div>
             </div>
 
-            {selectedChecklist.checkedItems && (
+            {selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 && (
               <div>
-                <h4 style={{ borderBottom: '2px solid #e5e7eb', paddingBottom: '8px' }}>Equipment Checked</h4>
+                <h4 style={{ borderBottom: '2px solid #e5e7eb', paddingBottom: '8px' }}>Equipment Details</h4>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>Item</th>
+                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>Name</th>
+                        <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Code</th>
+                        <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Qty</th>
                         <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Checked</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.entries(selectedChecklist.checkedItems).map(([id, checked]) => {
-                        // قد يكون لدينا اسم العنصر في البيانات، نحاول إيجاده من خلال equipment الموجود في الكائن
-                        // أو نعرض المعرف
+                      {selectedChecklist.equipmentDetails.map((item) => {
+                        const itemId = item._id?.toString() || item.id;
+                        const isChecked = selectedChecklist.checkedItems?.[itemId] || false;
                         return (
-                          <tr key={id}>
-                            <td style={{ padding: '8px', border: '1px solid #e5e7eb' }}>{id}</td>
+                          <tr key={itemId}>
+                            <td style={{ padding: '8px', border: '1px solid #e5e7eb' }}>{item.name}</td>
+                            <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
+                            <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.quantity || 0}</td>
                             <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
-                              {checked ? '✅' : '⬜'}
+                              {isChecked ? '✅' : '⬜'}
                             </td>
                           </tr>
                         );
                       })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {selectedChecklist.checkedItems && !selectedChecklist.equipmentDetails && (
+              <div>
+                <h4 style={{ borderBottom: '2px solid #e5e7eb', paddingBottom: '8px' }}>Items Checked</h4>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc' }}>
+                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>Item ID</th>
+                        <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Checked</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(selectedChecklist.checkedItems).map(([id, checked]) => (
+                        <tr key={id}>
+                          <td style={{ padding: '8px', border: '1px solid #e5e7eb' }}>{id}</td>
+                          <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
+                            {checked ? '✅' : '⬜'}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
