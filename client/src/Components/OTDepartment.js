@@ -14,12 +14,7 @@ function useWindowSize() {
   return size;
 }
 
-// ===================== التعديل الأساسي هنا =====================
-const API_BASE = process.env.REACT_APP_API_URL || 
-  (process.env.NODE_ENV === 'development' 
-    ? `http://${window.location.hostname}:5000/api` 
-    : '/api');
-// ================================================================
+const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
 function OTDepartment() {
   const navigate = useNavigate();
@@ -781,31 +776,42 @@ function OTDepartment() {
     return { totalRequired, totalPresent, okCount, missingCount, damagedCount, undeterminedCount, percentage };
   }, [currentEquipment, checkData]);
 
-  // ===================== التعديل الرئيسي: handleApproveAndSend =====================
+  // ================================
+  // ✅ MODIFIED: handleApproveAndSend now saves to server and navigates to /reports
+  // ================================
   const handleApproveAndSend = async () => {
+    // التحقق من وجود بيانات
     if (!selectedListId) {
-      alert("No list selected");
+      alert("No list selected.");
       return;
     }
 
-    // التأكد من أن هناك بيانات فحص
-    const hasData = Object.keys(checkData).length > 0;
-    if (!hasData) {
-      alert("Please check at least one item before submitting.");
-      return;
-    }
+    // تحويل checkData إلى صيغة بسيطة { itemId: true/false } للتوافق مع EquipmentChecklist
+    const simpleChecked = {};
+    currentEquipment.forEach(item => {
+      const data = checkData[item.id];
+      // يعتبر العنصر محققاً إذا كانت الكمية المتوفرة >= المطلوبة ولم يكن تالفاً
+      if (data && data.present >= item.quantity && !data.damaged) {
+        simpleChecked[item.id] = true;
+      } else {
+        simpleChecked[item.id] = false;
+      }
+    });
+
+    // إعداد الحمولة
+    const userName = localStorage.getItem("userName") ||
+                     localStorage.getItem("adminName") ||
+                     "Technician";
 
     const payload = {
       listId: selectedListId,
       deptCode: selectedDeptId,
-      listName: selectedListName || "Equipment Set",
-      checkedItems: checkData,
+      listName: selectedListName,
+      checkedItems: simpleChecked,
       submitted: true,
       submittedAt: new Date().toISOString(),
-      submittedBy: checkMeta.technician || localStorage.getItem("userName") || "Admin",
-      userRole: "admin",
-      expiryDate: expiryDate ? expiryDate.toISOString() : null,
-      source: 'ot'   // علامة تميز قوائم OT
+      submittedBy: userName,
+      userRole: "admin"
     };
 
     try {
@@ -815,16 +821,20 @@ function OTDepartment() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+
       const data = await response.json();
+
       if (data.success) {
         alert('✅ Checklist submitted successfully!');
+        // الخروج من وضع الشيك والتوجه إلى صفحة التقارير
         setCheckMode(false);
-        // (اختياري) إعادة تحميل القائمة أو تحديث الحالة
+        navigate('/reports');
       } else {
-        alert('❌ Error: ' + (data.message || 'Unknown error'));
+        alert('Error: ' + (data.message || 'Unknown error'));
       }
     } catch (err) {
-      alert('❌ Error submitting checklist: ' + err.message);
+      console.error('Error submitting checklist:', err);
+      alert('Error submitting checklist: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -1728,10 +1738,11 @@ function OTDepartment() {
                 fontWeight: "700",
                 fontSize: isMobile ? "11px" : "13px",
                 cursor: saving ? "not-allowed" : "pointer",
-                opacity: saving ? 0.6 : 1
+                opacity: saving ? 0.7 : 1
               }}
             >
-              <Icons.sendCheck /> {saving ? "Sending..." : "Approve & Send"}
+              {saving ? "⏳ Saving..." : <Icons.sendCheck />}
+              {saving ? "Saving..." : "Approve & Send"}
             </button>
             <button
               onClick={handleReportShortage}

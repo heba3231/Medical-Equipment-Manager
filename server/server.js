@@ -17,12 +17,9 @@ dns.setServers(["8.8.8.8", "8.8.4.4"]);
 const app = express();
 
 // ==================== CORS Configuration ====================
-const allowedOrigins = process.env.CLIENT_URL 
-  ? [process.env.CLIENT_URL, 'https://medical-equipment-manager-13.onrender.com']
-  : ['*'];
-
+const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
 app.use(cors({
-  origin: allowedOrigins,
+  origin: clientUrl,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -32,7 +29,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 setupAISearchRoutes(app);
 
-// JWT Secret
+// JWT Secret - استخدام المتغير البيئي إن وجد
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
 const MONGODB_UR = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
@@ -634,14 +631,16 @@ app.delete("/api/dept-equipment/:id", async (req, res) => {
   }
 });
 
-// ==================== CHECKLIST ROUTES (مع التعديلات المحسنة) ====================
+// ==================== CHECKLIST ROUTES ====================
 
 app.get('/api/checklist/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
     console.log(`📡 Fetching saved checklist for: ${listId}`);
+    
     const checklist = await checklistsCollection.findOne({ listId });
     console.log(`✅ Checklist found: ${checklist ? 'Yes' : 'No'}`);
+    
     res.json({ success: true, data: checklist || null });
   } catch (error) {
     console.error('❌ Error fetching checklist:', error);
@@ -651,117 +650,60 @@ app.get('/api/checklist/:listId', async (req, res) => {
 
 app.post('/api/checklist/save', async (req, res) => {
   try {
-    const { listId, deptCode, listName, checkedItems, submitted, submittedAt, submittedBy, userRole, expiryDate, source } = req.body;
+    const { listId, deptCode, listName, checkedItems, submitted, submittedAt, submittedBy, userRole } = req.body;
     
     console.log(`📤 Saving checklist for: ${listId}`);
     console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
-    console.log(`   Expiry: ${expiryDate}, Source: ${source}`);
-
-    // تحويل submitted إلى قيمة منطقية
-    const isSubmitted = submitted === true || submitted === 'true';
-
-    const updateData = {
-      listId,
-      deptCode,
-      listName,
-      checkedItems,
-      submitted: isSubmitted,
-      submittedAt: submittedAt || new Date().toISOString(),
-      submittedBy: submittedBy || 'Staff',
-      userRole: userRole || 'staff',
-      updatedAt: new Date()
-    };
-
-    // حفظ expiryDate و source دائماً (حتى إذا كانت null)
-    updateData.expiryDate = expiryDate || null;
-    updateData.source = source || null;
-
+    
     const result = await checklistsCollection.updateOne(
       { listId },
-      { $set: updateData },
+      { 
+        $set: {
+          listId,
+          deptCode,
+          listName,
+          checkedItems,
+          submitted: submitted || false,
+          submittedAt: submittedAt || new Date().toISOString(),
+          submittedBy: submittedBy || 'Staff',
+          userRole: userRole || 'staff',
+          updatedAt: new Date()
+        }
+      },
       { upsert: true }
     );
     
-    console.log(`✅ Checklist saved successfully. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}, Upserted: ${result.upsertedId ? 'yes' : 'no'}`);
-    res.json({ success: true, data: { listId, submitted: isSubmitted } });
+    console.log(`✅ Checklist saved successfully`);
+    res.json({ success: true, data: { listId, submitted } });
   } catch (error) {
     console.error('❌ Error saving checklist:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// جلب كل القوائم المؤكدة (للتقارير) - مع سجلات إضافية
-app.get('/api/checklist/confirmed/all', async (req, res) => {
+// ✅ NEW ENDPOINT: GET all submitted checklists (for reports page)
+app.get('/api/checklists', async (req, res) => {
   try {
-    console.log(`📡 Fetching all confirmed checklists`);
+    console.log(`📡 Fetching all submitted checklists`);
+    
     const checklists = await checklistsCollection
       .find({ submitted: true })
       .sort({ submittedAt: -1 })
       .toArray();
     
+    // إضافة تفاصيل المعدات لكل قائمة (اختياري)
     for (let checklist of checklists) {
-      let equipmentItems = [];
-      if (checklist.source === 'ot') {
-        equipmentItems = await otCustomEquipmentCollection
-          .find({ listId: checklist.listId })
-          .toArray();
-      } else {
-        equipmentItems = await deptEquipmentCollection
-          .find({ listId: checklist.listId })
-          .toArray();
-      }
+      const equipmentItems = await deptEquipmentCollection
+        .find({ listId: checklist.listId })
+        .toArray();
       checklist.equipmentDetails = equipmentItems;
     }
     
-    console.log(`✅ Found ${checklists.length} confirmed checklists`);
+    console.log(`✅ Found ${checklists.length} submitted checklists`);
     res.json({ success: true, data: checklists });
   } catch (error) {
-    console.error('❌ Error fetching confirmed checklists:', error);
+    console.error('❌ Error fetching checklists:', error);
     res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ====== نقطة نهاية جديدة للتقارير (بمعدات مفصلة) ======
-app.get("/api/checklist/reports", async (req, res) => {
-  try {
-    console.log('📡 Fetching reports...');
-    const reports = await checklistsCollection
-      .find({ submitted: true })
-      .sort({ submittedAt: -1 })
-      .toArray();
-
-    console.log(`✅ Found ${reports.length} reports`);
-
-    for (let report of reports) {
-      let equipmentItems = [];
-      if (report.source === 'ot') {
-        equipmentItems = await otCustomEquipmentCollection
-          .find({ listId: report.listId })
-          .toArray();
-      } else {
-        equipmentItems = await deptEquipmentCollection
-          .find({ listId: report.listId })
-          .toArray();
-      }
-      report.equipmentDetails = equipmentItems;
-    }
-
-    res.json({ success: true, data: reports });
-  } catch (error) {
-    console.error('❌ Error fetching reports:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ====== نقطة نهاية للتصحيح: عرض جميع القوائم (حتى غير المؤكدة) ======
-app.get('/api/checklist/all', async (req, res) => {
-  try {
-    const all = await checklistsCollection.find({}).toArray();
-    console.log(`🔍 Total checklists in DB: ${all.length}`);
-    res.json({ success: true, data: all });
-  } catch (err) {
-    console.error('❌ Error fetching all checklists:', err);
-    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -1277,8 +1219,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📦 Dept Equipment API:  /api/dept-equipment/:deptCode/:listId`);
   console.log(`📋 Checklist API:       /api/checklist/:listId`);
   console.log(`✅ Checklist Save API:  /api/checklist/save`);
-  console.log(`📋 Reports API:         /api/checklist/reports`);
-  console.log(`🔍 All Checklists API:  /api/checklist/all (debug)`);
+  console.log(`📊 Reports API:         /api/checklists (GET all submitted)`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
   console.log(`🆕 OT Equipment API:    /api/ot/equipment/:setId`);
@@ -1286,5 +1227,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🔧 OT Custom Equip API: /api/ot-custom-equipment`);
   console.log(`🤖 AI Search API:       /api/ai-search/instrument?name=...`);
   console.log(`🔧 Debug: /api/test/admins | /api/debug/admin-structure`);
-  console.log(`✅ CORS allowed origin: ${allowedOrigins}`);
+  console.log(`✅ CORS allowed origin: ${clientUrl}`);
 });

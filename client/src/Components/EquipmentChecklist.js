@@ -2,12 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 
-// ===================== التعديل الأساسي هنا =====================
-const API_BASE = process.env.REACT_APP_API_URL || 
-  (process.env.NODE_ENV === 'development' 
-    ? `http://${window.location.hostname}:5000/api` 
-    : '/api');
-// ================================================================
+const API_BASE = `http://${window.location.hostname}:5000/api`;
 
 // ✅ Hook للاستجابة (محسّن)
 function useWindowSize() {
@@ -37,12 +32,11 @@ function EquipmentChecklist() {
   const [error, setError] = useState(null);
   const printRef = useRef();
 
-  // تاريخ الانتهاء (تلقائي بعد 6 أشهر)
-  const [expiryDate, setExpiryDate] = useState(null);
-
   const { width } = useWindowSize();
+  // نقاط قطع أكثر دقة
   const isMobile = width < 640;
   const isTablet = width < 1024 && width >= 640;
+  // حجم الخط الأساسي حسب الجهاز
   const baseFontSize = isMobile ? '13px' : isTablet ? '13px' : '14px';
 
   useEffect(() => {
@@ -88,9 +82,6 @@ function EquipmentChecklist() {
         setCheckedItems(data.data.checkedItems);
         setSubmitted(data.data.submitted || false);
         setSubmissionData(data.data);
-        if (data.data.expiryDate) {
-          setExpiryDate(new Date(data.data.expiryDate));
-        }
       }
     } catch (err) {
       console.error('Error fetching saved checklist:', err);
@@ -135,7 +126,7 @@ function EquipmentChecklist() {
     setCheckedItems(allUnchecked);
   };
 
-  // ========== SUBMIT WITH EXPIRY DATE & SOURCE ==========
+  // ===================== MODIFIED: navigate to /reports =====================
   const handleSubmit = async () => {
     setSaving(true);
     try {
@@ -143,12 +134,6 @@ function EquipmentChecklist() {
                        JSON.parse(localStorage.getItem("user") || "{}")?.name ||
                        "Staff";
       const userRole = localStorage.getItem("userRole") || "staff";
-
-      // تعيين تاريخ الانتهاء تلقائياً (بعد 6 أشهر من اليوم)
-      const today = new Date();
-      const expiry = new Date(today);
-      expiry.setMonth(expiry.getMonth() + 6);
-      setExpiryDate(expiry);
 
       const payload = {
         listId,
@@ -158,9 +143,7 @@ function EquipmentChecklist() {
         submitted: true,
         submittedAt: new Date().toISOString(),
         submittedBy: userName,
-        userRole: userRole,
-        expiryDate: expiry.toISOString(),
-        source: 'dept'   // تمييز القوائم العادية عن OT
+        userRole: userRole
       };
 
       const response = await fetch(`${API_BASE}/checklist/save`, {
@@ -175,7 +158,8 @@ function EquipmentChecklist() {
         setSubmitted(true);
         setSubmissionData(data.data);
         alert('✅ Checklist submitted successfully!');
-        navigate('/ot-enhanced');
+        // ✅ التوجيه إلى صفحة التقارير بدلاً من OT
+        navigate('/reports');
       } else {
         alert('Error: ' + data.message);
       }
@@ -187,15 +171,12 @@ function EquipmentChecklist() {
     }
   };
 
-  // ===================== PRINT FUNCTION (مع تاريخ الانتهاء) =====================
+  // ===================== PRINT FUNCTION =====================
   const handlePrint = () => {
     const userName = localStorage.getItem("userName") ||
                      JSON.parse(localStorage.getItem("user") || "{}")?.name ||
                      "Unknown";
     const submittedByName = submissionData?.submittedBy || userName;
-    const expiryStr = expiryDate
-      ? expiryDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
-      : '—';
 
     let tableRows = equipment.map((item, index) => {
       const itemId = item._id.toString();
@@ -223,20 +204,16 @@ function EquipmentChecklist() {
           @page { size: A4; margin: 16mm 14mm; }
           body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; color: #1f2937; }
           .print-page { width: 100%; }
-          .meta-line {
+          .inspector-line {
             display: flex;
-            justify-content: space-between;
             align-items: baseline;
-            gap: 16px;
+            gap: 8px;
             margin-bottom: 18px;
             padding-bottom: 10px;
             border-bottom: 1.5px solid #004d32;
-            flex-wrap: wrap;
           }
-          .meta-item { display: flex; align-items: baseline; gap: 6px; }
-          .meta-label { font-size: 12px; font-weight: 700; color: #004d32; text-transform: uppercase; letter-spacing: 0.5px; }
-          .meta-value { font-size: 14px; font-weight: 700; color: #111827; }
-          .expiry-date { font-weight: 700; color: #b91c1c; font-size: 14px; }
+          .inspector-label { font-size: 13px; font-weight: 700; color: #004d32; text-transform: uppercase; letter-spacing: 0.5px; }
+          .inspector-name { font-size: 16px; font-weight: 700; color: #111827; }
           table { width: 100%; border-collapse: collapse; font-size: 13px; }
           thead th { background: #f0f7f4; color: #004d32; font-weight: 700; padding: 8px 6px; border: 1px solid #999; text-align: left; }
           tbody td { padding: 7px 6px; border: 1px solid #999; vertical-align: middle; }
@@ -251,9 +228,9 @@ function EquipmentChecklist() {
       </head>
       <body>
         <div class="print-page">
-          <div class="meta-line">
-            <div class="meta-item"><span class="meta-label">Inspector:</span><span class="meta-value">${submittedByName}</span></div>
-            <div class="meta-item"><span class="meta-label">Expiry Date:</span><span class="expiry-date">${expiryStr}</span></div>
+          <div class="inspector-line">
+            <span class="inspector-label">Inspector:</span>
+            <span class="inspector-name">${submittedByName}</span>
           </div>
           <table>
             <thead>
@@ -278,10 +255,6 @@ function EquipmentChecklist() {
     printWindow.document.close();
     printWindow.focus();
     printWindow.onload = () => { printWindow.print(); };
-  };
-
-  const handleReportShortage = () => {
-    alert("📢 Shortage notification sent to department administrator.");
   };
 
   const checkedCount = Object.values(checkedItems).filter(v => v === true).length;
@@ -415,11 +388,6 @@ function EquipmentChecklist() {
               lineHeight: 1.5
             }}>
               ✅ Already submitted on: {new Date(submissionData.submittedAt).toLocaleString()} by {submissionData.submittedBy}
-              {expiryDate && (
-                <span style={{ marginLeft: '12px', fontWeight: '600', color: '#b91c1c' }}>
-                  Expiry: {expiryDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                </span>
-              )}
             </div>
           )}
         </div>
@@ -469,23 +437,6 @@ function EquipmentChecklist() {
             }}
           >
             ✗ Clear All
-          </button>
-          <button
-            onClick={handleReportShortage}
-            style={{
-              padding: isMobile ? '10px 14px' : '10px 20px',
-              background: '#dc2626',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: isMobile ? '12px' : '14px',
-              flex: '1 1 auto',
-              minHeight: '44px'
-            }}
-          >
-            📢 Report Shortage
           </button>
         </div>
       )}
@@ -779,11 +730,9 @@ function EquipmentChecklist() {
           <p>✅ This checklist has been confirmed and submitted to OT Department.</p>
           <p>📅 Submitted on: {new Date(submissionData.submittedAt).toLocaleString()}</p>
           <p>👤 Submitted by: {submissionData.submittedBy}</p>
-          {expiryDate && (
-            <p>📅 Expiry Date: <strong style={{ color: '#b91c1c' }}>{expiryDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</strong></p>
-          )}
+          {/* ✅ تغيير الزر للتوجيه إلى صفحة التقارير */}
           <button
-            onClick={() => navigate('/ot-enhanced')}
+            onClick={() => navigate('/reports')}
             style={{
               marginTop: '8px',
               padding: isMobile ? '10px 16px' : '8px 18px',
@@ -796,7 +745,7 @@ function EquipmentChecklist() {
               minHeight: '44px'
             }}
           >
-            Go to OT Department →
+            Go to Reports →
           </button>
         </div>
       )}

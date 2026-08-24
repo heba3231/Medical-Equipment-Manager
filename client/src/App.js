@@ -30,7 +30,7 @@ import AddSetEquipment from "./Components/AddSetEquipment";
 import EditSetEquipment from "./Components/EditSetEquipment";
 
 // ✅ Reports Component (جديد)
-import Reports from "./Components/Reports";
+import ReportPage from "./Components/ReportPage";
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -119,7 +119,7 @@ function App() {
             <Route path="/ot-enhanced" element={<OTDepartmentEnhanced />} />
 
             {/* ✅ Reports Route (للمدير فقط - يمكن إضافة حماية إضافية داخل المكون) */}
-            <Route path="/reports" element={<Reports />} />
+            <Route path="/reports" element={<ReportPage />} />
           </Routes>
         </Row>
         <Footer />
