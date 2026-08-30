@@ -74,6 +74,22 @@ function ReportPage() {
     return { total, depts };
   }, [checklists]);
 
+  // ✅ دالة مساعدة لتنسيق التاريخ بصيغة DD/MM/YYYY
+  const formatDate = (dateString) => {
+    if (!dateString) return '—';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '—';
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    } catch {
+      return '—';
+    }
+  };
+
   const Icon = ({ name }) => {
     const icons = {
       back: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>,
@@ -306,7 +322,7 @@ function ReportPage() {
                   </span>
                   {item.expiryDate && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b91c1c' }}>
-                      🗓️ Expires: {new Date(item.expiryDate).toLocaleDateString()}
+                      🗓️ Expires: {formatDate(item.expiryDate)}
                     </span>
                   )}
                 </div>
@@ -399,7 +415,7 @@ function ReportPage() {
               <div><strong>Department:</strong> {selectedChecklist.deptCode || selectedChecklist.deptName || '—'}</div>
               <div><strong>Submitted By:</strong> {selectedChecklist.submittedBy || '—'}</div>
               <div><strong>Submitted At:</strong> {selectedChecklist.submittedAt ? new Date(selectedChecklist.submittedAt).toLocaleString() : '—'}</div>
-              <div><strong>Expiry Date:</strong> {selectedChecklist.expiryDate ? new Date(selectedChecklist.expiryDate).toLocaleDateString() : '—'}</div>
+              <div><strong>Expiry Date:</strong> {formatDate(selectedChecklist.expiryDate)}</div>
               <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
             </div>
 
