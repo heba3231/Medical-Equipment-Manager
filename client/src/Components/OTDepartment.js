@@ -68,7 +68,7 @@ function OTDepartment() {
   const [checkMeta, setCheckMeta] = useState({ technician: "", startedAt: null });
   const [checkListImage, setCheckListImage] = useState(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [expiryDate, setExpiryDate] = useState(null);
+  const [expiryDate, setExpiryDate] = useState(null); // ✅ تاريخ الانتهاء
 
   // ========== RESPONSIVE ==========
   const { width } = useWindowSize();
@@ -811,7 +811,8 @@ function OTDepartment() {
       submitted: true,
       submittedAt: new Date().toISOString(),
       submittedBy: userName,
-      userRole: "admin"
+      userRole: "admin",
+      expiryDate: expiryDate ? expiryDate.toISOString() : null, // ✅ إضافة expiryDate
     };
 
     try {

@@ -648,7 +648,7 @@ app.get('/api/checklist/:listId', async (req, res) => {
   }
 });
 
-// ✅ MODIFIED: /api/checklist/save now calculates and stores statistics
+// ✅ MODIFIED: /api/checklist/save with expiryDate and statistics
 app.post('/api/checklist/save', async (req, res) => {
   try {
     const { 
@@ -660,12 +660,13 @@ app.post('/api/checklist/save', async (req, res) => {
       submittedAt, 
       submittedBy, 
       userRole,
-      // Optional: if client sends damagedItems separately
-      damagedItems 
+      damagedItems,
+      expiryDate   // ✅ استقبال expiryDate
     } = req.body;
     
     console.log(`📤 Saving checklist for: ${listId}`);
     console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
+    console.log(`   Expiry Date: ${expiryDate || 'Not set'}`);
 
     // 1. Fetch equipment for this list from either dept_equipment or ot_custom_equipment
     let equipmentList = [];
@@ -702,7 +703,7 @@ app.post('/api/checklist/save', async (req, res) => {
       }
     });
 
-    // 3. Prepare update document with statistics
+    // 3. Prepare update document with statistics and expiryDate
     const updateDoc = {
       listId,
       deptCode,
@@ -716,6 +717,7 @@ app.post('/api/checklist/save', async (req, res) => {
       checkedCount,
       missingCount,
       damagedCount,
+      expiryDate: expiryDate || null,   // ✅ تخزين expiryDate
       updatedAt: new Date()
     };
 
@@ -726,8 +728,8 @@ app.post('/api/checklist/save', async (req, res) => {
       { upsert: true }
     );
     
-    console.log(`✅ Checklist saved successfully with stats: total=${totalItems}, checked=${checkedCount}, missing=${missingCount}, damaged=${damagedCount}`);
-    res.json({ success: true, data: { listId, submitted, totalItems, checkedCount, missingCount, damagedCount } });
+    console.log(`✅ Checklist saved successfully with stats: total=${totalItems}, checked=${checkedCount}, missing=${missingCount}, damaged=${damagedCount}, expiry=${expiryDate || 'none'}`);
+    res.json({ success: true, data: { listId, submitted, totalItems, checkedCount, missingCount, damagedCount, expiryDate } });
   } catch (error) {
     console.error('❌ Error saving checklist:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1279,7 +1281,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📦 Dept Lists API:      /api/dept-lists/:deptCode`);
   console.log(`📦 Dept Equipment API:  /api/dept-equipment/:deptCode/:listId`);
   console.log(`📋 Checklist API:       /api/checklist/:listId`);
-  console.log(`✅ Checklist Save API:  /api/checklist/save (NOW WITH STATS)`);
+  console.log(`✅ Checklist Save API:  /api/checklist/save (NOW WITH STATS & EXPIRY)`);
   console.log(`📊 Reports API:         /api/checklists (GET all submitted)`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
