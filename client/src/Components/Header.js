@@ -113,7 +113,7 @@ function Header({ user, onLogout }) {
               className={`nav-btn ${location.pathname === "/ai-search" ? "active" : ""}`}
               onClick={() => { navigate("/ai-search"); setMenuOpen(false); }}
             >
-              🔍 Search Instrument
+               Search   Instrument
             </button>
           )}
 
@@ -123,7 +123,7 @@ function Header({ user, onLogout }) {
               className={`nav-btn ${location.pathname === "/ot-enhanced" ? "active" : ""}`}
               onClick={() => { navigate("/ot-enhanced"); setMenuOpen(false); }}
             >
-              🏥 OT Department
+               OT Department
             </button>
           )}
 
