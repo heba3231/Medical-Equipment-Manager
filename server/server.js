@@ -648,53 +648,86 @@ app.get('/api/checklist/:listId', async (req, res) => {
   }
 });
 
+// ✅ MODIFIED: /api/checklist/save now calculates and stores statistics
 app.post('/api/checklist/save', async (req, res) => {
   try {
-    const {
+    const { 
+      listId, 
+      deptCode, 
+      listName, 
+      checkedItems, 
+      submitted, 
+      submittedAt, 
+      submittedBy, 
+      userRole,
+      // Optional: if client sends damagedItems separately
+      damagedItems 
+    } = req.body;
+    
+    console.log(`📤 Saving checklist for: ${listId}`);
+    console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
+
+    // 1. Fetch equipment for this list from either dept_equipment or ot_custom_equipment
+    let equipmentList = [];
+    let itemsFromDept = await deptEquipmentCollection.find({ listId }).toArray();
+    if (itemsFromDept.length > 0) {
+      equipmentList = itemsFromDept;
+    } else {
+      let itemsFromCustom = await otCustomEquipmentCollection.find({ listId }).toArray();
+      equipmentList = itemsFromCustom;
+    }
+
+    // 2. Calculate statistics
+    const totalItems = equipmentList.length;
+    let checkedCount = 0;
+    let missingCount = 0;
+    let damagedCount = 0;
+
+    equipmentList.forEach(item => {
+      // Determine the item's identifier as used in checkedItems
+      // In OTDepartment: item.id (e.g., "eq_123")
+      // In EquipmentChecklist: item._id.toString()
+      const itemId = item.id || item._id.toString();
+      const isChecked = checkedItems[itemId] || false;
+      
+      if (isChecked) {
+        checkedCount++;
+      } else {
+        missingCount++;
+      }
+
+      // If damagedItems is sent separately (optional), count damaged
+      if (damagedItems && damagedItems[itemId]) {
+        damagedCount++;
+      }
+    });
+
+    // 3. Prepare update document with statistics
+    const updateDoc = {
       listId,
       deptCode,
       listName,
       checkedItems,
-      submitted,
-      submittedAt,
-      submittedBy,
-      userRole,
+      submitted: submitted || false,
+      submittedAt: submittedAt || new Date().toISOString(),
+      submittedBy: submittedBy || 'Staff',
+      userRole: userRole || 'staff',
       totalItems,
       checkedCount,
       missingCount,
       damagedCount,
-      expiryDate
-    } = req.body;
+      updatedAt: new Date()
+    };
 
-    console.log(`📤 Saving checklist for: ${listId}`);
-    console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
-    console.log(`   Total: ${totalItems}, Checked: ${checkedCount}, Missing: ${missingCount}, Damaged: ${damagedCount}`);
-
+    // 4. Upsert into checklists collection
     const result = await checklistsCollection.updateOne(
       { listId },
-      {
-        $set: {
-          listId,
-          deptCode,
-          listName,
-          checkedItems,
-          submitted: submitted || false,
-          submittedAt: submittedAt || new Date().toISOString(),
-          submittedBy: submittedBy || 'Staff',
-          userRole: userRole || 'staff',
-          totalItems: totalItems || 0,
-          checkedCount: checkedCount || 0,
-          missingCount: missingCount || 0,
-          damagedCount: damagedCount || 0,
-          expiryDate: expiryDate || null,
-          updatedAt: new Date()
-        }
-      },
+      { $set: updateDoc },
       { upsert: true }
     );
-
-    console.log(`✅ Checklist saved successfully`);
-    res.json({ success: true, data: { listId, submitted } });
+    
+    console.log(`✅ Checklist saved successfully with stats: total=${totalItems}, checked=${checkedCount}, missing=${missingCount}, damaged=${damagedCount}`);
+    res.json({ success: true, data: { listId, submitted, totalItems, checkedCount, missingCount, damagedCount } });
   } catch (error) {
     console.error('❌ Error saving checklist:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -711,43 +744,26 @@ app.get('/api/checklists', async (req, res) => {
       .sort({ submittedAt: -1 })
       .toArray();
     
-    // إضافة تفاصيل المعدات لكل قائمة
+    // إضافة تفاصيل المعدات لكل قائمة (اختياري)
     for (let checklist of checklists) {
       const equipmentItems = await deptEquipmentCollection
         .find({ listId: checklist.listId })
         .toArray();
-      checklist.equipmentDetails = equipmentItems;
+      // If not found in dept_equipment, try custom
+      if (equipmentItems.length === 0) {
+        const customItems = await otCustomEquipmentCollection
+          .find({ listId: checklist.listId })
+          .toArray();
+        checklist.equipmentDetails = customItems;
+      } else {
+        checklist.equipmentDetails = equipmentItems;
+      }
     }
     
     console.log(`✅ Found ${checklists.length} submitted checklists`);
     res.json({ success: true, data: checklists });
   } catch (error) {
     console.error('❌ Error fetching checklists:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// إضافة مسار بديل للتوافق مع الإصدارات القديمة
-app.get('/api/checklist/reports', async (req, res) => {
-  try {
-    console.log(`📡 Fetching reports (legacy endpoint)`);
-    
-    const checklists = await checklistsCollection
-      .find({ submitted: true })
-      .sort({ submittedAt: -1 })
-      .toArray();
-    
-    for (let checklist of checklists) {
-      const equipmentItems = await deptEquipmentCollection
-        .find({ listId: checklist.listId })
-        .toArray();
-      checklist.equipmentDetails = equipmentItems;
-    }
-    
-    console.log(`✅ Found ${checklists.length} submitted checklists`);
-    res.json({ success: true, data: checklists });
-  } catch (error) {
-    console.error('❌ Error fetching reports:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -1263,9 +1279,8 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📦 Dept Lists API:      /api/dept-lists/:deptCode`);
   console.log(`📦 Dept Equipment API:  /api/dept-equipment/:deptCode/:listId`);
   console.log(`📋 Checklist API:       /api/checklist/:listId`);
-  console.log(`✅ Checklist Save API:  /api/checklist/save`);
+  console.log(`✅ Checklist Save API:  /api/checklist/save (NOW WITH STATS)`);
   console.log(`📊 Reports API:         /api/checklists (GET all submitted)`);
-  console.log(`📊 Reports legacy API:  /api/checklist/reports (GET all submitted)`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
   console.log(`🆕 OT Equipment API:    /api/ot/equipment/:setId`);
