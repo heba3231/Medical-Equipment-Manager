@@ -777,20 +777,17 @@ function OTDepartment() {
   }, [currentEquipment, checkData]);
 
   // ================================
-  // ✅ MODIFIED: handleApproveAndSend now saves to server and navigates to /reports
+  // ✅ MODIFIED: handleApproveAndSend now saves to server and navigates to /reports with refresh state
   // ================================
   const handleApproveAndSend = async () => {
-    // التحقق من وجود بيانات
     if (!selectedListId) {
       alert("No list selected.");
       return;
     }
 
-    // تحويل checkData إلى صيغة بسيطة { itemId: true/false } للتوافق مع EquipmentChecklist
     const simpleChecked = {};
     currentEquipment.forEach(item => {
       const data = checkData[item.id];
-      // يعتبر العنصر محققاً إذا كانت الكمية المتوفرة >= المطلوبة ولم يكن تالفاً
       if (data && data.present >= item.quantity && !data.damaged) {
         simpleChecked[item.id] = true;
       } else {
@@ -798,7 +795,6 @@ function OTDepartment() {
       }
     });
 
-    // إعداد الحمولة
     const userName = localStorage.getItem("userName") ||
                      localStorage.getItem("adminName") ||
                      "Technician";
@@ -812,7 +808,7 @@ function OTDepartment() {
       submittedAt: new Date().toISOString(),
       submittedBy: userName,
       userRole: "admin",
-      expiryDate: expiryDate ? expiryDate.toISOString() : null, // ✅ إضافة expiryDate
+      expiryDate: expiryDate ? expiryDate.toISOString() : null,
     };
 
     try {
@@ -827,9 +823,9 @@ function OTDepartment() {
 
       if (data.success) {
         alert('✅ Checklist submitted successfully!');
-        // الخروج من وضع الشيك والتوجه إلى صفحة التقارير
         setCheckMode(false);
-        navigate('/reports');
+        // ✅ التوجيه مع state.refresh لتحديث صفحة التقارير
+        navigate('/reports', { state: { refresh: true } });
       } else {
         alert('Error: ' + (data.message || 'Unknown error'));
       }
@@ -1440,7 +1436,7 @@ function OTDepartment() {
                   <tr>
                     <th style={{ ...checkThStyle, textAlign: "center", width: "40px" }}>#</th>
                     <th style={checkThStyle}>Item Name</th>
-                    <th style={{ ...checkThStyle, textAlign: "center", width: "70px" }}>Image</th>
+                    <th style={{ ...checkThStyle, textAlign: "center" }}>Image</th>
                     <th style={{ ...checkThStyle, textAlign: "center" }}>Required</th>
                     <th style={{ ...checkThStyle, textAlign: "center" }}>Available</th>
                     <th style={{ ...checkThStyle, textAlign: "center" }}>Status</th>

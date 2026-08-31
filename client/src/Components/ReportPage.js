@@ -1,6 +1,6 @@
 // Components/ReportPage.js
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
@@ -16,6 +16,7 @@ function useWindowSize() {
 
 function ReportPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [checklists, setChecklists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,13 +27,13 @@ function ReportPage() {
   const { width } = useWindowSize();
   const isMobile = width < 768;
 
-  useEffect(() => {
-    fetchReports();
-  }, []);
-
+  // ========== Fetch reports ==========
   const fetchReports = async () => {
+    setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/checklists`);
+      const response = await fetch(`${API_BASE}/checklists`, {
+        cache: 'no-store' // ✅ منع التخزين المؤقت
+      });
       const data = await response.json();
       if (data.success) {
         setChecklists(data.data);
@@ -46,6 +47,21 @@ function ReportPage() {
     }
   };
 
+  // ========== تحميل أولي ==========
+  useEffect(() => {
+    fetchReports();
+  }, []);
+
+  // ========== إعادة التحميل عند العودة من صفحة التشيك ==========
+  useEffect(() => {
+    if (location.state?.refresh) {
+      fetchReports();
+      // مسح الـ state لمنع إعادة التحميل عند التنقل الخلفي
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, navigate, location.pathname]);
+
+  // ========== التصفية ==========
   const filteredChecklists = useMemo(() => {
     let result = [...checklists];
     if (filterDept) {
@@ -100,6 +116,7 @@ function ReportPage() {
       close: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
       warning: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
       checkCircle: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>,
+      refresh: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>,
     };
     return icons[name] ? icons[name]() : null;
   };
@@ -117,7 +134,7 @@ function ReportPage() {
     return (
       <div style={{ padding: '40px', textAlign: 'center', color: '#dc2626' }}>
         <h2>❌ {error}</h2>
-        <button onClick={() => window.location.reload()} style={{ padding: '10px 24px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Retry</button>
+        <button onClick={fetchReports} style={{ padding: '10px 24px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Retry</button>
       </div>
     );
   }
@@ -148,24 +165,44 @@ function ReportPage() {
             All submitted checklists with full details
           </p>
         </div>
-        <button
-          onClick={() => navigate('/ot-enhanced')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            background: '#006341',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            padding: isMobile ? '8px 16px' : '10px 24px',
-            cursor: 'pointer',
-            fontWeight: '600',
-            fontSize: isMobile ? '13px' : '14px'
-          }}
-        >
-          <Icon name="back" /> Back to OT
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            onClick={fetchReports}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#e5e7eb',
+              color: '#1f2937',
+              border: 'none',
+              borderRadius: '8px',
+              padding: isMobile ? '8px 14px' : '10px 20px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: isMobile ? '13px' : '14px'
+            }}
+          >
+            <Icon name="refresh" /> Refresh
+          </button>
+          <button
+            onClick={() => navigate('/ot-enhanced')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#006341',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              padding: isMobile ? '8px 16px' : '10px 24px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: isMobile ? '13px' : '14px'
+            }}
+          >
+            <Icon name="back" /> Back to OT
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -257,6 +294,20 @@ function ReportPage() {
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
           <h3>No reports found</h3>
           <p>Try adjusting your filters or wait for new submissions.</p>
+          <button
+            onClick={fetchReports}
+            style={{
+              marginTop: '12px',
+              padding: '8px 20px',
+              background: '#006341',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer'
+            }}
+          >
+            Refresh
+          </button>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

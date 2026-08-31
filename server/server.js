@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import { MongoClient, ObjectId } from "mongodb";
 import cors from "cors";
@@ -648,8 +649,9 @@ app.get('/api/checklist/:listId', async (req, res) => {
   }
 });
 
-// ✅ MODIFIED: /api/checklist/save with expiryDate and statistics
+// ✅ MODIFIED: /api/checklist/save with expiryDate and statistics (with enhanced logging)
 app.post('/api/checklist/save', async (req, res) => {
+  console.log('📥 Received payload for checklist save:', req.body);
   try {
     const { 
       listId, 
@@ -661,7 +663,7 @@ app.post('/api/checklist/save', async (req, res) => {
       submittedBy, 
       userRole,
       damagedItems,
-      expiryDate   // ✅ استقبال expiryDate
+      expiryDate
     } = req.body;
     
     console.log(`📤 Saving checklist for: ${listId}`);
@@ -677,6 +679,7 @@ app.post('/api/checklist/save', async (req, res) => {
       let itemsFromCustom = await otCustomEquipmentCollection.find({ listId }).toArray();
       equipmentList = itemsFromCustom;
     }
+    console.log(`   Found ${equipmentList.length} equipment items for list ${listId}`);
 
     // 2. Calculate statistics
     const totalItems = equipmentList.length;
@@ -685,9 +688,6 @@ app.post('/api/checklist/save', async (req, res) => {
     let damagedCount = 0;
 
     equipmentList.forEach(item => {
-      // Determine the item's identifier as used in checkedItems
-      // In OTDepartment: item.id (e.g., "eq_123")
-      // In EquipmentChecklist: item._id.toString()
       const itemId = item.id || item._id.toString();
       const isChecked = checkedItems[itemId] || false;
       
@@ -697,11 +697,12 @@ app.post('/api/checklist/save', async (req, res) => {
         missingCount++;
       }
 
-      // If damagedItems is sent separately (optional), count damaged
       if (damagedItems && damagedItems[itemId]) {
         damagedCount++;
       }
     });
+
+    console.log(`📊 Stats: total=${totalItems}, checked=${checkedCount}, missing=${missingCount}, damaged=${damagedCount}`);
 
     // 3. Prepare update document with statistics and expiryDate
     const updateDoc = {
@@ -717,7 +718,7 @@ app.post('/api/checklist/save', async (req, res) => {
       checkedCount,
       missingCount,
       damagedCount,
-      expiryDate: expiryDate || null,   // ✅ تخزين expiryDate
+      expiryDate: expiryDate || null,
       updatedAt: new Date()
     };
 
@@ -728,7 +729,7 @@ app.post('/api/checklist/save', async (req, res) => {
       { upsert: true }
     );
     
-    console.log(`✅ Checklist saved successfully with stats: total=${totalItems}, checked=${checkedCount}, missing=${missingCount}, damaged=${damagedCount}, expiry=${expiryDate || 'none'}`);
+    console.log(`✅ Checklist saved successfully with result:`, result);
     res.json({ success: true, data: { listId, submitted, totalItems, checkedCount, missingCount, damagedCount, expiryDate } });
   } catch (error) {
     console.error('❌ Error saving checklist:', error);
@@ -736,7 +737,7 @@ app.post('/api/checklist/save', async (req, res) => {
   }
 });
 
-// ✅ NEW ENDPOINT: GET all submitted checklists (for reports page)
+// ✅ NEW ENDPOINT: GET all submitted checklists (for reports page) with enhanced logging
 app.get('/api/checklists', async (req, res) => {
   try {
     console.log(`📡 Fetching all submitted checklists`);
@@ -745,6 +746,8 @@ app.get('/api/checklists', async (req, res) => {
       .find({ submitted: true })
       .sort({ submittedAt: -1 })
       .toArray();
+    
+    console.log(`✅ Found ${checklists.length} submitted checklists`);
     
     // إضافة تفاصيل المعدات لكل قائمة (اختياري)
     for (let checklist of checklists) {
@@ -762,7 +765,7 @@ app.get('/api/checklists', async (req, res) => {
       }
     }
     
-    console.log(`✅ Found ${checklists.length} submitted checklists`);
+    console.log(`✅ Sending ${checklists.length} checklists with equipment details`);
     res.json({ success: true, data: checklists });
   } catch (error) {
     console.error('❌ Error fetching checklists:', error);
