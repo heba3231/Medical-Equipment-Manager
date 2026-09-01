@@ -32,7 +32,7 @@ function ReportPage() {
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE}/checklists`, {
-        cache: 'no-store' // منع التخزين المؤقت
+        cache: 'no-store'
       });
       const data = await response.json();
       if (data.success) {
@@ -56,7 +56,6 @@ function ReportPage() {
   useEffect(() => {
     if (location.state?.refresh) {
       fetchReports();
-      // مسح الـ state لمنع إعادة التحميل عند التنقل الخلفي
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, navigate, location.pathname]);
@@ -90,7 +89,6 @@ function ReportPage() {
     return { total, depts };
   }, [checklists]);
 
-  // ✅ دالة مساعدة لتنسيق التاريخ بصيغة DD/MM/YYYY
   const formatDate = (dateString) => {
     if (!dateString) return '—';
     try {
@@ -480,7 +478,7 @@ function ReportPage() {
                         <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>Name</th>
                         <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Code</th>
                         <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Qty</th>
-                        <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Checked</th>
+                        <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -493,7 +491,11 @@ function ReportPage() {
                             <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
                             <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.quantity || 0}</td>
                             <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
-                              {isChecked ? '✅' : '⬜'}
+                              {isChecked ? (
+                                <span style={{ color: '#16a34a', fontWeight: '600' }}>✅ موجود</span>
+                              ) : (
+                                <span style={{ color: '#dc2626', fontWeight: '600' }}>❌ مفقود</span>
+                              )}
                             </td>
                           </tr>
                         );
