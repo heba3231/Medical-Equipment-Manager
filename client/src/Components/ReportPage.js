@@ -483,10 +483,22 @@ function ReportPage() {
                     </thead>
                     <tbody>
                       {selectedChecklist.equipmentDetails.map((item) => {
-                        const itemId = item._id?.toString() || item.id;
-                        const isChecked = selectedChecklist.checkedItems?.[itemId] || false;
+                        // محاولة العثور على الحالة باستخدام كلا المعرفين المحتملين
+                        const idFromMongo = item._id?.toString();
+                        const idFromCustom = item.id;
+                        let isChecked = false;
+
+                        // نتحقق أولاً من المعرف القادم من MongoDB (إذا كان موجوداً)
+                        if (idFromMongo && selectedChecklist.checkedItems && selectedChecklist.checkedItems[idFromMongo] !== undefined) {
+                          isChecked = selectedChecklist.checkedItems[idFromMongo];
+                        } 
+                        // وإلا نتحقق من المعرف النصي المخصص (من ot_custom_equipment)
+                        else if (idFromCustom && selectedChecklist.checkedItems && selectedChecklist.checkedItems[idFromCustom] !== undefined) {
+                          isChecked = selectedChecklist.checkedItems[idFromCustom];
+                        }
+
                         return (
-                          <tr key={itemId}>
+                          <tr key={item._id || item.id}>
                             <td style={{ padding: '8px', border: '1px solid #e5e7eb' }}>{item.name}</td>
                             <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
                             <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.quantity || 0}</td>
