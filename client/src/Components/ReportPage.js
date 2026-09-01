@@ -483,32 +483,31 @@ function ReportPage() {
                     </thead>
                     <tbody>
                       {selectedChecklist.equipmentDetails.map((item) => {
-                        // محاولة العثور على الحالة باستخدام كلا المعرفين المحتملين
-                        const idFromMongo = item._id?.toString();
-                        const idFromCustom = item.id;
+                        // تحديد المفتاح الصحيح للبحث في checkedItems و damagedItems
+                        let key = null;
+                        
+                        // الأولوية للمفتاح النصي id (المستخدم في OTDepartment)
+                        if (item.id) {
+                          key = item.id;
+                        }
+                        // إذا لم يكن موجوداً، نستخدم _id كسلسلة
+                        else if (item._id) {
+                          key = item._id.toString();
+                        }
+                        
+                        // الحصول على الحالة من الكائنات المخزنة
                         let isChecked = false;
                         let isDamaged = false;
-
-                        // نتحقق أولاً من المعرف القادم من MongoDB (إذا كان موجوداً)
-                        if (idFromMongo && selectedChecklist.checkedItems) {
-                          if (selectedChecklist.checkedItems[idFromMongo] !== undefined) {
-                            isChecked = selectedChecklist.checkedItems[idFromMongo];
+                        
+                        if (key) {
+                          if (selectedChecklist.checkedItems && selectedChecklist.checkedItems[key] !== undefined) {
+                            isChecked = selectedChecklist.checkedItems[key];
                           }
-                          // التحقق من damagedItems
-                          if (selectedChecklist.damagedItems && selectedChecklist.damagedItems[idFromMongo] !== undefined) {
+                          if (selectedChecklist.damagedItems && selectedChecklist.damagedItems[key] !== undefined) {
                             isDamaged = true;
                           }
                         }
-                        // وإلا نتحقق من المعرف النصي المخصص (من ot_custom_equipment)
-                        else if (idFromCustom && selectedChecklist.checkedItems) {
-                          if (selectedChecklist.checkedItems[idFromCustom] !== undefined) {
-                            isChecked = selectedChecklist.checkedItems[idFromCustom];
-                          }
-                          if (selectedChecklist.damagedItems && selectedChecklist.damagedItems[idFromCustom] !== undefined) {
-                            isDamaged = true;
-                          }
-                        }
-
+                        
                         // تحديد النص واللون حسب الحالة
                         let statusText = '';
                         let statusColor = '';
