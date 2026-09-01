@@ -487,14 +487,44 @@ function ReportPage() {
                         const idFromMongo = item._id?.toString();
                         const idFromCustom = item.id;
                         let isChecked = false;
+                        let isDamaged = false;
 
                         // نتحقق أولاً من المعرف القادم من MongoDB (إذا كان موجوداً)
-                        if (idFromMongo && selectedChecklist.checkedItems && selectedChecklist.checkedItems[idFromMongo] !== undefined) {
-                          isChecked = selectedChecklist.checkedItems[idFromMongo];
-                        } 
+                        if (idFromMongo && selectedChecklist.checkedItems) {
+                          if (selectedChecklist.checkedItems[idFromMongo] !== undefined) {
+                            isChecked = selectedChecklist.checkedItems[idFromMongo];
+                          }
+                          // التحقق من damagedItems
+                          if (selectedChecklist.damagedItems && selectedChecklist.damagedItems[idFromMongo] !== undefined) {
+                            isDamaged = true;
+                          }
+                        }
                         // وإلا نتحقق من المعرف النصي المخصص (من ot_custom_equipment)
-                        else if (idFromCustom && selectedChecklist.checkedItems && selectedChecklist.checkedItems[idFromCustom] !== undefined) {
-                          isChecked = selectedChecklist.checkedItems[idFromCustom];
+                        else if (idFromCustom && selectedChecklist.checkedItems) {
+                          if (selectedChecklist.checkedItems[idFromCustom] !== undefined) {
+                            isChecked = selectedChecklist.checkedItems[idFromCustom];
+                          }
+                          if (selectedChecklist.damagedItems && selectedChecklist.damagedItems[idFromCustom] !== undefined) {
+                            isDamaged = true;
+                          }
+                        }
+
+                        // تحديد النص واللون حسب الحالة
+                        let statusText = '';
+                        let statusColor = '';
+                        let statusBg = '';
+                        if (isDamaged) {
+                          statusText = '⚠️ Damaged';
+                          statusColor = '#b45309';
+                          statusBg = '#fffbeb';
+                        } else if (isChecked) {
+                          statusText = '✅ Present';
+                          statusColor = '#16a34a';
+                          statusBg = '#f0fdf4';
+                        } else {
+                          statusText = '❌ Missing';
+                          statusColor = '#dc2626';
+                          statusBg = '#fef2f2';
                         }
 
                         return (
@@ -503,11 +533,16 @@ function ReportPage() {
                             <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
                             <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.quantity || 0}</td>
                             <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
-                              {isChecked ? (
-                                <span style={{ color: '#16a34a', fontWeight: '600' }}>✅ موجود</span>
-                              ) : (
-                                <span style={{ color: '#dc2626', fontWeight: '600' }}>❌ مفقود</span>
-                              )}
+                              <span style={{
+                                color: statusColor,
+                                fontWeight: '600',
+                                background: statusBg,
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                display: 'inline-block'
+                              }}>
+                                {statusText}
+                              </span>
                             </td>
                           </tr>
                         );
