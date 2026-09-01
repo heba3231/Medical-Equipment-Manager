@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 
-const API_BASE = `http://${window.location.hostname}:5000/api`;
+const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
 // ✅ Hook للاستجابة (محسّن)
 function useWindowSize() {
@@ -20,6 +20,9 @@ function EquipmentChecklist() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  // ✅ استقبال حالة newCheck من location.state (إذا كانت true، لا نحمل تقرير سابق)
+  const isNewCheck = location.state?.newCheck || false;
+
   const listName = location.state?.listName || "Equipment List";
   const deptName = location.state?.deptName || deptCode || "Department";
 
@@ -33,12 +36,11 @@ function EquipmentChecklist() {
   const printRef = useRef();
 
   const { width } = useWindowSize();
-  // نقاط قطع أكثر دقة
   const isMobile = width < 640;
   const isTablet = width < 1024 && width >= 640;
-  // حجم الخط الأساسي حسب الجهاز
   const baseFontSize = isMobile ? '13px' : isTablet ? '13px' : '14px';
 
+  // ========== تحميل المعدات ==========
   useEffect(() => {
     if (!listId) {
       setError("No list ID provided");
@@ -46,8 +48,15 @@ function EquipmentChecklist() {
       return;
     }
     fetchEquipment();
-    fetchSavedChecklist();
-  }, [listId]);
+    // ✅ تحميل التقرير السابق فقط إذا لم يكن تشيك جديد
+    if (!isNewCheck) {
+      fetchSavedChecklist();
+    } else {
+      // إذا كان تشيك جديد، نتأكد من عدم وجود بيانات سابقة
+      setSubmitted(false);
+      setSubmissionData(null);
+    }
+  }, [listId, isNewCheck]);
 
   const fetchEquipment = async () => {
     try {
@@ -88,6 +97,7 @@ function EquipmentChecklist() {
     }
   };
 
+  // ========== التفاعلات ==========
   const handleCheck = (itemId) => {
     if (submitted) {
       alert("This checklist has already been submitted. Cannot make changes.");
@@ -126,7 +136,29 @@ function EquipmentChecklist() {
     setCheckedItems(allUnchecked);
   };
 
-  // ===================== MODIFIED: navigate to /reports =====================
+  // ✅ بدء تشيك جديد - زر يظهر إذا كان هناك تقرير مكتمل سابق
+  const handleStartNewCheck = () => {
+    // إعادة تعيين الحالة مع إبقاء isNewCheck = true
+    const initialChecked = {};
+    equipment.forEach(item => {
+      const id = item._id.toString();
+      initialChecked[id] = false;
+    });
+    setCheckedItems(initialChecked);
+    setSubmitted(false);
+    setSubmissionData(null);
+    // نعيد التوجيه إلى نفس الصفحة مع newCheck=true في الـ state
+    navigate(`/checklist/${deptCode}/${listId}`, {
+      state: {
+        listName,
+        deptName,
+        newCheck: true
+      },
+      replace: true // لاستبدال التاريخ حتى لا يرجع المستخدم للخلف
+    });
+  };
+
+  // ===================== الإرسال (ينشئ تقريراً جديداً في السيرفر) =====================
   const handleSubmit = async () => {
     setSaving(true);
     try {
@@ -135,15 +167,22 @@ function EquipmentChecklist() {
                        "Staff";
       const userRole = localStorage.getItem("userRole") || "staff";
 
+      // نحول المفاتيح إلى string (لأن السيرفر يتوقع string)
+      const checkedItemsStr = {};
+      Object.keys(checkedItems).forEach(key => {
+        checkedItemsStr[key.toString()] = checkedItems[key];
+      });
+
       const payload = {
         listId,
         deptCode,
         listName,
-        checkedItems,
+        checkedItems: checkedItemsStr,
         submitted: true,
         submittedAt: new Date().toISOString(),
         submittedBy: userName,
         userRole: userRole
+        // لم نرسل damagedItems لأن هذه الصفحة لا تدعم التالف (يمكن إضافتها لاحقاً)
       };
 
       const response = await fetch(`${API_BASE}/checklist/save`, {
@@ -158,8 +197,8 @@ function EquipmentChecklist() {
         setSubmitted(true);
         setSubmissionData(data.data);
         alert('✅ Checklist submitted successfully!');
-        // ✅ التوجيه إلى صفحة التقارير بدلاً من OT
-        navigate('/reports');
+        // التوجيه إلى صفحة التقارير مع إعادة تحميل
+        navigate('/reports', { state: { refresh: true } });
       } else {
         alert('Error: ' + data.message);
       }
@@ -257,6 +296,7 @@ function EquipmentChecklist() {
     printWindow.onload = () => { printWindow.print(); };
   };
 
+  // ========== إحصائيات ==========
   const checkedCount = Object.values(checkedItems).filter(v => v === true).length;
   const totalCount = equipment.length;
   const completionPercentage = totalCount > 0 ? (checkedCount / totalCount) * 100 : 0;
@@ -266,6 +306,7 @@ function EquipmentChecklist() {
     color: status === 'Available' ? '#065f46' : status === 'In Use' ? '#92400e' : status === 'Under Maintenance' ? '#991b1b' : '#92400e',
   });
 
+  // ========== حالات الخطأ والتحميل ==========
   if (error) {
     return (
       <div style={{ textAlign: 'center', padding: isMobile ? '30px 16px' : '60px', maxWidth: '600px', margin: '0 auto' }}>
@@ -310,6 +351,7 @@ function EquipmentChecklist() {
     );
   }
 
+  // ========== التصيير الرئيسي ==========
   return (
     <div style={{
       padding: isMobile ? '10px 10px 90px 10px' : isTablet ? '16px' : '24px',
@@ -393,8 +435,39 @@ function EquipmentChecklist() {
         </div>
       </div>
 
-      {/* Printable Content (hidden) */}
-      <div ref={printRef} style={{ display: 'none' }} />
+      {/* ✅ إذا كان هناك تقرير مكتمل سابق ولم يكن في وضع التشيك الجديد، نعرض زر "بدء تشيك جديد" */}
+      {submitted && !isNewCheck && (
+        <div style={{
+          marginBottom: '16px',
+          padding: '12px',
+          background: '#fef3c7',
+          borderRadius: '8px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '10px'
+        }}>
+          <span style={{ fontWeight: '600', color: '#92400e' }}>
+            ⚠️ يوجد تقرير مكتمل سابق لهذه القائمة. يمكنك بدء تشيك جديد.
+          </span>
+          <button
+            onClick={handleStartNewCheck}
+            style={{
+              padding: '8px 16px',
+              background: '#006341',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '13px'
+            }}
+          >
+            بدء تشيك جديد
+          </button>
+        </div>
+      )}
 
       {/* Controls */}
       {!submitted && (
@@ -681,7 +754,7 @@ function EquipmentChecklist() {
         </div>
       </div>
 
-      {/* Submit — sticky bottom bar on mobile so it's always reachable with the thumb */}
+      {/* Submit — sticky bottom bar on mobile */}
       {!submitted && (
         <div style={isMobile ? {
           position: 'fixed',
@@ -730,7 +803,6 @@ function EquipmentChecklist() {
           <p>✅ This checklist has been confirmed and submitted to OT Department.</p>
           <p>📅 Submitted on: {new Date(submissionData.submittedAt).toLocaleString()}</p>
           <p>👤 Submitted by: {submissionData.submittedBy}</p>
-          {/* ✅ تغيير الزر للتوجيه إلى صفحة التقارير */}
           <button
             onClick={() => navigate('/reports')}
             style={{

@@ -68,7 +68,7 @@ function OTDepartment() {
   const [checkMeta, setCheckMeta] = useState({ technician: "", startedAt: null });
   const [checkListImage, setCheckListImage] = useState(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [expiryDate, setExpiryDate] = useState(null); // ✅ تاريخ الانتهاء
+  const [expiryDate, setExpiryDate] = useState(null);
 
   // ========== RESPONSIVE ==========
   const { width } = useWindowSize();
@@ -777,7 +777,7 @@ function OTDepartment() {
   }, [currentEquipment, checkData]);
 
   // ================================
-  // ✅ MODIFIED: handleApproveAndSend now saves to server and navigates to /reports with refresh state
+  // ✅ MODIFIED: handleApproveAndSend now sends damagedItems and expiryDate
   // ================================
   const handleApproveAndSend = async () => {
     if (!selectedListId) {
@@ -786,10 +786,14 @@ function OTDepartment() {
     }
 
     const simpleChecked = {};
+    const damagedItems = {};
     currentEquipment.forEach(item => {
       const data = checkData[item.id];
-      if (data && data.present >= item.quantity && !data.damaged) {
-        simpleChecked[item.id] = true;
+      if (data) {
+        simpleChecked[item.id] = (data.present >= item.quantity && !data.damaged);
+        if (data.damaged && data.damagedQuantity > 0) {
+          damagedItems[item.id] = data.damagedQuantity;
+        }
       } else {
         simpleChecked[item.id] = false;
       }
@@ -804,6 +808,7 @@ function OTDepartment() {
       deptCode: selectedDeptId,
       listName: selectedListName,
       checkedItems: simpleChecked,
+      damagedItems: damagedItems,
       submitted: true,
       submittedAt: new Date().toISOString(),
       submittedBy: userName,
@@ -824,7 +829,7 @@ function OTDepartment() {
       if (data.success) {
         alert('✅ Checklist submitted successfully!');
         setCheckMode(false);
-        // ✅ التوجيه مع state.refresh لتحديث صفحة التقارير
+        // التوجيه مع state.refresh لتحديث صفحة التقارير
         navigate('/reports', { state: { refresh: true } });
       } else {
         alert('Error: ' + (data.message || 'Unknown error'));

@@ -33,8 +33,8 @@ setupAISearchRoutes(app);
 // JWT Secret - استخدام المتغير البيئي إن وجد
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
-const MONGODB_UR = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
-const client = new MongoClient(MONGODB_UR);
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
+const client = new MongoClient(MONGODB_URI);
 
 let equipmentCollection;
 let staffCollection;
@@ -634,22 +634,37 @@ app.delete("/api/dept-equipment/:id", async (req, res) => {
 
 // ==================== CHECKLIST ROUTES ====================
 
+/**
+ * GET /api/checklist/:listId
+ * Returns the most recent checklist for the given listId (or null if none).
+ * Used to pre-fill existing checklist when viewing.
+ */
 app.get('/api/checklist/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
-    console.log(`📡 Fetching saved checklist for: ${listId}`);
+    console.log(`📡 Fetching latest checklist for list: ${listId}`);
     
-    const checklist = await checklistsCollection.findOne({ listId });
-    console.log(`✅ Checklist found: ${checklist ? 'Yes' : 'No'}`);
+    // Sort by submittedAt descending and take the first (most recent)
+    const checklist = await checklistsCollection
+      .find({ listId })
+      .sort({ submittedAt: -1 })
+      .limit(1)
+      .toArray();
     
-    res.json({ success: true, data: checklist || null });
+    const result = checklist.length > 0 ? checklist[0] : null;
+    console.log(`✅ Checklist found: ${result ? 'Yes' : 'No'}`);
+    res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ Error fetching checklist:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ✅ MODIFIED: /api/checklist/save with expiryDate and statistics (with enhanced logging)
+/**
+ * POST /api/checklist/save
+ * Creates a NEW checklist record every time (insertOne).
+ * This allows multiple separate reports for the same list.
+ */
 app.post('/api/checklist/save', async (req, res) => {
   console.log('📥 Received payload for checklist save:', req.body);
   try {
@@ -666,7 +681,7 @@ app.post('/api/checklist/save', async (req, res) => {
       expiryDate
     } = req.body;
     
-    console.log(`📤 Saving checklist for: ${listId}`);
+    console.log(`📤 Saving new checklist for: ${listId}`);
     console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
     console.log(`   Expiry Date: ${expiryDate || 'Not set'}`);
 
@@ -704,8 +719,8 @@ app.post('/api/checklist/save', async (req, res) => {
 
     console.log(`📊 Stats: total=${totalItems}, checked=${checkedCount}, missing=${missingCount}, damaged=${damagedCount}`);
 
-    // 3. Prepare update document with statistics and expiryDate
-    const updateDoc = {
+    // 3. Prepare new document (use insertOne, not updateOne)
+    const newChecklist = {
       listId,
       deptCode,
       listName,
@@ -719,25 +734,23 @@ app.post('/api/checklist/save', async (req, res) => {
       missingCount,
       damagedCount,
       expiryDate: expiryDate || null,
-      updatedAt: new Date()
+      createdAt: new Date()
     };
 
-    // 4. Upsert into checklists collection
-    const result = await checklistsCollection.updateOne(
-      { listId },
-      { $set: updateDoc },
-      { upsert: true }
-    );
-    
-    console.log(`✅ Checklist saved successfully with result:`, result);
-    res.json({ success: true, data: { listId, submitted, totalItems, checkedCount, missingCount, damagedCount, expiryDate } });
+    const result = await checklistsCollection.insertOne(newChecklist);
+    console.log(`✅ New checklist saved with _id: ${result.insertedId}`);
+    res.json({ success: true, data: { ...newChecklist, _id: result.insertedId } });
   } catch (error) {
     console.error('❌ Error saving checklist:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ✅ NEW ENDPOINT: GET all submitted checklists (for reports page) with enhanced logging
+/**
+ * GET /api/checklists
+ * Returns ALL submitted checklists (for reports page).
+ * Includes equipment details.
+ */
 app.get('/api/checklists', async (req, res) => {
   try {
     console.log(`📡 Fetching all submitted checklists`);
@@ -749,7 +762,7 @@ app.get('/api/checklists', async (req, res) => {
     
     console.log(`✅ Found ${checklists.length} submitted checklists`);
     
-    // إضافة تفاصيل المعدات لكل قائمة (اختياري)
+    // Attach equipment details for each checklist
     for (let checklist of checklists) {
       const equipmentItems = await deptEquipmentCollection
         .find({ listId: checklist.listId })
@@ -1283,8 +1296,8 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`👑 Admin credentials: staff_no=host3487539, password=123456`);
   console.log(`📦 Dept Lists API:      /api/dept-lists/:deptCode`);
   console.log(`📦 Dept Equipment API:  /api/dept-equipment/:deptCode/:listId`);
-  console.log(`📋 Checklist API:       /api/checklist/:listId`);
-  console.log(`✅ Checklist Save API:  /api/checklist/save (NOW WITH STATS & EXPIRY)`);
+  console.log(`📋 Checklist API:       /api/checklist/:listId (GET latest)`);
+  console.log(`✅ Checklist Save API:  /api/checklist/save (NOW INSERT NEW RECORD)`);
   console.log(`📊 Reports API:         /api/checklists (GET all submitted)`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);

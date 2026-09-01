@@ -32,7 +32,7 @@ function ReportPage() {
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE}/checklists`, {
-        cache: 'no-store' // ✅ منع التخزين المؤقت
+        cache: 'no-store' // منع التخزين المؤقت
       });
       const data = await response.json();
       if (data.success) {
