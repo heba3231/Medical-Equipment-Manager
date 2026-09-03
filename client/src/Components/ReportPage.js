@@ -21,9 +21,9 @@ function ReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // ===== STATE FOR DEPARTMENTS (المجلدات) =====
+  // ===== STATE FOR DEPARTMENTS (Folders) =====
   const [departments, setDepartments] = useState([]);
-  const [selectedDeptId, setSelectedDeptId] = useState(''); // '' يعني الكل
+  const [selectedDeptId, setSelectedDeptId] = useState(''); // '' means all
 
   // ===== FILTERS =====
   const [filterDept, setFilterDept] = useState('');
@@ -33,7 +33,7 @@ function ReportPage() {
   const { width } = useWindowSize();
   const isMobile = width < 768;
 
-  // ========== تحميل الأقسام من localStorage ==========
+  // ========== Load departments from localStorage ==========
   useEffect(() => {
     const loadDepartments = () => {
       try {
@@ -69,12 +69,12 @@ function ReportPage() {
     }
   };
 
-  // ========== تحميل أولي ==========
+  // ========== Initial load ==========
   useEffect(() => {
     fetchReports();
   }, []);
 
-  // ========== إعادة التحميل عند العودة من صفحة التشيك ==========
+  // ========== Reload when returning from checklist page ==========
   useEffect(() => {
     if (location.state?.refresh) {
       fetchReports();
@@ -82,16 +82,16 @@ function ReportPage() {
     }
   }, [location.state, navigate, location.pathname]);
 
-  // ========== التصفية (مع دعم القسم المختار) ==========
+  // ========== Filtering (with selected department support) ==========
   const filteredChecklists = useMemo(() => {
     let result = [...checklists];
 
-    // 1. تصفية حسب القسم المختار (المجلد)
+    // 1. Filter by selected department (folder)
     if (selectedDeptId) {
       result = result.filter(c => c.deptCode === selectedDeptId);
     }
 
-    // 2. تصفية حسب البحث النصي
+    // 2. Filter by text search
     if (filterDept) {
       const term = filterDept.toLowerCase();
       result = result.filter(c =>
@@ -101,7 +101,7 @@ function ReportPage() {
       );
     }
 
-    // 3. تصفية حسب التاريخ
+    // 3. Filter by date
     if (filterDate) {
       result = result.filter(c => {
         const d = new Date(c.submittedAt);
@@ -109,16 +109,16 @@ function ReportPage() {
       });
     }
 
-    // ترتيب من الأحدث للأقدم
+    // Sort newest to oldest
     result.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return result;
   }, [checklists, selectedDeptId, filterDept, filterDate]);
 
-  // ===== دوال التفاصيل =====
+  // ===== Details functions =====
   const openDetails = (checklist) => setSelectedChecklist(checklist);
   const closeDetails = () => setSelectedChecklist(null);
 
-  // ===== الإحصائيات =====
+  // ===== Statistics =====
   const stats = useMemo(() => {
     const total = checklists.length;
     const depts = new Set(checklists.map(c => c.deptCode || c.deptName)).size;
@@ -140,7 +140,7 @@ function ReportPage() {
     }
   };
 
-  // ===== الأيقونات =====
+  // ===== Icons =====
   const Icon = ({ name }) => {
     const icons = {
       back: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>,
@@ -157,7 +157,7 @@ function ReportPage() {
     return icons[name] ? icons[name]() : null;
   };
 
-  // ===== حالات التحميل والخطأ =====
+  // ===== Loading and error states =====
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -177,7 +177,7 @@ function ReportPage() {
   }
 
   // ===============================
-  // التصيير الرئيسي مع المجلدات
+  // Main render with folders
   // ===============================
   return (
     <div style={{
@@ -233,7 +233,7 @@ function ReportPage() {
         </div>
       </div>
 
-      {/* ===== الإحصائيات ===== */}
+      {/* ===== Statistics ===== */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
@@ -262,7 +262,7 @@ function ReportPage() {
         </div>
       </div>
 
-      {/* ===== قسم المجلدات (الأقسام) ===== */}
+      {/* ===== Folders section (Departments) ===== */}
       <div style={{
         display: 'flex',
         flexWrap: 'wrap',
@@ -275,10 +275,10 @@ function ReportPage() {
         alignItems: 'center'
       }}>
         <span style={{ fontWeight: '700', color: '#004d32', fontSize: '14px', marginRight: '8px' }}>
-          📂 المجلدات:
+          📂 Folders:
         </span>
         
-        {/* زر الكل */}
+        {/* All button */}
         <button
           onClick={() => setSelectedDeptId('')}
           style={{
@@ -293,10 +293,10 @@ function ReportPage() {
             transition: 'all 0.2s'
           }}
         >
-          🗂️ الكل
+          🗂️ All
         </button>
 
-        {/* أزرار الأقسام */}
+        {/* Department buttons */}
         {departments.map(dept => {
           const count = checklists.filter(c => c.deptCode === dept.id).length;
           return (
@@ -337,12 +337,12 @@ function ReportPage() {
         
         {departments.length === 0 && (
           <span style={{ color: '#9ca3af', fontSize: '13px' }}>
-            لا توجد أقسام. أضف أقساماً من صفحة OT Department.
+            No departments found. Add departments from the OT Department page.
           </span>
         )}
       </div>
 
-      {/* ===== الفلاتر الإضافية (تاريخ + بحث) ===== */}
+      {/* ===== Additional filters (Date + Search) ===== */}
       <div style={{
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
@@ -355,7 +355,7 @@ function ReportPage() {
       }}>
         <input
           type="text"
-          placeholder="بحث إضافي في القوائم..."
+          placeholder="Search reports..."
           value={filterDept}
           onChange={(e) => setFilterDept(e.target.value)}
           style={{
@@ -391,20 +391,20 @@ function ReportPage() {
               fontWeight: '600'
             }}
           >
-            مسح الكل
+            Clear All
           </button>
         )}
       </div>
 
-      {/* ===== قائمة التقارير ===== */}
+      {/* ===== Reports list ===== */}
       {filteredChecklists.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9ca3af' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
-          <h3>لا توجد تقارير</h3>
+          <h3>No reports found</h3>
           <p>
             {selectedDeptId 
-              ? `لم يتم تقديم أي تقارير لقسم ${departments.find(d => d.id === selectedDeptId)?.name || ''} بعد.` 
-              : 'لم يتم تقديم أي تقارير بعد.'}
+              ? `No reports submitted for department "${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}" yet.` 
+              : 'No reports have been submitted yet.'}
           </p>
           <button
             onClick={fetchReports}
@@ -418,7 +418,7 @@ function ReportPage() {
               cursor: 'pointer'
             }}
           >
-            تحديث
+            Refresh
           </button>
         </div>
       ) : (
@@ -500,7 +500,7 @@ function ReportPage() {
         </div>
       )}
 
-      {/* ===== Modal للتفاصيل ===== */}
+      {/* ===== Details Modal ===== */}
       {selectedChecklist && (
         <div
           style={{
