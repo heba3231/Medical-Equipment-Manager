@@ -23,7 +23,7 @@ function ReportPage() {
 
   // ===== STATE FOR DEPARTMENTS (Folders) =====
   const [departments, setDepartments] = useState([]);
-  const [selectedDeptId, setSelectedDeptId] = useState(''); // '' means all
+  const [selectedDeptId, setSelectedDeptId] = useState('');
 
   // ===== FILTERS =====
   const [filterDept, setFilterDept] = useState('');
@@ -32,18 +32,19 @@ function ReportPage() {
 
   const { width } = useWindowSize();
   const isMobile = width < 768;
+  const isTablet = width >= 768 && width < 1024;
 
   // ========== Load departments from localStorage ==========
   useEffect(() => {
     const loadDepartments = () => {
       try {
-        const saved = localStorage.getItem("ot_departments");
+        const saved = localStorage.getItem('ot_departments');
         if (saved) {
           const depts = JSON.parse(saved);
           setDepartments(depts);
         }
       } catch (e) {
-        console.warn("Could not load departments from localStorage", e);
+        console.warn('Could not load departments from localStorage', e);
       }
     };
     loadDepartments();
@@ -82,16 +83,14 @@ function ReportPage() {
     }
   }, [location.state, navigate, location.pathname]);
 
-  // ========== Filtering (with selected department support) ==========
+  // ========== Filtering ==========
   const filteredChecklists = useMemo(() => {
     let result = [...checklists];
 
-    // 1. Filter by selected department (folder)
     if (selectedDeptId) {
       result = result.filter(c => c.deptCode === selectedDeptId);
     }
 
-    // 2. Filter by text search
     if (filterDept) {
       const term = filterDept.toLowerCase();
       result = result.filter(c =>
@@ -101,7 +100,6 @@ function ReportPage() {
       );
     }
 
-    // 3. Filter by date
     if (filterDate) {
       result = result.filter(c => {
         const d = new Date(c.submittedAt);
@@ -109,7 +107,6 @@ function ReportPage() {
       });
     }
 
-    // Sort newest to oldest
     result.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return result;
   }, [checklists, selectedDeptId, filterDept, filterDate]);
@@ -177,7 +174,7 @@ function ReportPage() {
   }
 
   // ===============================
-  // Main render with folders
+  // Main render with redesigned UI
   // ===============================
   return (
     <div style={{
@@ -188,7 +185,7 @@ function ReportPage() {
       background: '#f5f7f6',
       minHeight: '100vh'
     }}>
-      {/* Header */}
+      {/* ===== Header ===== */}
       <div style={{
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
@@ -198,12 +195,24 @@ function ReportPage() {
         gap: '12px'
       }}>
         <div>
-          <h1 style={{ fontSize: isMobile ? '20px' : '28px', color: '#004d32', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h1 style={{
+            fontSize: isMobile ? '20px' : '28px',
+            color: '#004d32',
+            margin: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontWeight: '600'
+          }}>
             <Icon name="list" /> Reports Dashboard
           </h1>
-          <p style={{ color: '#6b7280', margin: '4px 0 0', fontSize: isMobile ? '13px' : '14px' }}>
-            {selectedDeptId 
-              ? `📂 Showing reports for: ${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}` 
+          <p style={{
+            color: '#6b7280',
+            margin: '4px 0 0',
+            fontSize: isMobile ? '13px' : '14px'
+          }}>
+            {selectedDeptId
+              ? `📂 Showing reports for: ${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}`
               : 'All submitted checklists'}
           </p>
         </div>
@@ -211,22 +220,42 @@ function ReportPage() {
           <button
             onClick={fetchReports}
             style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              background: '#e5e7eb', color: '#1f2937', border: 'none',
-              borderRadius: '8px', padding: isMobile ? '8px 14px' : '10px 20px',
-              cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '13px' : '14px'
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#e5e7eb',
+              color: '#1f2937',
+              border: 'none',
+              borderRadius: '8px',
+              padding: isMobile ? '8px 14px' : '10px 20px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: isMobile ? '13px' : '14px',
+              transition: 'background 0.2s'
             }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#d1d5db'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#e5e7eb'}
           >
             <Icon name="refresh" /> Refresh
           </button>
           <button
             onClick={() => navigate('/ot-enhanced')}
             style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              background: '#006341', color: 'white', border: 'none',
-              borderRadius: '8px', padding: isMobile ? '8px 16px' : '10px 24px',
-              cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '13px' : '14px'
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#006341',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              padding: isMobile ? '8px 16px' : '10px 24px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: isMobile ? '13px' : '14px',
+              transition: 'background 0.2s'
             }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#004d32'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#006341'}
           >
             <Icon name="back" /> Back to OT
           </button>
@@ -240,25 +269,53 @@ function ReportPage() {
         gap: '12px',
         marginBottom: '24px'
       }}>
-        <div style={{ background: 'white', padding: '16px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
-          <div style={{ fontSize: '28px', fontWeight: '700', color: '#004d32' }}>{stats.total}</div>
-          <div style={{ fontSize: '12px', color: '#6b7280' }}>Total Reports</div>
+        <div style={{
+          background: 'white',
+          padding: isMobile ? '12px' : '16px',
+          borderRadius: '10px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+          textAlign: 'center',
+          border: '1px solid #e5e7eb'
+        }}>
+          <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#004d32' }}>{stats.total}</div>
+          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Total Reports</div>
         </div>
-        <div style={{ background: 'white', padding: '16px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
-          <div style={{ fontSize: '28px', fontWeight: '700', color: '#c9a84c' }}>{stats.depts}</div>
-          <div style={{ fontSize: '12px', color: '#6b7280' }}>Departments</div>
+        <div style={{
+          background: 'white',
+          padding: isMobile ? '12px' : '16px',
+          borderRadius: '10px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+          textAlign: 'center',
+          border: '1px solid #e5e7eb'
+        }}>
+          <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#c9a84c' }}>{stats.depts}</div>
+          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Departments</div>
         </div>
-        <div style={{ background: 'white', padding: '16px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
-          <div style={{ fontSize: '28px', fontWeight: '700', color: '#16a34a' }}>
+        <div style={{
+          background: 'white',
+          padding: isMobile ? '12px' : '16px',
+          borderRadius: '10px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+          textAlign: 'center',
+          border: '1px solid #e5e7eb'
+        }}>
+          <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a' }}>
             {checklists.filter(c => c.submitted).length}
           </div>
-          <div style={{ fontSize: '12px', color: '#6b7280' }}>Confirmed</div>
+          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Confirmed</div>
         </div>
-        <div style={{ background: 'white', padding: '16px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
-          <div style={{ fontSize: '28px', fontWeight: '700', color: '#dc2626' }}>
+        <div style={{
+          background: 'white',
+          padding: isMobile ? '12px' : '16px',
+          borderRadius: '10px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+          textAlign: 'center',
+          border: '1px solid #e5e7eb'
+        }}>
+          <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#dc2626' }}>
             {checklists.reduce((sum, c) => sum + (c.missingCount || 0), 0)}
           </div>
-          <div style={{ fontSize: '12px', color: '#6b7280' }}>Total Missing</div>
+          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Total Missing</div>
         </div>
       </div>
 
@@ -266,23 +323,32 @@ function ReportPage() {
       <div style={{
         display: 'flex',
         flexWrap: 'wrap',
-        gap: '10px',
+        gap: '8px',
         marginBottom: '20px',
-        padding: '12px',
+        padding: isMobile ? '12px' : '16px',
         background: 'white',
-        borderRadius: '12px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-        alignItems: 'center'
+        borderRadius: '10px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        alignItems: 'center',
+        border: '1px solid #e5e7eb'
       }}>
-        <span style={{ fontWeight: '700', color: '#004d32', fontSize: '14px', marginRight: '8px' }}>
-          📂 Folders:
+        <span style={{
+          fontWeight: '600',
+          color: '#004d32',
+          fontSize: '14px',
+          marginRight: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px'
+        }}>
+          <Icon name="folder" /> Folders:
         </span>
-        
+
         {/* All button */}
         <button
           onClick={() => setSelectedDeptId('')}
           style={{
-            padding: isMobile ? '6px 14px' : '8px 20px',
+            padding: isMobile ? '6px 12px' : '8px 16px',
             borderRadius: '20px',
             border: selectedDeptId === '' ? '2px solid #006341' : '1px solid #d0e8dc',
             background: selectedDeptId === '' ? '#006341' : 'white',
@@ -290,7 +356,8 @@ function ReportPage() {
             fontWeight: '600',
             fontSize: isMobile ? '12px' : '13px',
             cursor: 'pointer',
-            transition: 'all 0.2s'
+            transition: 'all 0.2s',
+            whiteSpace: 'nowrap'
           }}
         >
           🗂️ All
@@ -304,7 +371,7 @@ function ReportPage() {
               key={dept.id}
               onClick={() => setSelectedDeptId(dept.id)}
               style={{
-                padding: isMobile ? '6px 14px' : '8px 20px',
+                padding: isMobile ? '6px 12px' : '8px 16px',
                 borderRadius: '20px',
                 border: selectedDeptId === dept.id ? '2px solid #c9a84c' : '1px solid #d0e8dc',
                 background: selectedDeptId === dept.id ? '#fef9ec' : 'white',
@@ -315,7 +382,8 @@ function ReportPage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap'
               }}
             >
               <Icon name="folder" />
@@ -334,7 +402,7 @@ function ReportPage() {
             </button>
           );
         })}
-        
+
         {departments.length === 0 && (
           <span style={{ color: '#9ca3af', fontSize: '13px' }}>
             No departments found. Add departments from the OT Department page.
@@ -342,16 +410,17 @@ function ReportPage() {
         )}
       </div>
 
-      {/* ===== Additional filters (Date + Search) ===== */}
+      {/* ===== Filters ===== */}
       <div style={{
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
         gap: '12px',
         marginBottom: '20px',
         background: 'white',
-        padding: '16px',
-        borderRadius: '12px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
+        padding: isMobile ? '12px' : '16px',
+        borderRadius: '10px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        border: '1px solid #e5e7eb'
       }}>
         <input
           type="text"
@@ -364,8 +433,12 @@ function ReportPage() {
             border: '1.5px solid #d0e8dc',
             borderRadius: '8px',
             fontSize: '14px',
-            outline: 'none'
+            outline: 'none',
+            transition: 'border-color 0.2s',
+            minWidth: isMobile ? '100%' : 'auto'
           }}
+          onFocus={(e) => e.currentTarget.style.borderColor = '#006341'}
+          onBlur={(e) => e.currentTarget.style.borderColor = '#d0e8dc'}
         />
         <input
           type="date"
@@ -376,8 +449,12 @@ function ReportPage() {
             border: '1.5px solid #d0e8dc',
             borderRadius: '8px',
             fontSize: '14px',
-            outline: 'none'
+            outline: 'none',
+            transition: 'border-color 0.2s',
+            minWidth: isMobile ? '100%' : '180px'
           }}
+          onFocus={(e) => e.currentTarget.style.borderColor = '#006341'}
+          onBlur={(e) => e.currentTarget.style.borderColor = '#d0e8dc'}
         />
         {(selectedDeptId || filterDept || filterDate) && (
           <button
@@ -388,8 +465,13 @@ function ReportPage() {
               border: 'none',
               borderRadius: '8px',
               cursor: 'pointer',
-              fontWeight: '600'
+              fontWeight: '600',
+              color: '#374151',
+              transition: 'background 0.2s',
+              whiteSpace: 'nowrap'
             }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#d1d5db'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#e5e7eb'}
           >
             Clear All
           </button>
@@ -398,25 +480,34 @@ function ReportPage() {
 
       {/* ===== Reports list ===== */}
       {filteredChecklists.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9ca3af' }}>
+        <div style={{
+          textAlign: 'center',
+          padding: isMobile ? '40px 20px' : '60px 20px',
+          background: 'white',
+          borderRadius: '10px',
+          border: '1px solid #e5e7eb'
+        }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
-          <h3>No reports found</h3>
-          <p>
-            {selectedDeptId 
-              ? `No reports submitted for department "${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}" yet.` 
+          <h3 style={{ color: '#374151', margin: '0 0 8px 0', fontSize: isMobile ? '18px' : '22px' }}>No reports found</h3>
+          <p style={{ color: '#6b7280', margin: '0 0 16px 0', fontSize: isMobile ? '13px' : '14px' }}>
+            {selectedDeptId
+              ? `No reports submitted for department "${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}" yet.`
               : 'No reports have been submitted yet.'}
           </p>
           <button
             onClick={fetchReports}
             style={{
-              marginTop: '12px',
               padding: '8px 20px',
               background: '#006341',
               color: 'white',
               border: 'none',
               borderRadius: '8px',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              fontWeight: '600',
+              transition: 'background 0.2s'
             }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#004d32'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#006341'}
           >
             Refresh
           </button>
@@ -428,9 +519,9 @@ function ReportPage() {
               key={item._id || item.id || item.listId}
               style={{
                 background: 'white',
-                borderRadius: '12px',
+                borderRadius: '10px',
                 padding: isMobile ? '14px' : '18px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 display: 'flex',
                 flexDirection: isMobile ? 'column' : 'row',
                 justifyContent: 'space-between',
@@ -438,15 +529,31 @@ function ReportPage() {
                 gap: isMobile ? '8px' : '0',
                 cursor: 'pointer',
                 border: '1px solid #e5e7eb',
-                transition: 'all 0.2s'
+                transition: 'border-color 0.2s, box-shadow 0.2s'
               }}
               onClick={() => openDetails(item)}
-              onMouseEnter={(e) => e.currentTarget.style.borderColor = '#006341'}
-              onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#006341';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#e5e7eb';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
+              }}
             >
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: '700', color: '#004d32', fontSize: isMobile ? '15px' : '17px' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  flexWrap: 'wrap',
+                  marginBottom: '4px'
+                }}>
+                  <span style={{
+                    fontWeight: '700',
+                    color: '#004d32',
+                    fontSize: isMobile ? '15px' : '17px'
+                  }}>
                     {item.listName || 'Equipment List'}
                   </span>
                   <span style={{
@@ -455,7 +562,8 @@ function ReportPage() {
                     padding: '2px 10px',
                     borderRadius: '20px',
                     fontSize: '11px',
-                    fontWeight: '600'
+                    fontWeight: '600',
+                    whiteSpace: 'nowrap'
                   }}>
                     {item.deptCode || item.deptName || 'Department'}
                   </span>
@@ -465,12 +573,19 @@ function ReportPage() {
                     padding: '2px 10px',
                     borderRadius: '20px',
                     fontSize: '11px',
-                    fontWeight: '600'
+                    fontWeight: '600',
+                    whiteSpace: 'nowrap'
                   }}>
                     ✅ Submitted
                   </span>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '6px', fontSize: '13px', color: '#6b7280' }}>
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: isMobile ? '8px' : '16px',
+                  fontSize: '13px',
+                  color: '#6b7280'
+                }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Icon name="user" /> {item.submittedBy || 'Unknown'}
                   </span>
@@ -490,8 +605,21 @@ function ReportPage() {
                   )}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: '#006341', fontWeight: '600', fontSize: '14px' }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                flexShrink: 0,
+                marginTop: isMobile ? '8px' : '0'
+              }}>
+                <span style={{
+                  color: '#006341',
+                  fontWeight: '600',
+                  fontSize: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
                   View Details →
                 </span>
               </div>
@@ -509,7 +637,8 @@ function ReportPage() {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.7)',
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -521,13 +650,14 @@ function ReportPage() {
           <div
             style={{
               background: 'white',
-              borderRadius: '16px',
+              borderRadius: '12px',
               maxWidth: '800px',
               width: '100%',
               maxHeight: '90vh',
               overflow: 'auto',
-              padding: isMobile ? '16px' : '24px',
-              position: 'relative'
+              padding: isMobile ? '20px' : '28px',
+              position: 'relative',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -541,40 +671,86 @@ function ReportPage() {
                 border: 'none',
                 fontSize: '24px',
                 cursor: 'pointer',
-                color: '#999'
+                color: '#9ca3af',
+                transition: 'color 0.2s',
+                padding: '4px'
               }}
+              onMouseEnter={(e) => e.currentTarget.style.color = '#374151'}
+              onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
             >
               <Icon name="close" />
             </button>
 
-            <h2 style={{ color: '#004d32', marginTop: 0 }}>{selectedChecklist.listName || 'Checklist Details'}</h2>
+            <h2 style={{
+              color: '#004d32',
+              marginTop: 0,
+              marginBottom: '16px',
+              fontSize: isMobile ? '20px' : '24px',
+              fontWeight: '600'
+            }}>
+              {selectedChecklist.listName || 'Checklist Details'}
+            </h2>
 
             {/* Summary cards */}
             <div style={{
               display: 'grid',
               gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
               gap: '10px',
-              marginBottom: '16px'
+              marginBottom: '20px'
             }}>
-              <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+              <div style={{
+                background: '#f0fdf4',
+                padding: '12px',
+                borderRadius: '8px',
+                textAlign: 'center',
+                border: '1px solid #dcfce7'
+              }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#16a34a' }}>{selectedChecklist.checkedCount || 0}</div>
                 <div style={{ fontSize: '11px', color: '#6b7280' }}>Checked</div>
               </div>
-              <div style={{ background: '#fef2f2', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+              <div style={{
+                background: '#fef2f2',
+                padding: '12px',
+                borderRadius: '8px',
+                textAlign: 'center',
+                border: '1px solid #fee2e2'
+              }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#dc2626' }}>{selectedChecklist.missingCount || 0}</div>
                 <div style={{ fontSize: '11px', color: '#6b7280' }}>Missing</div>
               </div>
-              <div style={{ background: '#fffbeb', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+              <div style={{
+                background: '#fffbeb',
+                padding: '12px',
+                borderRadius: '8px',
+                textAlign: 'center',
+                border: '1px solid #fef3c7'
+              }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#d97706' }}>{selectedChecklist.damagedCount || 0}</div>
                 <div style={{ fontSize: '11px', color: '#6b7280' }}>Damaged</div>
               </div>
-              <div style={{ background: '#f3f4f6', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+              <div style={{
+                background: '#f3f4f6',
+                padding: '12px',
+                borderRadius: '8px',
+                textAlign: 'center',
+                border: '1px solid #e5e7eb'
+              }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#374151' }}>{selectedChecklist.totalItems || 0}</div>
                 <div style={{ fontSize: '11px', color: '#6b7280' }}>Total Items</div>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            {/* Details grid */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+              gap: '10px',
+              marginBottom: '20px',
+              background: '#f9fafb',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid #e5e7eb'
+            }}>
               <div><strong>Department:</strong> {selectedChecklist.deptCode || selectedChecklist.deptName || '—'}</div>
               <div><strong>Submitted By:</strong> {selectedChecklist.submittedBy || '—'}</div>
               <div><strong>Submitted At:</strong> {selectedChecklist.submittedAt ? new Date(selectedChecklist.submittedAt).toLocaleString() : '—'}</div>
@@ -582,17 +758,32 @@ function ReportPage() {
               <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
             </div>
 
+            {/* Equipment table */}
             {selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 && (
               <div>
-                <h4 style={{ borderBottom: '2px solid #e5e7eb', paddingBottom: '8px' }}>Equipment Details</h4>
+                <h4 style={{
+                  borderBottom: '2px solid #e5e7eb',
+                  paddingBottom: '8px',
+                  marginBottom: '12px',
+                  color: '#004d32',
+                  fontSize: '16px',
+                  fontWeight: '600'
+                }}>Equipment Details</h4>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: '14px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    overflow: 'hidden'
+                  }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>Name</th>
-                        <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Code</th>
-                        <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Qty</th>
-                        <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>Status</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Name</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Code</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Qty</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -631,18 +822,19 @@ function ReportPage() {
                         }
 
                         return (
-                          <tr key={item._id || item.id}>
-                            <td style={{ padding: '8px', border: '1px solid #e5e7eb' }}>{item.name}</td>
-                            <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
-                            <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>{item.quantity || 0}</td>
-                            <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
+                          <tr key={item._id || item.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                            <td style={{ padding: '10px', borderBottom: '1px solid #e5e7eb' }}>{item.name}</td>
+                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
+                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{item.quantity || 0}</td>
+                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>
                               <span style={{
                                 color: statusColor,
                                 fontWeight: '600',
                                 background: statusBg,
-                                padding: '2px 8px',
+                                padding: '2px 10px',
                                 borderRadius: '12px',
-                                display: 'inline-block'
+                                display: 'inline-block',
+                                fontSize: '13px'
                               }}>
                                 {statusText}
                               </span>
@@ -656,7 +848,7 @@ function ReportPage() {
               </div>
             )}
 
-            <div style={{ marginTop: '16px', textAlign: 'right' }}>
+            <div style={{ marginTop: '20px', textAlign: 'right' }}>
               <button
                 onClick={closeDetails}
                 style={{
@@ -666,8 +858,12 @@ function ReportPage() {
                   border: 'none',
                   borderRadius: '8px',
                   cursor: 'pointer',
-                  fontWeight: '600'
+                  fontWeight: '600',
+                  fontSize: '14px',
+                  transition: 'background 0.2s'
                 }}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#004d32'}
+                onMouseLeave={(e) => e.currentTarget.style.background = '#006341'}
               >
                 Close
               </button>
