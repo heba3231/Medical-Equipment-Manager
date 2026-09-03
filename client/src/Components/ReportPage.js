@@ -20,12 +20,34 @@ function ReportPage() {
   const [checklists, setChecklists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // ===== STATE FOR DEPARTMENTS (المجلدات) =====
+  const [departments, setDepartments] = useState([]);
+  const [selectedDeptId, setSelectedDeptId] = useState(''); // '' يعني الكل
+
+  // ===== FILTERS =====
   const [filterDept, setFilterDept] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [selectedChecklist, setSelectedChecklist] = useState(null);
 
   const { width } = useWindowSize();
   const isMobile = width < 768;
+
+  // ========== تحميل الأقسام من localStorage ==========
+  useEffect(() => {
+    const loadDepartments = () => {
+      try {
+        const saved = localStorage.getItem("ot_departments");
+        if (saved) {
+          const depts = JSON.parse(saved);
+          setDepartments(depts);
+        }
+      } catch (e) {
+        console.warn("Could not load departments from localStorage", e);
+      }
+    };
+    loadDepartments();
+  }, []);
 
   // ========== Fetch reports ==========
   const fetchReports = async () => {
@@ -60,29 +82,43 @@ function ReportPage() {
     }
   }, [location.state, navigate, location.pathname]);
 
-  // ========== التصفية ==========
+  // ========== التصفية (مع دعم القسم المختار) ==========
   const filteredChecklists = useMemo(() => {
     let result = [...checklists];
+
+    // 1. تصفية حسب القسم المختار (المجلد)
+    if (selectedDeptId) {
+      result = result.filter(c => c.deptCode === selectedDeptId);
+    }
+
+    // 2. تصفية حسب البحث النصي
     if (filterDept) {
+      const term = filterDept.toLowerCase();
       result = result.filter(c =>
-        c.deptCode?.toLowerCase().includes(filterDept.toLowerCase()) ||
-        c.deptName?.toLowerCase().includes(filterDept.toLowerCase()) ||
-        c.listName?.toLowerCase().includes(filterDept.toLowerCase())
+        c.deptCode?.toLowerCase().includes(term) ||
+        c.deptName?.toLowerCase().includes(term) ||
+        c.listName?.toLowerCase().includes(term)
       );
     }
+
+    // 3. تصفية حسب التاريخ
     if (filterDate) {
       result = result.filter(c => {
         const d = new Date(c.submittedAt);
         return d.toISOString().slice(0, 10) === filterDate;
       });
     }
+
+    // ترتيب من الأحدث للأقدم
     result.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return result;
-  }, [checklists, filterDept, filterDate]);
+  }, [checklists, selectedDeptId, filterDept, filterDate]);
 
+  // ===== دوال التفاصيل =====
   const openDetails = (checklist) => setSelectedChecklist(checklist);
   const closeDetails = () => setSelectedChecklist(null);
 
+  // ===== الإحصائيات =====
   const stats = useMemo(() => {
     const total = checklists.length;
     const depts = new Set(checklists.map(c => c.deptCode || c.deptName)).size;
@@ -104,6 +140,7 @@ function ReportPage() {
     }
   };
 
+  // ===== الأيقونات =====
   const Icon = ({ name }) => {
     const icons = {
       back: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>,
@@ -115,10 +152,12 @@ function ReportPage() {
       warning: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
       checkCircle: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>,
       refresh: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>,
+      folder: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>,
     };
     return icons[name] ? icons[name]() : null;
   };
 
+  // ===== حالات التحميل والخطأ =====
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -137,6 +176,9 @@ function ReportPage() {
     );
   }
 
+  // ===============================
+  // التصيير الرئيسي مع المجلدات
+  // ===============================
   return (
     <div style={{
       padding: isMobile ? '12px' : '24px',
@@ -160,24 +202,19 @@ function ReportPage() {
             <Icon name="list" /> Reports Dashboard
           </h1>
           <p style={{ color: '#6b7280', margin: '4px 0 0', fontSize: isMobile ? '13px' : '14px' }}>
-            All submitted checklists with full details
+            {selectedDeptId 
+              ? `📂 Showing reports for: ${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}` 
+              : 'All submitted checklists'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             onClick={fetchReports}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#e5e7eb',
-              color: '#1f2937',
-              border: 'none',
-              borderRadius: '8px',
-              padding: isMobile ? '8px 14px' : '10px 20px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: isMobile ? '13px' : '14px'
+              display: 'flex', alignItems: 'center', gap: '6px',
+              background: '#e5e7eb', color: '#1f2937', border: 'none',
+              borderRadius: '8px', padding: isMobile ? '8px 14px' : '10px 20px',
+              cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '13px' : '14px'
             }}
           >
             <Icon name="refresh" /> Refresh
@@ -185,17 +222,10 @@ function ReportPage() {
           <button
             onClick={() => navigate('/ot-enhanced')}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#006341',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              padding: isMobile ? '8px 16px' : '10px 24px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: isMobile ? '13px' : '14px'
+              display: 'flex', alignItems: 'center', gap: '6px',
+              background: '#006341', color: 'white', border: 'none',
+              borderRadius: '8px', padding: isMobile ? '8px 16px' : '10px 24px',
+              cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '13px' : '14px'
             }}
           >
             <Icon name="back" /> Back to OT
@@ -203,7 +233,7 @@ function ReportPage() {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* ===== الإحصائيات ===== */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
@@ -232,7 +262,87 @@ function ReportPage() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* ===== قسم المجلدات (الأقسام) ===== */}
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '10px',
+        marginBottom: '20px',
+        padding: '12px',
+        background: 'white',
+        borderRadius: '12px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+        alignItems: 'center'
+      }}>
+        <span style={{ fontWeight: '700', color: '#004d32', fontSize: '14px', marginRight: '8px' }}>
+          📂 المجلدات:
+        </span>
+        
+        {/* زر الكل */}
+        <button
+          onClick={() => setSelectedDeptId('')}
+          style={{
+            padding: isMobile ? '6px 14px' : '8px 20px',
+            borderRadius: '20px',
+            border: selectedDeptId === '' ? '2px solid #006341' : '1px solid #d0e8dc',
+            background: selectedDeptId === '' ? '#006341' : 'white',
+            color: selectedDeptId === '' ? 'white' : '#374151',
+            fontWeight: '600',
+            fontSize: isMobile ? '12px' : '13px',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
+        >
+          🗂️ الكل
+        </button>
+
+        {/* أزرار الأقسام */}
+        {departments.map(dept => {
+          const count = checklists.filter(c => c.deptCode === dept.id).length;
+          return (
+            <button
+              key={dept.id}
+              onClick={() => setSelectedDeptId(dept.id)}
+              style={{
+                padding: isMobile ? '6px 14px' : '8px 20px',
+                borderRadius: '20px',
+                border: selectedDeptId === dept.id ? '2px solid #c9a84c' : '1px solid #d0e8dc',
+                background: selectedDeptId === dept.id ? '#fef9ec' : 'white',
+                color: selectedDeptId === dept.id ? '#004d32' : '#374151',
+                fontWeight: selectedDeptId === dept.id ? '700' : '500',
+                fontSize: isMobile ? '12px' : '13px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                transition: 'all 0.2s'
+              }}
+            >
+              <Icon name="folder" />
+              {dept.name}
+              <span style={{
+                background: count > 0 ? '#e6f0ec' : '#f3f4f6',
+                color: count > 0 ? '#065f46' : '#9ca3af',
+                borderRadius: '999px',
+                padding: '0 8px',
+                fontSize: '11px',
+                fontWeight: '700',
+                marginLeft: '4px'
+              }}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+        
+        {departments.length === 0 && (
+          <span style={{ color: '#9ca3af', fontSize: '13px' }}>
+            لا توجد أقسام. أضف أقساماً من صفحة OT Department.
+          </span>
+        )}
+      </div>
+
+      {/* ===== الفلاتر الإضافية (تاريخ + بحث) ===== */}
       <div style={{
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
@@ -245,7 +355,7 @@ function ReportPage() {
       }}>
         <input
           type="text"
-          placeholder="Filter by department or list name..."
+          placeholder="بحث إضافي في القوائم..."
           value={filterDept}
           onChange={(e) => setFilterDept(e.target.value)}
           style={{
@@ -269,9 +379,9 @@ function ReportPage() {
             outline: 'none'
           }}
         />
-        {(filterDept || filterDate) && (
+        {(selectedDeptId || filterDept || filterDate) && (
           <button
-            onClick={() => { setFilterDept(''); setFilterDate(''); }}
+            onClick={() => { setSelectedDeptId(''); setFilterDept(''); setFilterDate(''); }}
             style={{
               padding: '8px 16px',
               background: '#e5e7eb',
@@ -281,17 +391,21 @@ function ReportPage() {
               fontWeight: '600'
             }}
           >
-            Clear Filters
+            مسح الكل
           </button>
         )}
       </div>
 
-      {/* List of reports */}
+      {/* ===== قائمة التقارير ===== */}
       {filteredChecklists.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9ca3af' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
-          <h3>No reports found</h3>
-          <p>Try adjusting your filters or wait for new submissions.</p>
+          <h3>لا توجد تقارير</h3>
+          <p>
+            {selectedDeptId 
+              ? `لم يتم تقديم أي تقارير لقسم ${departments.find(d => d.id === selectedDeptId)?.name || ''} بعد.` 
+              : 'لم يتم تقديم أي تقارير بعد.'}
+          </p>
           <button
             onClick={fetchReports}
             style={{
@@ -304,7 +418,7 @@ function ReportPage() {
               cursor: 'pointer'
             }}
           >
-            Refresh
+            تحديث
           </button>
         </div>
       ) : (
@@ -323,8 +437,8 @@ function ReportPage() {
                 alignItems: isMobile ? 'stretch' : 'center',
                 gap: isMobile ? '8px' : '0',
                 cursor: 'pointer',
-                transition: 'all 0.2s',
-                border: '1px solid #e5e7eb'
+                border: '1px solid #e5e7eb',
+                transition: 'all 0.2s'
               }}
               onClick={() => openDetails(item)}
               onMouseEnter={(e) => e.currentTarget.style.borderColor = '#006341'}
@@ -386,7 +500,7 @@ function ReportPage() {
         </div>
       )}
 
-      {/* Modal for details */}
+      {/* ===== Modal للتفاصيل ===== */}
       {selectedChecklist && (
         <div
           style={{
@@ -483,22 +597,13 @@ function ReportPage() {
                     </thead>
                     <tbody>
                       {selectedChecklist.equipmentDetails.map((item) => {
-                        // تحديد المفتاح الصحيح للبحث في checkedItems و damagedItems
                         let key = null;
-                        
-                        // الأولوية للمفتاح النصي id (المستخدم في OTDepartment)
-                        if (item.id) {
-                          key = item.id;
-                        }
-                        // إذا لم يكن موجوداً، نستخدم _id كسلسلة
-                        else if (item._id) {
-                          key = item._id.toString();
-                        }
-                        
-                        // الحصول على الحالة من الكائنات المخزنة
+                        if (item.id) key = item.id;
+                        else if (item._id) key = item._id.toString();
+
                         let isChecked = false;
                         let isDamaged = false;
-                        
+
                         if (key) {
                           if (selectedChecklist.checkedItems && selectedChecklist.checkedItems[key] !== undefined) {
                             isChecked = selectedChecklist.checkedItems[key];
@@ -507,8 +612,7 @@ function ReportPage() {
                             isDamaged = true;
                           }
                         }
-                        
-                        // تحديد النص واللون حسب الحالة
+
                         let statusText = '';
                         let statusColor = '';
                         let statusBg = '';
