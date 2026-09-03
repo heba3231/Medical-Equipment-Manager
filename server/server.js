@@ -30,7 +30,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 setupAISearchRoutes(app);
 
-// JWT Secret - استخدام المتغير البيئي إن وجد
+// JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
@@ -632,7 +632,7 @@ app.delete("/api/dept-equipment/:id", async (req, res) => {
   }
 });
 
-// ==================== CHECKLIST ROUTES ====================
+// ==================== CHECKLIST ROUTES (MODIFIED) ====================
 
 /**
  * GET /api/checklist/:listId
@@ -658,7 +658,11 @@ app.get('/api/checklist/:listId', async (req, res) => {
   }
 });
 
-// ✅ NEW: Modified POST /api/checklist/save to handle detailed quantities
+/**
+ * POST /api/checklist/save
+ * Creates a NEW checklist record every time (insertOne).
+ * Now supports detailed quantities: availableQuantities, damagedQuantities, missingQuantities.
+ */
 app.post('/api/checklist/save', async (req, res) => {
   console.log('📥 Received payload for checklist save:', req.body);
   try {
@@ -671,18 +675,17 @@ app.post('/api/checklist/save', async (req, res) => {
       submittedBy, 
       userRole,
       expiryDate,
-      // ✅ NEW: Detailed quantities
+      // New detailed fields
       availableQuantities,
       damagedQuantities,
-      missingQuantities
+      missingQuantities,
+      // Legacy fields (for backward compatibility)
+      checkedItems,
+      damagedItems
     } = req.body;
     
     console.log(`📤 Saving new checklist for: ${listId}`);
     console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
-    console.log(`   Expiry Date: ${expiryDate || 'Not set'}`);
-    console.log(`   availableQuantities:`, availableQuantities);
-    console.log(`   damagedQuantities:`, damagedQuantities);
-    console.log(`   missingQuantities:`, missingQuantities);
 
     // 1. Fetch equipment for this list
     let equipmentList = [];
@@ -693,10 +696,10 @@ app.post('/api/checklist/save', async (req, res) => {
       let itemsFromCustom = await otCustomEquipmentCollection.find({ listId }).toArray();
       equipmentList = itemsFromCustom;
     }
-    console.log(`   Found ${equipmentList.length} equipment items for list ${listId}`);
+    console.log(`   Found ${equipmentList.length} equipment items`);
 
-    // 2. Calculate statistics from the detailed quantities
-    const totalItems = equipmentList.length;
+    // 2. Compute statistics based on available data
+    let totalItems = equipmentList.length;
     let checkedCount = 0;
     let missingCount = 0;
     let damagedCount = 0;
@@ -704,52 +707,66 @@ app.post('/api/checklist/save', async (req, res) => {
     let totalDamagedQty = 0;
     let totalMissingQty = 0;
 
+    // We'll build the quantities objects, merging with any provided
+    const finalAvailable = {};
+    const finalDamaged = {};
+    const finalMissing = {};
+
     equipmentList.forEach(item => {
       const itemId = item.id || item._id.toString();
-      const qty = item.quantity || 0;
-      
-      // Get quantities from the provided objects, or default to 0
-      const avail = (availableQuantities && availableQuantities[itemId]) || 0;
-      const damaged = (damagedQuantities && damagedQuantities[itemId]) || 0;
-      const missing = (missingQuantities && missingQuantities[itemId]) || 0;
+      const totalQty = item.quantity || 0;
 
+      // Determine available, damaged, missing
+      let avail = 0, damaged = 0, missing = 0;
+
+      // If detailed quantities provided, use them
+      if (availableQuantities && availableQuantities[itemId] !== undefined) {
+        avail = availableQuantities[itemId] || 0;
+        damaged = (damagedQuantities && damagedQuantities[itemId]) || 0;
+        missing = (missingQuantities && missingQuantities[itemId]) || 0;
+      } else {
+        // Fallback to legacy checkedItems and damagedItems
+        const isChecked = (checkedItems && checkedItems[itemId]) || false;
+        const isDamaged = (damagedItems && damagedItems[itemId]) || false;
+        // In legacy, if checked is true, we assume all are present; else missing
+        if (isChecked) {
+          avail = totalQty;
+          damaged = 0;
+          missing = 0;
+        } else {
+          avail = 0;
+          damaged = isDamaged ? totalQty : 0; // assuming whole item damaged if damaged flag
+          missing = isDamaged ? 0 : totalQty;
+        }
+        // If damaged flag is true, we need to adjust: if checked is false, missing should be 0 and damaged = totalQty
+        // But this is a simplified fallback; we can improve by using damagedItems as count if available.
+        // Better: if damagedItems contains the item with a number, use that.
+        if (damagedItems && damagedItems[itemId] !== undefined && typeof damagedItems[itemId] === 'number') {
+          const dmg = damagedItems[itemId];
+          damaged = dmg;
+          // Recalculate missing: total - avail - damaged
+          missing = totalQty - avail - damaged;
+        }
+      }
+
+      // Store in final objects
+      finalAvailable[itemId] = avail;
+      finalDamaged[itemId] = damaged;
+      finalMissing[itemId] = missing;
+
+      // Accumulate totals
       totalAvailableQty += avail;
       totalDamagedQty += damaged;
       totalMissingQty += missing;
 
-      // Update counts based on detailed quantities
+      // Count items with any available
       if (avail > 0) checkedCount++;
-      else if (damaged > 0) damagedCount++; // If an item is damaged, count it as damaged
-      else if (missing > 0) missingCount++;
-      else if (avail === 0 && damaged === 0 && missing === 0) {
-        // If all zero, treat as missing (item was not checked)
-        missingCount++;
-      }
+      if (missing > 0) missingCount++;
+      if (damaged > 0) damagedCount++;
     });
 
-    // Ensure missingCount is at least the number of items with missing > 0
-    // Recalculate more accurately
-    let correctedMissingCount = 0;
-    let correctedDamagedCount = 0;
-    let correctedCheckedCount = 0;
-    equipmentList.forEach(item => {
-      const itemId = item.id || item._id.toString();
-      const qty = item.quantity || 0;
-      const avail = (availableQuantities && availableQuantities[itemId]) || 0;
-      const damaged = (damagedQuantities && damagedQuantities[itemId]) || 0;
-      const missing = (missingQuantities && missingQuantities[itemId]) || 0;
-
-      if (avail > 0) correctedCheckedCount++;
-      else if (damaged > 0) correctedDamagedCount++;
-      else if (missing > 0) correctedMissingCount++;
-      else {
-        // If all zero, treat as missing (item was not checked)
-        correctedMissingCount++;
-      }
-    });
-
-    console.log(`📊 Stats: total=${totalItems}, checked=${correctedCheckedCount}, missing=${correctedMissingCount}, damaged=${correctedDamagedCount}`);
-    console.log(`📊 Quantities: totalAvailable=${totalAvailableQty}, totalDamaged=${totalDamagedQty}, totalMissing=${totalMissingQty}`);
+    console.log(`📊 Stats: totalItems=${totalItems}, checkedCount=${checkedCount}, missingCount=${missingCount}, damagedCount=${damagedCount}`);
+    console.log(`   Quantities: available=${totalAvailableQty}, missing=${totalMissingQty}, damaged=${totalDamagedQty}`);
 
     // 3. Prepare new document
     const newChecklist = {
@@ -761,20 +778,17 @@ app.post('/api/checklist/save', async (req, res) => {
       submittedBy: submittedBy || 'Staff',
       userRole: userRole || 'staff',
       totalItems,
-      checkedCount: correctedCheckedCount,
-      missingCount: correctedMissingCount,
-      damagedCount: correctedDamagedCount,
+      checkedCount,
+      missingCount,
+      damagedCount,
       expiryDate: expiryDate || null,
-      // ✅ NEW: Store detailed quantities
-      availableQuantities: availableQuantities || {},
-      damagedQuantities: damagedQuantities || {},
-      missingQuantities: missingQuantities || {},
-      // Keep legacy fields for backward compatibility
-      checkedItems: availableQuantities ? Object.keys(availableQuantities).reduce((acc, key) => {
-        acc[key] = (availableQuantities[key] || 0) > 0;
-        return acc;
-      }, {}) : {},
-      damagedItems: damagedQuantities || {},
+      // Detailed quantities
+      availableQuantities: finalAvailable,
+      damagedQuantities: finalDamaged,
+      missingQuantities: finalMissing,
+      // Legacy fields for compatibility (but we keep them updated)
+      checkedItems: Object.keys(finalAvailable).reduce((acc, key) => { acc[key] = finalAvailable[key] > 0; return acc; }, {}),
+      damagedItems: Object.keys(finalDamaged).reduce((acc, key) => { if (finalDamaged[key] > 0) acc[key] = finalDamaged[key]; return acc; }, {}),
       createdAt: new Date()
     };
 
@@ -1338,7 +1352,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📦 Dept Lists API:      /api/dept-lists/:deptCode`);
   console.log(`📦 Dept Equipment API:  /api/dept-equipment/:deptCode/:listId`);
   console.log(`📋 Checklist API:       /api/checklist/:listId (GET latest)`);
-  console.log(`✅ Checklist Save API:  /api/checklist/save (NOW INSERT NEW RECORD WITH DETAILED QUANTITIES)`);
+  console.log(`✅ Checklist Save API:  /api/checklist/save (NOW WITH DETAILED QUANTITIES)`);
   console.log(`📊 Reports API:         /api/checklists (GET all submitted)`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
