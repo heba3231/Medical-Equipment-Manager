@@ -150,6 +150,7 @@ function ReportPage() {
       checkCircle: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>,
       refresh: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>,
       folder: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>,
+      ministry: () => <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>,
     };
     return icons[name] ? icons[name]() : null;
   };
@@ -157,7 +158,7 @@ function ReportPage() {
   // ===== Loading and error states =====
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f5f7f6' }}>
         <div style={{ width: '40px', height: '40px', border: '3px solid #e5ede9', borderTop: '3px solid #006341', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }}></div>
         <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
       </div>
@@ -166,7 +167,7 @@ function ReportPage() {
 
   if (error) {
     return (
-      <div style={{ padding: '40px', textAlign: 'center', color: '#dc2626' }}>
+      <div style={{ padding: '40px', textAlign: 'center', color: '#dc2626', background: '#f5f7f6', minHeight: '100vh' }}>
         <h2>❌ {error}</h2>
         <button onClick={fetchReports} style={{ padding: '10px 24px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Retry</button>
       </div>
@@ -174,703 +175,751 @@ function ReportPage() {
   }
 
   // ===============================
-  // Main render with redesigned UI
+  // Main render with official ministry design
   // ===============================
   return (
     <div style={{
-      padding: isMobile ? '12px' : '24px',
+      padding: 0,
       maxWidth: '1400px',
       margin: '0 auto',
       fontFamily: "'Segoe UI', Arial, sans-serif",
       background: '#f5f7f6',
       minHeight: '100vh'
     }}>
-      {/* ===== Header ===== */}
+      {/* ===== Official Header (Ministry) ===== */}
       <div style={{
+        background: '#004d32',
+        color: 'white',
+        padding: isMobile ? '16px 20px' : '20px 32px',
         display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: 'center',
         justifyContent: 'space-between',
-        alignItems: isMobile ? 'flex-start' : 'center',
-        marginBottom: '24px',
-        gap: '12px'
+        flexWrap: 'wrap',
+        gap: '12px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
       }}>
-        <div>
-          <h1 style={{
-            fontSize: isMobile ? '20px' : '28px',
-            color: '#004d32',
-            margin: 0,
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{
+            background: 'rgba(255,255,255,0.15)',
+            borderRadius: '8px',
+            padding: '8px',
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
-            fontWeight: '600'
+            justifyContent: 'center'
           }}>
-            <Icon name="list" /> Reports Dashboard
-          </h1>
-          <p style={{
-            color: '#6b7280',
-            margin: '4px 0 0',
-            fontSize: isMobile ? '13px' : '14px'
-          }}>
-            {selectedDeptId
-              ? `📂 Showing reports for: ${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}`
-              : 'All submitted checklists'}
-          </p>
+            <Icon name="ministry" />
+          </div>
+          <div>
+            <div style={{ fontSize: isMobile ? '16px' : '22px', fontWeight: '700', letterSpacing: '0.5px' }}>
+              Ministry of Health
+            </div>
+            <div style={{ fontSize: isMobile ? '11px' : '14px', opacity: 0.8, fontWeight: '300' }}>
+              Equipment &amp; Instrument Management System
+            </div>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{
+            background: 'rgba(255,255,255,0.1)',
+            padding: '4px 12px',
+            borderRadius: '20px',
+            fontSize: isMobile ? '11px' : '13px',
+            border: '1px solid rgba(255,255,255,0.2)'
+          }}>
+            <Icon name="user" style={{ display: 'inline', marginRight: '4px' }} /> Admin
+          </span>
+          <button
+            onClick={() => navigate('/ot-enhanced')}
+            style={{
+              background: 'rgba(255,255,255,0.15)',
+              color: 'white',
+              border: '1px solid rgba(255,255,255,0.3)',
+              padding: isMobile ? '6px 14px' : '8px 18px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: '500',
+              fontSize: isMobile ? '12px' : '14px',
+              transition: 'background 0.2s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+          >
+            ← Back to OT
+          </button>
+        </div>
+      </div>
+
+      {/* ===== Page Content ===== */}
+      <div style={{ padding: isMobile ? '16px' : '28px' }}>
+
+        {/* ===== Page Title ===== */}
+        <div style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'flex-start' : 'center',
+          marginBottom: '24px',
+          gap: '12px'
+        }}>
+          <div>
+            <h1 style={{
+              fontSize: isMobile ? '22px' : '32px',
+              color: '#004d32',
+              margin: 0,
+              fontWeight: '600',
+              letterSpacing: '-0.3px'
+            }}>
+              <Icon name="list" style={{ marginRight: '8px' }} /> Reports Dashboard
+            </h1>
+            <p style={{
+              color: '#4b5563',
+              margin: '4px 0 0',
+              fontSize: isMobile ? '14px' : '16px',
+              fontWeight: '300'
+            }}>
+              {selectedDeptId
+                ? `📂 Showing reports for: ${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}`
+                : 'All submitted checklists across departments'}
+            </p>
+          </div>
           <button
             onClick={fetchReports}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background: '#e5e7eb',
-              color: '#1f2937',
-              border: 'none',
-              borderRadius: '8px',
+              background: 'white',
+              color: '#004d32',
+              border: '1px solid #d0e8dc',
+              borderRadius: '6px',
               padding: isMobile ? '8px 14px' : '10px 20px',
               cursor: 'pointer',
               fontWeight: '600',
               fontSize: isMobile ? '13px' : '14px',
-              transition: 'background 0.2s'
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+              transition: 'all 0.2s'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#d1d5db'}
-            onMouseLeave={(e) => e.currentTarget.style.background = '#e5e7eb'}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#f0f7f4'; e.currentTarget.style.borderColor = '#006341'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.borderColor = '#d0e8dc'; }}
           >
             <Icon name="refresh" /> Refresh
           </button>
-          <button
-            onClick={() => navigate('/ot-enhanced')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#006341',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              padding: isMobile ? '8px 16px' : '10px 24px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: isMobile ? '13px' : '14px',
-              transition: 'background 0.2s'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#004d32'}
-            onMouseLeave={(e) => e.currentTarget.style.background = '#006341'}
-          >
-            <Icon name="back" /> Back to OT
-          </button>
         </div>
-      </div>
 
-      {/* ===== Statistics ===== */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
-        gap: '12px',
-        marginBottom: '24px'
-      }}>
+        {/* ===== Statistics ===== */}
         <div style={{
-          background: 'white',
-          padding: isMobile ? '12px' : '16px',
-          borderRadius: '10px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          textAlign: 'center',
-          border: '1px solid #e5e7eb'
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
+          gap: '16px',
+          marginBottom: '28px'
         }}>
-          <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#004d32' }}>{stats.total}</div>
-          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Total Reports</div>
-        </div>
-        <div style={{
-          background: 'white',
-          padding: isMobile ? '12px' : '16px',
-          borderRadius: '10px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          textAlign: 'center',
-          border: '1px solid #e5e7eb'
-        }}>
-          <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#c9a84c' }}>{stats.depts}</div>
-          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Departments</div>
-        </div>
-        <div style={{
-          background: 'white',
-          padding: isMobile ? '12px' : '16px',
-          borderRadius: '10px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          textAlign: 'center',
-          border: '1px solid #e5e7eb'
-        }}>
-          <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a' }}>
-            {checklists.filter(c => c.submitted).length}
+          <div style={{
+            background: 'white',
+            padding: isMobile ? '14px' : '18px',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: isMobile ? '24px' : '30px', fontWeight: '700', color: '#004d32' }}>{stats.total}</div>
+            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '2px' }}>Total Reports</div>
           </div>
-          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Confirmed</div>
-        </div>
-        <div style={{
-          background: 'white',
-          padding: isMobile ? '12px' : '16px',
-          borderRadius: '10px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          textAlign: 'center',
-          border: '1px solid #e5e7eb'
-        }}>
-          <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#dc2626' }}>
-            {checklists.reduce((sum, c) => sum + (c.missingCount || 0), 0)}
+          <div style={{
+            background: 'white',
+            padding: isMobile ? '14px' : '18px',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: isMobile ? '24px' : '30px', fontWeight: '700', color: '#c9a84c' }}>{stats.depts}</div>
+            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '2px' }}>Departments</div>
           </div>
-          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Total Missing</div>
+          <div style={{
+            background: 'white',
+            padding: isMobile ? '14px' : '18px',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: isMobile ? '24px' : '30px', fontWeight: '700', color: '#16a34a' }}>
+              {checklists.filter(c => c.submitted).length}
+            </div>
+            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '2px' }}>Confirmed</div>
+          </div>
+          <div style={{
+            background: 'white',
+            padding: isMobile ? '14px' : '18px',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: isMobile ? '24px' : '30px', fontWeight: '700', color: '#dc2626' }}>
+              {checklists.reduce((sum, c) => sum + (c.missingCount || 0), 0)}
+            </div>
+            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '2px' }}>Total Missing</div>
+          </div>
         </div>
-      </div>
 
-      {/* ===== Folders section (Departments) ===== */}
-      <div style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '8px',
-        marginBottom: '20px',
-        padding: isMobile ? '12px' : '16px',
-        background: 'white',
-        borderRadius: '10px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-        alignItems: 'center',
-        border: '1px solid #e5e7eb'
-      }}>
-        <span style={{
-          fontWeight: '600',
-          color: '#004d32',
-          fontSize: '14px',
-          marginRight: '8px',
+        {/* ===== Folders ===== */}
+        <div style={{
           display: 'flex',
-          alignItems: 'center',
-          gap: '4px'
+          flexWrap: 'wrap',
+          gap: '8px',
+          marginBottom: '20px',
+          padding: isMobile ? '12px' : '16px',
+          background: 'white',
+          borderRadius: '8px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          alignItems: 'center'
         }}>
-          <Icon name="folder" /> Folders:
-        </span>
-
-        {/* All button */}
-        <button
-          onClick={() => setSelectedDeptId('')}
-          style={{
-            padding: isMobile ? '6px 12px' : '8px 16px',
-            borderRadius: '20px',
-            border: selectedDeptId === '' ? '2px solid #006341' : '1px solid #d0e8dc',
-            background: selectedDeptId === '' ? '#006341' : 'white',
-            color: selectedDeptId === '' ? 'white' : '#374151',
+          <span style={{
             fontWeight: '600',
-            fontSize: isMobile ? '12px' : '13px',
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          🗂️ All
-        </button>
+            color: '#004d32',
+            fontSize: '14px',
+            marginRight: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}>
+            <Icon name="folder" /> Folders:
+          </span>
 
-        {/* Department buttons */}
-        {departments.map(dept => {
-          const count = checklists.filter(c => c.deptCode === dept.id).length;
-          return (
+          <button
+            onClick={() => setSelectedDeptId('')}
+            style={{
+              padding: isMobile ? '4px 12px' : '6px 16px',
+              borderRadius: '16px',
+              border: selectedDeptId === '' ? '2px solid #006341' : '1px solid #d0e8dc',
+              background: selectedDeptId === '' ? '#006341' : 'white',
+              color: selectedDeptId === '' ? 'white' : '#374151',
+              fontWeight: '600',
+              fontSize: isMobile ? '12px' : '13px',
+              cursor: 'pointer',
+              transition: 'all 0.15s'
+            }}
+          >
+            🗂️ All
+          </button>
+
+          {departments.map(dept => {
+            const count = checklists.filter(c => c.deptCode === dept.id).length;
+            return (
+              <button
+                key={dept.id}
+                onClick={() => setSelectedDeptId(dept.id)}
+                style={{
+                  padding: isMobile ? '4px 12px' : '6px 16px',
+                  borderRadius: '16px',
+                  border: selectedDeptId === dept.id ? '2px solid #c9a84c' : '1px solid #d0e8dc',
+                  background: selectedDeptId === dept.id ? '#fef9ec' : 'white',
+                  color: selectedDeptId === dept.id ? '#004d32' : '#374151',
+                  fontWeight: selectedDeptId === dept.id ? '700' : '500',
+                  fontSize: isMobile ? '12px' : '13px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <Icon name="folder" />
+                {dept.name}
+                <span style={{
+                  background: count > 0 ? '#e6f0ec' : '#f3f4f6',
+                  color: count > 0 ? '#065f46' : '#9ca3af',
+                  borderRadius: '12px',
+                  padding: '0 8px',
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  marginLeft: '2px'
+                }}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+
+          {departments.length === 0 && (
+            <span style={{ color: '#9ca3af', fontSize: '13px' }}>
+              No departments found. Add departments from the OT Department page.
+            </span>
+          )}
+        </div>
+
+        {/* ===== Filters ===== */}
+        <div style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: '12px',
+          marginBottom: '24px',
+          background: 'white',
+          padding: isMobile ? '12px' : '16px',
+          borderRadius: '8px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+        }}>
+          <input
+            type="text"
+            placeholder="Search reports..."
+            value={filterDept}
+            onChange={(e) => setFilterDept(e.target.value)}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              border: '1.5px solid #e5e7eb',
+              borderRadius: '6px',
+              fontSize: '14px',
+              outline: 'none',
+              transition: 'border-color 0.2s',
+              minWidth: isMobile ? '100%' : 'auto'
+            }}
+            onFocus={(e) => e.currentTarget.style.borderColor = '#006341'}
+            onBlur={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
+          />
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            style={{
+              padding: '8px 12px',
+              border: '1.5px solid #e5e7eb',
+              borderRadius: '6px',
+              fontSize: '14px',
+              outline: 'none',
+              transition: 'border-color 0.2s',
+              minWidth: isMobile ? '100%' : '180px'
+            }}
+            onFocus={(e) => e.currentTarget.style.borderColor = '#006341'}
+            onBlur={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
+          />
+          {(selectedDeptId || filterDept || filterDate) && (
             <button
-              key={dept.id}
-              onClick={() => setSelectedDeptId(dept.id)}
+              onClick={() => { setSelectedDeptId(''); setFilterDept(''); setFilterDate(''); }}
               style={{
-                padding: isMobile ? '6px 12px' : '8px 16px',
-                borderRadius: '20px',
-                border: selectedDeptId === dept.id ? '2px solid #c9a84c' : '1px solid #d0e8dc',
-                background: selectedDeptId === dept.id ? '#fef9ec' : 'white',
-                color: selectedDeptId === dept.id ? '#004d32' : '#374151',
-                fontWeight: selectedDeptId === dept.id ? '700' : '500',
-                fontSize: isMobile ? '12px' : '13px',
+                padding: '8px 16px',
+                background: '#f3f4f6',
+                border: '1px solid #e5e7eb',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                transition: 'all 0.2s',
+                fontWeight: '600',
+                color: '#374151',
+                transition: 'background 0.2s',
                 whiteSpace: 'nowrap'
               }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#e5e7eb'}
+              onMouseLeave={(e) => e.currentTarget.style.background = '#f3f4f6'}
             >
-              <Icon name="folder" />
-              {dept.name}
-              <span style={{
-                background: count > 0 ? '#e6f0ec' : '#f3f4f6',
-                color: count > 0 ? '#065f46' : '#9ca3af',
-                borderRadius: '999px',
-                padding: '0 8px',
-                fontSize: '11px',
-                fontWeight: '700',
-                marginLeft: '4px'
-              }}>
-                {count}
-              </span>
+              Clear All
             </button>
-          );
-        })}
-
-        {departments.length === 0 && (
-          <span style={{ color: '#9ca3af', fontSize: '13px' }}>
-            No departments found. Add departments from the OT Department page.
-          </span>
-        )}
-      </div>
-
-      {/* ===== Filters ===== */}
-      <div style={{
-        display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
-        gap: '12px',
-        marginBottom: '20px',
-        background: 'white',
-        padding: isMobile ? '12px' : '16px',
-        borderRadius: '10px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-        border: '1px solid #e5e7eb'
-      }}>
-        <input
-          type="text"
-          placeholder="Search reports..."
-          value={filterDept}
-          onChange={(e) => setFilterDept(e.target.value)}
-          style={{
-            flex: 1,
-            padding: '8px 12px',
-            border: '1.5px solid #d0e8dc',
-            borderRadius: '8px',
-            fontSize: '14px',
-            outline: 'none',
-            transition: 'border-color 0.2s',
-            minWidth: isMobile ? '100%' : 'auto'
-          }}
-          onFocus={(e) => e.currentTarget.style.borderColor = '#006341'}
-          onBlur={(e) => e.currentTarget.style.borderColor = '#d0e8dc'}
-        />
-        <input
-          type="date"
-          value={filterDate}
-          onChange={(e) => setFilterDate(e.target.value)}
-          style={{
-            padding: '8px 12px',
-            border: '1.5px solid #d0e8dc',
-            borderRadius: '8px',
-            fontSize: '14px',
-            outline: 'none',
-            transition: 'border-color 0.2s',
-            minWidth: isMobile ? '100%' : '180px'
-          }}
-          onFocus={(e) => e.currentTarget.style.borderColor = '#006341'}
-          onBlur={(e) => e.currentTarget.style.borderColor = '#d0e8dc'}
-        />
-        {(selectedDeptId || filterDept || filterDate) && (
-          <button
-            onClick={() => { setSelectedDeptId(''); setFilterDept(''); setFilterDate(''); }}
-            style={{
-              padding: '8px 16px',
-              background: '#e5e7eb',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              color: '#374151',
-              transition: 'background 0.2s',
-              whiteSpace: 'nowrap'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#d1d5db'}
-            onMouseLeave={(e) => e.currentTarget.style.background = '#e5e7eb'}
-          >
-            Clear All
-          </button>
-        )}
-      </div>
-
-      {/* ===== Reports list ===== */}
-      {filteredChecklists.length === 0 ? (
-        <div style={{
-          textAlign: 'center',
-          padding: isMobile ? '40px 20px' : '60px 20px',
-          background: 'white',
-          borderRadius: '10px',
-          border: '1px solid #e5e7eb'
-        }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
-          <h3 style={{ color: '#374151', margin: '0 0 8px 0', fontSize: isMobile ? '18px' : '22px' }}>No reports found</h3>
-          <p style={{ color: '#6b7280', margin: '0 0 16px 0', fontSize: isMobile ? '13px' : '14px' }}>
-            {selectedDeptId
-              ? `No reports submitted for department "${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}" yet.`
-              : 'No reports have been submitted yet.'}
-          </p>
-          <button
-            onClick={fetchReports}
-            style={{
-              padding: '8px 20px',
-              background: '#006341',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              transition: 'background 0.2s'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#004d32'}
-            onMouseLeave={(e) => e.currentTarget.style.background = '#006341'}
-          >
-            Refresh
-          </button>
+          )}
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {filteredChecklists.map((item) => (
-            <div
-              key={item._id || item.id || item.listId}
+
+        {/* ===== Reports list ===== */}
+        {filteredChecklists.length === 0 ? (
+          <div style={{
+            textAlign: 'center',
+            padding: isMobile ? '40px 20px' : '60px 20px',
+            background: 'white',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
+            <h3 style={{ color: '#374151', margin: '0 0 8px 0', fontSize: isMobile ? '18px' : '22px' }}>No reports found</h3>
+            <p style={{ color: '#6b7280', margin: '0 0 16px 0', fontSize: isMobile ? '14px' : '16px' }}>
+              {selectedDeptId
+                ? `No reports submitted for department "${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}" yet.`
+                : 'No reports have been submitted yet.'}
+            </p>
+            <button
+              onClick={fetchReports}
               style={{
-                background: 'white',
-                borderRadius: '10px',
-                padding: isMobile ? '14px' : '18px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-                display: 'flex',
-                flexDirection: isMobile ? 'column' : 'row',
-                justifyContent: 'space-between',
-                alignItems: isMobile ? 'stretch' : 'center',
-                gap: isMobile ? '8px' : '0',
+                padding: '8px 24px',
+                background: '#006341',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                border: '1px solid #e5e7eb',
-                transition: 'border-color 0.2s, box-shadow 0.2s'
+                fontWeight: '600',
+                transition: 'background 0.2s'
               }}
-              onClick={() => openDetails(item)}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#006341';
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#e5e7eb';
-                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
-              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#004d32'}
+              onMouseLeave={(e) => e.currentTarget.style.background = '#006341'}
             >
-              <div style={{ flex: 1, minWidth: 0 }}>
+              Refresh
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {filteredChecklists.map((item) => (
+              <div
+                key={item._id || item.id || item.listId}
+                style={{
+                  background: 'white',
+                  borderRadius: '8px',
+                  padding: isMobile ? '14px' : '18px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                  display: 'flex',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  justifyContent: 'space-between',
+                  alignItems: isMobile ? 'stretch' : 'center',
+                  gap: isMobile ? '10px' : '0',
+                  cursor: 'pointer',
+                  border: '1px solid #e5e7eb',
+                  transition: 'border-color 0.2s, box-shadow 0.2s'
+                }}
+                onClick={() => openDetails(item)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#006341';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#e5e7eb';
+                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    flexWrap: 'wrap',
+                    marginBottom: '4px'
+                  }}>
+                    <span style={{
+                      fontWeight: '700',
+                      color: '#004d32',
+                      fontSize: isMobile ? '15px' : '17px'
+                    }}>
+                      {item.listName || 'Equipment List'}
+                    </span>
+                    <span style={{
+                      background: '#e6f0ec',
+                      color: '#065f46',
+                      padding: '2px 10px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: '600'
+                    }}>
+                      {item.deptCode || item.deptName || 'Department'}
+                    </span>
+                    <span style={{
+                      background: '#d1fae5',
+                      color: '#065f46',
+                      padding: '2px 10px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: '600'
+                    }}>
+                      ✅ Submitted
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: isMobile ? '8px' : '16px',
+                    fontSize: '13px',
+                    color: '#6b7280'
+                  }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Icon name="user" /> {item.submittedBy || 'Unknown'}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Icon name="calendar" /> {item.submittedAt ? new Date(item.submittedAt).toLocaleString() : '—'}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Icon name="warning" /> Missing: {item.missingCount || 0}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      ✅ Checked: {item.checkedCount || 0} / {item.totalItems || 0}
+                    </span>
+                    {item.expiryDate && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b91c1c' }}>
+                        🗓️ Expires: {formatDate(item.expiryDate)}
+                      </span>
+                    )}
+                  </div>
+                </div>
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  flexWrap: 'wrap',
-                  marginBottom: '4px'
-                }}>
-                  <span style={{
-                    fontWeight: '700',
-                    color: '#004d32',
-                    fontSize: isMobile ? '15px' : '17px'
-                  }}>
-                    {item.listName || 'Equipment List'}
-                  </span>
-                  <span style={{
-                    background: '#e6f0ec',
-                    color: '#065f46',
-                    padding: '2px 10px',
-                    borderRadius: '20px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {item.deptCode || item.deptName || 'Department'}
-                  </span>
-                  <span style={{
-                    background: '#d1fae5',
-                    color: '#065f46',
-                    padding: '2px 10px',
-                    borderRadius: '20px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    ✅ Submitted
-                  </span>
-                </div>
-                <div style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: isMobile ? '8px' : '16px',
-                  fontSize: '13px',
-                  color: '#6b7280'
-                }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Icon name="user" /> {item.submittedBy || 'Unknown'}
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Icon name="calendar" /> {item.submittedAt ? new Date(item.submittedAt).toLocaleString() : '—'}
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Icon name="warning" /> Missing: {item.missingCount || 0}
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    ✅ Checked: {item.checkedCount || 0} / {item.totalItems || 0}
-                  </span>
-                  {item.expiryDate && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b91c1c' }}>
-                      🗓️ Expires: {formatDate(item.expiryDate)}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                flexShrink: 0,
-                marginTop: isMobile ? '8px' : '0'
-              }}>
-                <span style={{
+                  flexShrink: 0,
+                  marginTop: isMobile ? '8px' : '0',
                   color: '#006341',
                   fontWeight: '600',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
+                  fontSize: '14px'
                 }}>
                   View Details →
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ===== Details Modal ===== */}
-      {selectedChecklist && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '20px'
-          }}
-          onClick={closeDetails}
-        >
-          <div
-            style={{
-              background: 'white',
-              borderRadius: '12px',
-              maxWidth: '800px',
-              width: '100%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              padding: isMobile ? '20px' : '28px',
-              position: 'relative',
-              boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={closeDetails}
-              style={{
-                position: 'sticky',
-                top: 0,
-                float: 'right',
-                background: 'none',
-                border: 'none',
-                fontSize: '24px',
-                cursor: 'pointer',
-                color: '#9ca3af',
-                transition: 'color 0.2s',
-                padding: '4px'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.color = '#374151'}
-              onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
-            >
-              <Icon name="close" />
-            </button>
-
-            <h2 style={{
-              color: '#004d32',
-              marginTop: 0,
-              marginBottom: '16px',
-              fontSize: isMobile ? '20px' : '24px',
-              fontWeight: '600'
-            }}>
-              {selectedChecklist.listName || 'Checklist Details'}
-            </h2>
-
-            {/* Summary cards */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
-              gap: '10px',
-              marginBottom: '20px'
-            }}>
-              <div style={{
-                background: '#f0fdf4',
-                padding: '12px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                border: '1px solid #dcfce7'
-              }}>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: '#16a34a' }}>{selectedChecklist.checkedCount || 0}</div>
-                <div style={{ fontSize: '11px', color: '#6b7280' }}>Checked</div>
-              </div>
-              <div style={{
-                background: '#fef2f2',
-                padding: '12px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                border: '1px solid #fee2e2'
-              }}>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: '#dc2626' }}>{selectedChecklist.missingCount || 0}</div>
-                <div style={{ fontSize: '11px', color: '#6b7280' }}>Missing</div>
-              </div>
-              <div style={{
-                background: '#fffbeb',
-                padding: '12px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                border: '1px solid #fef3c7'
-              }}>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: '#d97706' }}>{selectedChecklist.damagedCount || 0}</div>
-                <div style={{ fontSize: '11px', color: '#6b7280' }}>Damaged</div>
-              </div>
-              <div style={{
-                background: '#f3f4f6',
-                padding: '12px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                border: '1px solid #e5e7eb'
-              }}>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: '#374151' }}>{selectedChecklist.totalItems || 0}</div>
-                <div style={{ fontSize: '11px', color: '#6b7280' }}>Total Items</div>
-              </div>
-            </div>
-
-            {/* Details grid */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-              gap: '10px',
-              marginBottom: '20px',
-              background: '#f9fafb',
-              padding: '16px',
-              borderRadius: '8px',
-              border: '1px solid #e5e7eb'
-            }}>
-              <div><strong>Department:</strong> {selectedChecklist.deptCode || selectedChecklist.deptName || '—'}</div>
-              <div><strong>Submitted By:</strong> {selectedChecklist.submittedBy || '—'}</div>
-              <div><strong>Submitted At:</strong> {selectedChecklist.submittedAt ? new Date(selectedChecklist.submittedAt).toLocaleString() : '—'}</div>
-              <div><strong>Expiry Date:</strong> {formatDate(selectedChecklist.expiryDate)}</div>
-              <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
-            </div>
-
-            {/* Equipment table */}
-            {selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 && (
-              <div>
-                <h4 style={{
-                  borderBottom: '2px solid #e5e7eb',
-                  paddingBottom: '8px',
-                  marginBottom: '12px',
-                  color: '#004d32',
-                  fontSize: '16px',
-                  fontWeight: '600'
-                }}>Equipment Details</h4>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: '14px',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    overflow: 'hidden'
-                  }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc' }}>
-                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Name</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Code</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Qty</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedChecklist.equipmentDetails.map((item) => {
-                        let key = null;
-                        if (item.id) key = item.id;
-                        else if (item._id) key = item._id.toString();
-
-                        let isChecked = false;
-                        let isDamaged = false;
-
-                        if (key) {
-                          if (selectedChecklist.checkedItems && selectedChecklist.checkedItems[key] !== undefined) {
-                            isChecked = selectedChecklist.checkedItems[key];
-                          }
-                          if (selectedChecklist.damagedItems && selectedChecklist.damagedItems[key] !== undefined) {
-                            isDamaged = true;
-                          }
-                        }
-
-                        let statusText = '';
-                        let statusColor = '';
-                        let statusBg = '';
-                        if (isDamaged) {
-                          statusText = '⚠️ Damaged';
-                          statusColor = '#b45309';
-                          statusBg = '#fffbeb';
-                        } else if (isChecked) {
-                          statusText = '✅ Present';
-                          statusColor = '#16a34a';
-                          statusBg = '#f0fdf4';
-                        } else {
-                          statusText = '❌ Missing';
-                          statusColor = '#dc2626';
-                          statusBg = '#fef2f2';
-                        }
-
-                        return (
-                          <tr key={item._id || item.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e5e7eb' }}>{item.name}</td>
-                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
-                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{item.quantity || 0}</td>
-                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>
-                              <span style={{
-                                color: statusColor,
-                                fontWeight: '600',
-                                background: statusBg,
-                                padding: '2px 10px',
-                                borderRadius: '12px',
-                                display: 'inline-block',
-                                fontSize: '13px'
-                              }}>
-                                {statusText}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
                 </div>
               </div>
-            )}
+            ))}
+          </div>
+        )}
 
-            <div style={{ marginTop: '20px', textAlign: 'right' }}>
+        {/* ===== Details Modal ===== */}
+        {selectedChecklist && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(3px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+              padding: '20px'
+            }}
+            onClick={closeDetails}
+          >
+            <div
+              style={{
+                background: 'white',
+                borderRadius: '10px',
+                maxWidth: '820px',
+                width: '100%',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                padding: isMobile ? '20px' : '32px',
+                position: 'relative',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.2)'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
                 onClick={closeDetails}
                 style={{
-                  padding: '8px 24px',
-                  background: '#006341',
-                  color: 'white',
+                  position: 'sticky',
+                  top: 0,
+                  float: 'right',
+                  background: 'none',
                   border: 'none',
-                  borderRadius: '8px',
+                  fontSize: '24px',
                   cursor: 'pointer',
-                  fontWeight: '600',
-                  fontSize: '14px',
-                  transition: 'background 0.2s'
+                  color: '#9ca3af',
+                  transition: 'color 0.2s',
+                  padding: '4px'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.background = '#004d32'}
-                onMouseLeave={(e) => e.currentTarget.style.background = '#006341'}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#374151'}
+                onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
               >
-                Close
+                <Icon name="close" />
               </button>
+
+              <h2 style={{
+                color: '#004d32',
+                marginTop: 0,
+                marginBottom: '20px',
+                fontSize: isMobile ? '22px' : '26px',
+                fontWeight: '600',
+                borderBottom: '2px solid #e5e7eb',
+                paddingBottom: '12px'
+              }}>
+                {selectedChecklist.listName || 'Checklist Details'}
+              </h2>
+
+              {/* Summary cards */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
+                gap: '12px',
+                marginBottom: '24px'
+              }}>
+                <div style={{
+                  background: '#f0fdf4',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  textAlign: 'center',
+                  border: '1px solid #dcfce7'
+                }}>
+                  <div style={{ fontSize: '22px', fontWeight: '700', color: '#16a34a' }}>{selectedChecklist.checkedCount || 0}</div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Checked</div>
+                </div>
+                <div style={{
+                  background: '#fef2f2',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  textAlign: 'center',
+                  border: '1px solid #fee2e2'
+                }}>
+                  <div style={{ fontSize: '22px', fontWeight: '700', color: '#dc2626' }}>{selectedChecklist.missingCount || 0}</div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Missing</div>
+                </div>
+                <div style={{
+                  background: '#fffbeb',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  textAlign: 'center',
+                  border: '1px solid #fef3c7'
+                }}>
+                  <div style={{ fontSize: '22px', fontWeight: '700', color: '#d97706' }}>{selectedChecklist.damagedCount || 0}</div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Damaged</div>
+                </div>
+                <div style={{
+                  background: '#f3f4f6',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  textAlign: 'center',
+                  border: '1px solid #e5e7eb'
+                }}>
+                  <div style={{ fontSize: '22px', fontWeight: '700', color: '#374151' }}>{selectedChecklist.totalItems || 0}</div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Total Items</div>
+                </div>
+              </div>
+
+              {/* Info grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: '10px',
+                marginBottom: '20px',
+                background: '#f9fafb',
+                padding: '16px',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb'
+              }}>
+                <div><strong>Department:</strong> {selectedChecklist.deptCode || selectedChecklist.deptName || '—'}</div>
+                <div><strong>Submitted By:</strong> {selectedChecklist.submittedBy || '—'}</div>
+                <div><strong>Submitted At:</strong> {selectedChecklist.submittedAt ? new Date(selectedChecklist.submittedAt).toLocaleString() : '—'}</div>
+                <div><strong>Expiry Date:</strong> {formatDate(selectedChecklist.expiryDate)}</div>
+                <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
+              </div>
+
+              {/* Equipment table */}
+              {selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 && (
+                <div>
+                  <h4 style={{
+                    borderBottom: '2px solid #e5e7eb',
+                    paddingBottom: '8px',
+                    marginBottom: '14px',
+                    color: '#004d32',
+                    fontSize: '16px',
+                    fontWeight: '600'
+                  }}>Equipment Details</h4>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{
+                      width: '100%',
+                      borderCollapse: 'collapse',
+                      fontSize: '14px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '6px',
+                      overflow: 'hidden'
+                    }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc' }}>
+                          <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Name</th>
+                          <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Code</th>
+                          <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Qty</th>
+                          <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedChecklist.equipmentDetails.map((item) => {
+                          let key = null;
+                          if (item.id) key = item.id;
+                          else if (item._id) key = item._id.toString();
+
+                          let isChecked = false;
+                          let isDamaged = false;
+
+                          if (key) {
+                            if (selectedChecklist.checkedItems && selectedChecklist.checkedItems[key] !== undefined) {
+                              isChecked = selectedChecklist.checkedItems[key];
+                            }
+                            if (selectedChecklist.damagedItems && selectedChecklist.damagedItems[key] !== undefined) {
+                              isDamaged = true;
+                            }
+                          }
+
+                          let statusText = '';
+                          let statusColor = '';
+                          let statusBg = '';
+                          if (isDamaged) {
+                            statusText = '⚠️ Damaged';
+                            statusColor = '#b45309';
+                            statusBg = '#fffbeb';
+                          } else if (isChecked) {
+                            statusText = '✅ Present';
+                            statusColor = '#16a34a';
+                            statusBg = '#f0fdf4';
+                          } else {
+                            statusText = '❌ Missing';
+                            statusColor = '#dc2626';
+                            statusBg = '#fef2f2';
+                          }
+
+                          return (
+                            <tr key={item._id || item.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                              <td style={{ padding: '10px', borderBottom: '1px solid #e5e7eb' }}>{item.name}</td>
+                              <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
+                              <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{item.quantity || 0}</td>
+                              <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>
+                                <span style={{
+                                  color: statusColor,
+                                  fontWeight: '600',
+                                  background: statusBg,
+                                  padding: '2px 10px',
+                                  borderRadius: '12px',
+                                  display: 'inline-block',
+                                  fontSize: '13px'
+                                }}>
+                                  {statusText}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginTop: '24px', textAlign: 'right' }}>
+                <button
+                  onClick={closeDetails}
+                  style={{
+                    padding: '8px 28px',
+                    background: '#006341',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#004d32'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = '#006341'}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* ===== Footer ===== */}
+      <div style={{
+        textAlign: 'center',
+        padding: '16px',
+        fontSize: '13px',
+        color: '#9ca3af',
+        borderTop: '1px solid #e5e7eb',
+        background: 'white',
+        marginTop: '24px'
+      }}>
+        © {new Date().getFullYear()} Ministry of Health — Equipment Management System. All rights reserved.
+      </div>
     </div>
   );
 }
