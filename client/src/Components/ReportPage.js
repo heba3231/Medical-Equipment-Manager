@@ -793,33 +793,33 @@ function ReportPage() {
                     <tbody>
                       {selectedChecklist.equipmentDetails.map((item) => {
                         // ===== IMPROVED KEY DETECTION =====
-                        let key = null;
-                        if (item.id) key = item.id;
-                        else if (item._id) key = item._id.toString();
+                        // Try multiple possible keys: item.id, item._id (as string)
+                        const possibleKeys = [];
+                        if (item.id) possibleKeys.push(item.id);
+                        if (item._id) possibleKeys.push(item._id.toString());
+                        // Also try the raw _id as string if not already added
+                        if (item._id && !possibleKeys.includes(item._id.toString())) {
+                          possibleKeys.push(item._id.toString());
+                        }
 
-                        // ===== CHECK FOR DAMAGED (try both id and _id) =====
+                        // ===== CHECK FOR DAMAGED =====
                         let isDamaged = false;
-                        if (key && selectedChecklist.damagedItems) {
-                          if (selectedChecklist.damagedItems[key] !== undefined) {
-                            isDamaged = true;
-                          } else {
-                            // Try alternative key
-                            const altKey = item._id ? item._id.toString() : null;
-                            if (altKey && selectedChecklist.damagedItems[altKey] !== undefined) {
+                        if (selectedChecklist.damagedItems) {
+                          for (const key of possibleKeys) {
+                            if (selectedChecklist.damagedItems[key] !== undefined && selectedChecklist.damagedItems[key] > 0) {
                               isDamaged = true;
+                              break;
                             }
                           }
                         }
 
-                        // ===== CHECK FOR PRESENT =====
+                        // ===== CHECK FOR CHECKED =====
                         let isChecked = false;
-                        if (key && selectedChecklist.checkedItems) {
-                          if (selectedChecklist.checkedItems[key] !== undefined) {
-                            isChecked = selectedChecklist.checkedItems[key];
-                          } else {
-                            const altKey = item._id ? item._id.toString() : null;
-                            if (altKey && selectedChecklist.checkedItems[altKey] !== undefined) {
-                              isChecked = selectedChecklist.checkedItems[altKey];
+                        if (selectedChecklist.checkedItems) {
+                          for (const key of possibleKeys) {
+                            if (selectedChecklist.checkedItems[key] === true) {
+                              isChecked = true;
+                              break;
                             }
                           }
                         }
