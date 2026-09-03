@@ -596,7 +596,6 @@ function ReportPage() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Icon name="warning" /> Missing: {item.missingCount || 0}
                   </span>
-                  {/* ✅ NEW: Damaged count added here */}
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Icon name="wrench" /> Damaged: {item.damagedCount || 0}
                   </span>
@@ -793,22 +792,39 @@ function ReportPage() {
                     </thead>
                     <tbody>
                       {selectedChecklist.equipmentDetails.map((item) => {
+                        // ===== IMPROVED KEY DETECTION =====
                         let key = null;
                         if (item.id) key = item.id;
                         else if (item._id) key = item._id.toString();
 
-                        let isChecked = false;
+                        // ===== CHECK FOR DAMAGED (try both id and _id) =====
                         let isDamaged = false;
-
-                        if (key) {
-                          if (selectedChecklist.checkedItems && selectedChecklist.checkedItems[key] !== undefined) {
-                            isChecked = selectedChecklist.checkedItems[key];
-                          }
-                          if (selectedChecklist.damagedItems && selectedChecklist.damagedItems[key] !== undefined) {
+                        if (key && selectedChecklist.damagedItems) {
+                          if (selectedChecklist.damagedItems[key] !== undefined) {
                             isDamaged = true;
+                          } else {
+                            // Try alternative key
+                            const altKey = item._id ? item._id.toString() : null;
+                            if (altKey && selectedChecklist.damagedItems[altKey] !== undefined) {
+                              isDamaged = true;
+                            }
                           }
                         }
 
+                        // ===== CHECK FOR PRESENT =====
+                        let isChecked = false;
+                        if (key && selectedChecklist.checkedItems) {
+                          if (selectedChecklist.checkedItems[key] !== undefined) {
+                            isChecked = selectedChecklist.checkedItems[key];
+                          } else {
+                            const altKey = item._id ? item._id.toString() : null;
+                            if (altKey && selectedChecklist.checkedItems[altKey] !== undefined) {
+                              isChecked = selectedChecklist.checkedItems[altKey];
+                            }
+                          }
+                        }
+
+                        // ===== DETERMINE STATUS =====
                         let statusText = '';
                         let statusColor = '';
                         let statusBg = '';
