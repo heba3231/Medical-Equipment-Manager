@@ -86,11 +86,9 @@ function ReportPage() {
   // ========== Filtering ==========
   const filteredChecklists = useMemo(() => {
     let result = [...checklists];
-
     if (selectedDeptId) {
       result = result.filter(c => c.deptCode === selectedDeptId);
     }
-
     if (filterDept) {
       const term = filterDept.toLowerCase();
       result = result.filter(c =>
@@ -99,23 +97,19 @@ function ReportPage() {
         c.listName?.toLowerCase().includes(term)
       );
     }
-
     if (filterDate) {
       result = result.filter(c => {
         const d = new Date(c.submittedAt);
         return d.toISOString().slice(0, 10) === filterDate;
       });
     }
-
     result.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return result;
   }, [checklists, selectedDeptId, filterDept, filterDate]);
 
-  // ===== Details functions =====
   const openDetails = (checklist) => setSelectedChecklist(checklist);
   const closeDetails = () => setSelectedChecklist(null);
 
-  // ===== Statistics =====
   const stats = useMemo(() => {
     const total = checklists.length;
     const depts = new Set(checklists.map(c => c.deptCode || c.deptName)).size;
@@ -137,7 +131,6 @@ function ReportPage() {
     }
   };
 
-  // ===== Icons =====
   const Icon = ({ name }) => {
     const icons = {
       back: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>,
@@ -155,7 +148,6 @@ function ReportPage() {
     return icons[name] ? icons[name]() : null;
   };
 
-  // ===== Loading and error states =====
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -174,9 +166,6 @@ function ReportPage() {
     );
   }
 
-  // ===============================
-  // Main render with redesigned UI
-  // ===============================
   return (
     <div style={{
       padding: isMobile ? '12px' : '24px',
@@ -186,7 +175,7 @@ function ReportPage() {
       background: '#f5f7f6',
       minHeight: '100vh'
     }}>
-      {/* ===== Header ===== */}
+      {/* Header */}
       <div style={{
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
@@ -196,22 +185,10 @@ function ReportPage() {
         gap: '12px'
       }}>
         <div>
-          <h1 style={{
-            fontSize: isMobile ? '20px' : '28px',
-            color: '#004d32',
-            margin: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontWeight: '600'
-          }}>
+          <h1 style={{ fontSize: isMobile ? '20px' : '28px', color: '#004d32', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '600' }}>
             <Icon name="list" /> Reports Dashboard
           </h1>
-          <p style={{
-            color: '#6b7280',
-            margin: '4px 0 0',
-            fontSize: isMobile ? '13px' : '14px'
-          }}>
+          <p style={{ color: '#6b7280', margin: '4px 0 0', fontSize: isMobile ? '13px' : '14px' }}>
             {selectedDeptId
               ? `📂 Showing reports for: ${departments.find(d => d.id === selectedDeptId)?.name || selectedDeptId}`
               : 'All submitted checklists'}
@@ -221,17 +198,10 @@ function ReportPage() {
           <button
             onClick={fetchReports}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#e5e7eb',
-              color: '#1f2937',
-              border: 'none',
-              borderRadius: '8px',
-              padding: isMobile ? '8px 14px' : '10px 20px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: isMobile ? '13px' : '14px',
+              display: 'flex', alignItems: 'center', gap: '6px',
+              background: '#e5e7eb', color: '#1f2937', border: 'none',
+              borderRadius: '8px', padding: isMobile ? '8px 14px' : '10px 20px',
+              cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '13px' : '14px',
               transition: 'background 0.2s'
             }}
             onMouseEnter={(e) => e.currentTarget.style.background = '#d1d5db'}
@@ -242,17 +212,10 @@ function ReportPage() {
           <button
             onClick={() => navigate('/ot-enhanced')}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#006341',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              padding: isMobile ? '8px 16px' : '10px 24px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: isMobile ? '13px' : '14px',
+              display: 'flex', alignItems: 'center', gap: '6px',
+              background: '#006341', color: 'white', border: 'none',
+              borderRadius: '8px', padding: isMobile ? '8px 16px' : '10px 24px',
+              cursor: 'pointer', fontWeight: '600', fontSize: isMobile ? '13px' : '14px',
               transition: 'background 0.2s'
             }}
             onMouseEnter={(e) => e.currentTarget.style.background = '#004d32'}
@@ -263,56 +226,28 @@ function ReportPage() {
         </div>
       </div>
 
-      {/* ===== Statistics ===== */}
+      {/* Statistics */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
         gap: '12px',
         marginBottom: '24px'
       }}>
-        <div style={{
-          background: 'white',
-          padding: isMobile ? '12px' : '16px',
-          borderRadius: '10px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          textAlign: 'center',
-          border: '1px solid #e5e7eb'
-        }}>
+        <div style={{ background: 'white', padding: isMobile ? '12px' : '16px', borderRadius: '10px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', textAlign: 'center', border: '1px solid #e5e7eb' }}>
           <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#004d32' }}>{stats.total}</div>
           <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Total Reports</div>
         </div>
-        <div style={{
-          background: 'white',
-          padding: isMobile ? '12px' : '16px',
-          borderRadius: '10px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          textAlign: 'center',
-          border: '1px solid #e5e7eb'
-        }}>
+        <div style={{ background: 'white', padding: isMobile ? '12px' : '16px', borderRadius: '10px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', textAlign: 'center', border: '1px solid #e5e7eb' }}>
           <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#c9a84c' }}>{stats.depts}</div>
           <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Departments</div>
         </div>
-        <div style={{
-          background: 'white',
-          padding: isMobile ? '12px' : '16px',
-          borderRadius: '10px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          textAlign: 'center',
-          border: '1px solid #e5e7eb'
-        }}>
+        <div style={{ background: 'white', padding: isMobile ? '12px' : '16px', borderRadius: '10px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', textAlign: 'center', border: '1px solid #e5e7eb' }}>
           <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a' }}>
             {checklists.filter(c => c.submitted).length}
           </div>
           <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Confirmed</div>
         </div>
-        <div style={{
-          background: 'white',
-          padding: isMobile ? '12px' : '16px',
-          borderRadius: '10px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          textAlign: 'center',
-          border: '1px solid #e5e7eb'
-        }}>
+        <div style={{ background: 'white', padding: isMobile ? '12px' : '16px', borderRadius: '10px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', textAlign: 'center', border: '1px solid #e5e7eb' }}>
           <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#dc2626' }}>
             {checklists.reduce((sum, c) => sum + (c.missingCount || 0), 0)}
           </div>
@@ -320,7 +255,7 @@ function ReportPage() {
         </div>
       </div>
 
-      {/* ===== Folders section (Departments) ===== */}
+      {/* Folders */}
       <div style={{
         display: 'flex',
         flexWrap: 'wrap',
@@ -333,19 +268,9 @@ function ReportPage() {
         alignItems: 'center',
         border: '1px solid #e5e7eb'
       }}>
-        <span style={{
-          fontWeight: '600',
-          color: '#004d32',
-          fontSize: '14px',
-          marginRight: '8px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px'
-        }}>
+        <span style={{ fontWeight: '600', color: '#004d32', fontSize: '14px', marginRight: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
           <Icon name="folder" /> Folders:
         </span>
-
-        {/* All button */}
         <button
           onClick={() => setSelectedDeptId('')}
           style={{
@@ -363,8 +288,6 @@ function ReportPage() {
         >
           🗂️ All
         </button>
-
-        {/* Department buttons */}
         {departments.map(dept => {
           const count = checklists.filter(c => c.deptCode === dept.id).length;
           return (
@@ -403,7 +326,6 @@ function ReportPage() {
             </button>
           );
         })}
-
         {departments.length === 0 && (
           <span style={{ color: '#9ca3af', fontSize: '13px' }}>
             No departments found. Add departments from the OT Department page.
@@ -411,7 +333,7 @@ function ReportPage() {
         )}
       </div>
 
-      {/* ===== Filters ===== */}
+      {/* Filters */}
       <div style={{
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
@@ -479,15 +401,9 @@ function ReportPage() {
         )}
       </div>
 
-      {/* ===== Reports list ===== */}
+      {/* Reports list */}
       {filteredChecklists.length === 0 ? (
-        <div style={{
-          textAlign: 'center',
-          padding: isMobile ? '40px 20px' : '60px 20px',
-          background: 'white',
-          borderRadius: '10px',
-          border: '1px solid #e5e7eb'
-        }}>
+        <div style={{ textAlign: 'center', padding: isMobile ? '40px 20px' : '60px 20px', background: 'white', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
           <h3 style={{ color: '#374151', margin: '0 0 8px 0', fontSize: isMobile ? '18px' : '22px' }}>No reports found</h3>
           <p style={{ color: '#6b7280', margin: '0 0 16px 0', fontSize: isMobile ? '13px' : '14px' }}>
@@ -543,50 +459,18 @@ function ReportPage() {
               }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  flexWrap: 'wrap',
-                  marginBottom: '4px'
-                }}>
-                  <span style={{
-                    fontWeight: '700',
-                    color: '#004d32',
-                    fontSize: isMobile ? '15px' : '17px'
-                  }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: '700', color: '#004d32', fontSize: isMobile ? '15px' : '17px' }}>
                     {item.listName || 'Equipment List'}
                   </span>
-                  <span style={{
-                    background: '#e6f0ec',
-                    color: '#065f46',
-                    padding: '2px 10px',
-                    borderRadius: '20px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    whiteSpace: 'nowrap'
-                  }}>
+                  <span style={{ background: '#e6f0ec', color: '#065f46', padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>
                     {item.deptCode || item.deptName || 'Department'}
                   </span>
-                  <span style={{
-                    background: '#d1fae5',
-                    color: '#065f46',
-                    padding: '2px 10px',
-                    borderRadius: '20px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    whiteSpace: 'nowrap'
-                  }}>
+                  <span style={{ background: '#d1fae5', color: '#065f46', padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>
                     ✅ Submitted
                   </span>
                 </div>
-                <div style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: isMobile ? '8px' : '16px',
-                  fontSize: '13px',
-                  color: '#6b7280'
-                }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? '8px' : '16px', fontSize: '13px', color: '#6b7280' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Icon name="user" /> {item.submittedBy || 'Unknown'}
                   </span>
@@ -609,21 +493,8 @@ function ReportPage() {
                   )}
                 </div>
               </div>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                flexShrink: 0,
-                marginTop: isMobile ? '8px' : '0'
-              }}>
-                <span style={{
-                  color: '#006341',
-                  fontWeight: '600',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginTop: isMobile ? '8px' : '0' }}>
+                <span style={{ color: '#006341', fontWeight: '600', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   View Details →
                 </span>
               </div>
@@ -632,7 +503,7 @@ function ReportPage() {
         </div>
       )}
 
-      {/* ===== Details Modal ===== */}
+      {/* ===== Details Modal with enhanced table ===== */}
       {selectedChecklist && (
         <div
           style={{
@@ -655,7 +526,7 @@ function ReportPage() {
             style={{
               background: 'white',
               borderRadius: '12px',
-              maxWidth: '800px',
+              maxWidth: '900px',
               width: '100%',
               maxHeight: '90vh',
               overflow: 'auto',
@@ -702,43 +573,19 @@ function ReportPage() {
               gap: '10px',
               marginBottom: '20px'
             }}>
-              <div style={{
-                background: '#f0fdf4',
-                padding: '12px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                border: '1px solid #dcfce7'
-              }}>
+              <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '8px', textAlign: 'center', border: '1px solid #dcfce7' }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#16a34a' }}>{selectedChecklist.checkedCount || 0}</div>
                 <div style={{ fontSize: '11px', color: '#6b7280' }}>Checked</div>
               </div>
-              <div style={{
-                background: '#fef2f2',
-                padding: '12px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                border: '1px solid #fee2e2'
-              }}>
+              <div style={{ background: '#fef2f2', padding: '12px', borderRadius: '8px', textAlign: 'center', border: '1px solid #fee2e2' }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#dc2626' }}>{selectedChecklist.missingCount || 0}</div>
                 <div style={{ fontSize: '11px', color: '#6b7280' }}>Missing</div>
               </div>
-              <div style={{
-                background: '#fffbeb',
-                padding: '12px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                border: '1px solid #fef3c7'
-              }}>
+              <div style={{ background: '#fffbeb', padding: '12px', borderRadius: '8px', textAlign: 'center', border: '1px solid #fef3c7' }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#d97706' }}>{selectedChecklist.damagedCount || 0}</div>
                 <div style={{ fontSize: '11px', color: '#6b7280' }}>Damaged</div>
               </div>
-              <div style={{
-                background: '#f3f4f6',
-                padding: '12px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                border: '1px solid #e5e7eb'
-              }}>
+              <div style={{ background: '#f3f4f6', padding: '12px', borderRadius: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#374151' }}>{selectedChecklist.totalItems || 0}</div>
                 <div style={{ fontSize: '11px', color: '#6b7280' }}>Total Items</div>
               </div>
@@ -762,7 +609,7 @@ function ReportPage() {
               <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
             </div>
 
-            {/* Equipment table */}
+            {/* Equipment table with columns: Name, Code, Total Qty, Available, Missing Qty, Damaged Qty, Status */}
             {selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 && (
               <div>
                 <h4 style={{
@@ -786,56 +633,71 @@ function ReportPage() {
                       <tr style={{ background: '#f8fafc' }}>
                         <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Name</th>
                         <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Code</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Qty</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Total</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#16a34a' }}>Available</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#dc2626' }}>Missing</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#d97706' }}>Damaged</th>
                         <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedChecklist.equipmentDetails.map((item) => {
-                        // ===== IMPROVED KEY DETECTION =====
-                        // Try multiple possible keys: item.id, item._id (as string)
+                        // Find the key
                         const possibleKeys = [];
                         if (item.id) possibleKeys.push(item.id);
                         if (item._id) possibleKeys.push(item._id.toString());
-                        // Also try the raw _id as string if not already added
-                        if (item._id && !possibleKeys.includes(item._id.toString())) {
-                          possibleKeys.push(item._id.toString());
-                        }
 
-                        // ===== CHECK FOR DAMAGED =====
-                        let isDamaged = false;
-                        if (selectedChecklist.damagedItems) {
+                        // Get quantities
+                        let totalQty = item.quantity || 0;
+                        let availableQty = 0;
+                        let damagedQty = 0;
+                        let missingQty = 0;
+
+                        // Try to find quantities from stored objects
+                        if (selectedChecklist.availableQuantities) {
                           for (const key of possibleKeys) {
-                            if (selectedChecklist.damagedItems[key] !== undefined && selectedChecklist.damagedItems[key] > 0) {
-                              isDamaged = true;
+                            if (selectedChecklist.availableQuantities[key] !== undefined) {
+                              availableQty = selectedChecklist.availableQuantities[key];
                               break;
                             }
                           }
                         }
-
-                        // ===== CHECK FOR CHECKED =====
-                        let isChecked = false;
-                        if (selectedChecklist.checkedItems) {
+                        if (selectedChecklist.damagedQuantities) {
                           for (const key of possibleKeys) {
-                            if (selectedChecklist.checkedItems[key] === true) {
-                              isChecked = true;
+                            if (selectedChecklist.damagedQuantities[key] !== undefined) {
+                              damagedQty = selectedChecklist.damagedQuantities[key];
                               break;
                             }
                           }
                         }
+                        if (selectedChecklist.missingQuantities) {
+                          for (const key of possibleKeys) {
+                            if (selectedChecklist.missingQuantities[key] !== undefined) {
+                              missingQty = selectedChecklist.missingQuantities[key];
+                              break;
+                            }
+                          }
+                        } else {
+                          // Fallback: compute missing from total - available - damaged
+                          missingQty = totalQty - availableQty - damagedQty;
+                        }
 
-                        // ===== DETERMINE STATUS =====
+                        // Determine status based on quantities
                         let statusText = '';
                         let statusColor = '';
                         let statusBg = '';
-                        if (isDamaged) {
+                        if (damagedQty > 0) {
                           statusText = '⚠️ Damaged';
                           statusColor = '#b45309';
                           statusBg = '#fffbeb';
-                        } else if (isChecked) {
-                          statusText = '✅ Present';
+                        } else if (availableQty >= totalQty) {
+                          statusText = '✅ Complete';
                           statusColor = '#16a34a';
                           statusBg = '#f0fdf4';
+                        } else if (availableQty > 0 && availableQty < totalQty) {
+                          statusText = '⚠️ Partial';
+                          statusColor = '#d97706';
+                          statusBg = '#fffbeb';
                         } else {
                           statusText = '❌ Missing';
                           statusColor = '#dc2626';
@@ -846,7 +708,10 @@ function ReportPage() {
                           <tr key={item._id || item.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
                             <td style={{ padding: '10px', borderBottom: '1px solid #e5e7eb' }}>{item.name}</td>
                             <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
-                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{item.quantity || 0}</td>
+                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{totalQty}</td>
+                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: '600', color: '#16a34a' }}>{availableQty}</td>
+                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: '600', color: '#dc2626' }}>{missingQty}</td>
+                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: '600', color: '#d97706' }}>{damagedQty}</td>
                             <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>
                               <span style={{
                                 color: statusColor,
