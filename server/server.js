@@ -637,14 +637,12 @@ app.delete("/api/dept-equipment/:id", async (req, res) => {
 /**
  * GET /api/checklist/:listId
  * Returns the most recent checklist for the given listId (or null if none).
- * Used to pre-fill existing checklist when viewing.
  */
 app.get('/api/checklist/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
     console.log(`📡 Fetching latest checklist for list: ${listId}`);
     
-    // Sort by submittedAt descending and take the first (most recent)
     const checklist = await checklistsCollection
       .find({ listId })
       .sort({ submittedAt: -1 })
@@ -660,11 +658,7 @@ app.get('/api/checklist/:listId', async (req, res) => {
   }
 });
 
-/**
- * POST /api/checklist/save
- * Creates a NEW checklist record every time (insertOne).
- * This allows multiple separate reports for the same list.
- */
+// ✅ NEW: Modified POST /api/checklist/save to handle detailed quantities
 app.post('/api/checklist/save', async (req, res) => {
   console.log('📥 Received payload for checklist save:', req.body);
   try {
@@ -672,20 +666,25 @@ app.post('/api/checklist/save', async (req, res) => {
       listId, 
       deptCode, 
       listName, 
-      checkedItems, 
       submitted, 
       submittedAt, 
       submittedBy, 
       userRole,
-      damagedItems,
-      expiryDate
+      expiryDate,
+      // ✅ NEW: Detailed quantities
+      availableQuantities,
+      damagedQuantities,
+      missingQuantities
     } = req.body;
     
     console.log(`📤 Saving new checklist for: ${listId}`);
     console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
     console.log(`   Expiry Date: ${expiryDate || 'Not set'}`);
+    console.log(`   availableQuantities:`, availableQuantities);
+    console.log(`   damagedQuantities:`, damagedQuantities);
+    console.log(`   missingQuantities:`, missingQuantities);
 
-    // 1. Fetch equipment for this list from either dept_equipment or ot_custom_equipment
+    // 1. Fetch equipment for this list
     let equipmentList = [];
     let itemsFromDept = await deptEquipmentCollection.find({ listId }).toArray();
     if (itemsFromDept.length > 0) {
@@ -696,44 +695,86 @@ app.post('/api/checklist/save', async (req, res) => {
     }
     console.log(`   Found ${equipmentList.length} equipment items for list ${listId}`);
 
-    // 2. Calculate statistics
+    // 2. Calculate statistics from the detailed quantities
     const totalItems = equipmentList.length;
     let checkedCount = 0;
     let missingCount = 0;
     let damagedCount = 0;
+    let totalAvailableQty = 0;
+    let totalDamagedQty = 0;
+    let totalMissingQty = 0;
 
     equipmentList.forEach(item => {
       const itemId = item.id || item._id.toString();
-      const isChecked = checkedItems[itemId] || false;
+      const qty = item.quantity || 0;
       
-      if (isChecked) {
-        checkedCount++;
-      } else {
-        missingCount++;
-      }
+      // Get quantities from the provided objects, or default to 0
+      const avail = (availableQuantities && availableQuantities[itemId]) || 0;
+      const damaged = (damagedQuantities && damagedQuantities[itemId]) || 0;
+      const missing = (missingQuantities && missingQuantities[itemId]) || 0;
 
-      if (damagedItems && damagedItems[itemId]) {
-        damagedCount++;
+      totalAvailableQty += avail;
+      totalDamagedQty += damaged;
+      totalMissingQty += missing;
+
+      // Update counts based on detailed quantities
+      if (avail > 0) checkedCount++;
+      else if (damaged > 0) damagedCount++; // If an item is damaged, count it as damaged
+      else if (missing > 0) missingCount++;
+      else if (avail === 0 && damaged === 0 && missing === 0) {
+        // If all zero, treat as missing (item was not checked)
+        missingCount++;
       }
     });
 
-    console.log(`📊 Stats: total=${totalItems}, checked=${checkedCount}, missing=${missingCount}, damaged=${damagedCount}`);
+    // Ensure missingCount is at least the number of items with missing > 0
+    // Recalculate more accurately
+    let correctedMissingCount = 0;
+    let correctedDamagedCount = 0;
+    let correctedCheckedCount = 0;
+    equipmentList.forEach(item => {
+      const itemId = item.id || item._id.toString();
+      const qty = item.quantity || 0;
+      const avail = (availableQuantities && availableQuantities[itemId]) || 0;
+      const damaged = (damagedQuantities && damagedQuantities[itemId]) || 0;
+      const missing = (missingQuantities && missingQuantities[itemId]) || 0;
 
-    // 3. Prepare new document (use insertOne, not updateOne)
+      if (avail > 0) correctedCheckedCount++;
+      else if (damaged > 0) correctedDamagedCount++;
+      else if (missing > 0) correctedMissingCount++;
+      else {
+        // If all zero, treat as missing (item was not checked)
+        correctedMissingCount++;
+      }
+    });
+
+    console.log(`📊 Stats: total=${totalItems}, checked=${correctedCheckedCount}, missing=${correctedMissingCount}, damaged=${correctedDamagedCount}`);
+    console.log(`📊 Quantities: totalAvailable=${totalAvailableQty}, totalDamaged=${totalDamagedQty}, totalMissing=${totalMissingQty}`);
+
+    // 3. Prepare new document
     const newChecklist = {
       listId,
       deptCode,
       listName,
-      checkedItems,
       submitted: submitted || false,
       submittedAt: submittedAt || new Date().toISOString(),
       submittedBy: submittedBy || 'Staff',
       userRole: userRole || 'staff',
       totalItems,
-      checkedCount,
-      missingCount,
-      damagedCount,
+      checkedCount: correctedCheckedCount,
+      missingCount: correctedMissingCount,
+      damagedCount: correctedDamagedCount,
       expiryDate: expiryDate || null,
+      // ✅ NEW: Store detailed quantities
+      availableQuantities: availableQuantities || {},
+      damagedQuantities: damagedQuantities || {},
+      missingQuantities: missingQuantities || {},
+      // Keep legacy fields for backward compatibility
+      checkedItems: availableQuantities ? Object.keys(availableQuantities).reduce((acc, key) => {
+        acc[key] = (availableQuantities[key] || 0) > 0;
+        return acc;
+      }, {}) : {},
+      damagedItems: damagedQuantities || {},
       createdAt: new Date()
     };
 
@@ -1297,7 +1338,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📦 Dept Lists API:      /api/dept-lists/:deptCode`);
   console.log(`📦 Dept Equipment API:  /api/dept-equipment/:deptCode/:listId`);
   console.log(`📋 Checklist API:       /api/checklist/:listId (GET latest)`);
-  console.log(`✅ Checklist Save API:  /api/checklist/save (NOW INSERT NEW RECORD)`);
+  console.log(`✅ Checklist Save API:  /api/checklist/save (NOW INSERT NEW RECORD WITH DETAILED QUANTITIES)`);
   console.log(`📊 Reports API:         /api/checklists (GET all submitted)`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
