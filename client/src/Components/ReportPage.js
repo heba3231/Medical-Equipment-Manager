@@ -596,7 +596,7 @@ function ReportPage() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Icon name="warning" /> Missing: {item.missingCount || 0}
                   </span>
-                  {/* ✅ NEW: Damaged count */}
+                  {/* ✅ NEW: Damaged count added here */}
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Icon name="wrench" /> Damaged: {item.damagedCount || 0}
                   </span>
