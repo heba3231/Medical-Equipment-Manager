@@ -1,10 +1,10 @@
 // Components/EquipmentChecklist.js
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
-// ✅ Hook للاستجابة (محسّن)
+// ✅ Responsive hook
 function useWindowSize() {
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   useEffect(() => {
@@ -20,7 +20,6 @@ function EquipmentChecklist() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // ✅ استقبال حالة newCheck من location.state (إذا كانت true، لا نحمل تقرير سابق)
   const isNewCheck = location.state?.newCheck || false;
 
   const listName = location.state?.listName || "Equipment List";
@@ -33,14 +32,13 @@ function EquipmentChecklist() {
   const [submitted, setSubmitted] = useState(false);
   const [submissionData, setSubmissionData] = useState(null);
   const [error, setError] = useState(null);
-  const printRef = useRef();
 
   const { width } = useWindowSize();
   const isMobile = width < 640;
-  const isTablet = width < 1024 && width >= 640;
-  const baseFontSize = isMobile ? '13px' : isTablet ? '13px' : '14px';
+  const isTablet = width >= 640 && width < 1024;
+  const baseFontSize = isMobile ? '13px' : isTablet ? '14px' : '15px';
 
-  // ========== تحميل المعدات ==========
+  // ========== Load equipment ==========
   useEffect(() => {
     if (!listId) {
       setError("No list ID provided");
@@ -48,11 +46,9 @@ function EquipmentChecklist() {
       return;
     }
     fetchEquipment();
-    // ✅ تحميل التقرير السابق فقط إذا لم يكن تشيك جديد
     if (!isNewCheck) {
       fetchSavedChecklist();
     } else {
-      // إذا كان تشيك جديد، نتأكد من عدم وجود بيانات سابقة
       setSubmitted(false);
       setSubmissionData(null);
     }
@@ -97,13 +93,12 @@ function EquipmentChecklist() {
     }
   };
 
-  // ========== التفاعلات ==========
+  // ========== Interactions ==========
   const handleCheck = (itemId) => {
     if (submitted) {
       alert("This checklist has already been submitted. Cannot make changes.");
       return;
     }
-
     setCheckedItems(prev => ({
       ...prev,
       [itemId]: !prev[itemId]
@@ -136,9 +131,7 @@ function EquipmentChecklist() {
     setCheckedItems(allUnchecked);
   };
 
-  // ✅ بدء تشيك جديد - زر يظهر إذا كان هناك تقرير مكتمل سابق
   const handleStartNewCheck = () => {
-    // إعادة تعيين الحالة مع إبقاء isNewCheck = true
     const initialChecked = {};
     equipment.forEach(item => {
       const id = item._id.toString();
@@ -147,18 +140,13 @@ function EquipmentChecklist() {
     setCheckedItems(initialChecked);
     setSubmitted(false);
     setSubmissionData(null);
-    // نعيد التوجيه إلى نفس الصفحة مع newCheck=true في الـ state
     navigate(`/checklist/${deptCode}/${listId}`, {
-      state: {
-        listName,
-        deptName,
-        newCheck: true
-      },
-      replace: true // لاستبدال التاريخ حتى لا يرجع المستخدم للخلف
+      state: { listName, deptName, newCheck: true },
+      replace: true
     });
   };
 
-  // ===================== الإرسال (ينشئ تقريراً جديداً في السيرفر) =====================
+  // ========== Submit (creates new report) ==========
   const handleSubmit = async () => {
     setSaving(true);
     try {
@@ -167,7 +155,6 @@ function EquipmentChecklist() {
                        "Staff";
       const userRole = localStorage.getItem("userRole") || "staff";
 
-      // نحول المفاتيح إلى string (لأن السيرفر يتوقع string)
       const checkedItemsStr = {};
       Object.keys(checkedItems).forEach(key => {
         checkedItemsStr[key.toString()] = checkedItems[key];
@@ -182,7 +169,6 @@ function EquipmentChecklist() {
         submittedAt: new Date().toISOString(),
         submittedBy: userName,
         userRole: userRole
-        // لم نرسل damagedItems لأن هذه الصفحة لا تدعم التالف (يمكن إضافتها لاحقاً)
       };
 
       const response = await fetch(`${API_BASE}/checklist/save`, {
@@ -197,7 +183,6 @@ function EquipmentChecklist() {
         setSubmitted(true);
         setSubmissionData(data.data);
         alert('✅ Checklist submitted successfully!');
-        // التوجيه إلى صفحة التقارير مع إعادة تحميل
         navigate('/reports', { state: { refresh: true } });
       } else {
         alert('Error: ' + data.message);
@@ -210,7 +195,7 @@ function EquipmentChecklist() {
     }
   };
 
-  // ===================== PRINT FUNCTION =====================
+  // ========== Print ==========
   const handlePrint = () => {
     const userName = localStorage.getItem("userName") ||
                      JSON.parse(localStorage.getItem("user") || "{}")?.name ||
@@ -296,7 +281,7 @@ function EquipmentChecklist() {
     printWindow.onload = () => { printWindow.print(); };
   };
 
-  // ========== إحصائيات ==========
+  // ========== Stats ==========
   const checkedCount = Object.values(checkedItems).filter(v => v === true).length;
   const totalCount = equipment.length;
   const completionPercentage = totalCount > 0 ? (checkedCount / totalCount) * 100 : 0;
@@ -306,7 +291,7 @@ function EquipmentChecklist() {
     color: status === 'Available' ? '#065f46' : status === 'In Use' ? '#92400e' : status === 'Under Maintenance' ? '#991b1b' : '#92400e',
   });
 
-  // ========== حالات الخطأ والتحميل ==========
+  // ========== Error / Loading ==========
   if (error) {
     return (
       <div style={{ textAlign: 'center', padding: isMobile ? '30px 16px' : '60px', maxWidth: '600px', margin: '0 auto' }}>
@@ -351,7 +336,7 @@ function EquipmentChecklist() {
     );
   }
 
-  // ========== التصيير الرئيسي ==========
+  // ========== Main Render ==========
   return (
     <div style={{
       padding: isMobile ? '10px 10px 90px 10px' : isTablet ? '16px' : '24px',
@@ -435,7 +420,7 @@ function EquipmentChecklist() {
         </div>
       </div>
 
-      {/* ✅ إذا كان هناك تقرير مكتمل سابق ولم يكن في وضع التشيك الجديد، نعرض زر "بدء تشيك جديد" */}
+      {/* Start New Check button if already submitted */}
       {submitted && !isNewCheck && (
         <div style={{
           marginBottom: '16px',
@@ -443,13 +428,13 @@ function EquipmentChecklist() {
           background: '#fef3c7',
           borderRadius: '8px',
           display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
           justifyContent: 'space-between',
           alignItems: 'center',
-          flexWrap: 'wrap',
           gap: '10px'
         }}>
-          <span style={{ fontWeight: '600', color: '#92400e' }}>
-            ⚠️ يوجد تقرير مكتمل سابق لهذه القائمة. يمكنك بدء تشيك جديد.
+          <span style={{ fontWeight: '600', color: '#92400e', fontSize: isMobile ? '13px' : '14px' }}>
+            ⚠️ A completed report already exists for this list. You can start a new check.
           </span>
           <button
             onClick={handleStartNewCheck}
@@ -461,15 +446,17 @@ function EquipmentChecklist() {
               borderRadius: '8px',
               cursor: 'pointer',
               fontWeight: '600',
-              fontSize: '13px'
+              fontSize: '13px',
+              alignSelf: isMobile ? 'stretch' : 'auto',
+              minHeight: '44px'
             }}
           >
-            بدء تشيك جديد
+            Start New Check
           </button>
         </div>
       )}
 
-      {/* Controls */}
+      {/* Controls (only if not submitted) */}
       {!submitted && (
         <div style={{
           display: 'flex',
@@ -514,7 +501,7 @@ function EquipmentChecklist() {
         </div>
       )}
 
-      {/* Progress */}
+      {/* Progress (only if not submitted) */}
       {!submitted && (
         <div style={{ marginBottom: isMobile ? '12px' : '20px' }}>
           <div style={{
@@ -544,7 +531,7 @@ function EquipmentChecklist() {
         </div>
       )}
 
-      {/* Equipment list — cards on mobile, table on tablet/desktop */}
+      {/* Equipment list: cards on mobile, table on tablet/desktop */}
       {isMobile ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
           {equipment.map((item) => {
