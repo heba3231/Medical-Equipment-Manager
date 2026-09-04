@@ -478,10 +478,10 @@ function ReportPage() {
                     <Icon name="calendar" /> {item.submittedAt ? new Date(item.submittedAt).toLocaleString() : '—'}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Icon name="warning" /> المفقود: {item.missingCount || 0}
+                    <Icon name="warning" /> Missing: {item.missingCount || 0}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Icon name="wrench" /> التالف: {item.damagedCount || 0}
+                    <Icon name="wrench" /> Damaged: {item.damagedCount || 0}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     ✅ Checked: {item.checkedCount || 0} / {item.totalItems || 0}
@@ -495,7 +495,7 @@ function ReportPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginTop: isMobile ? '8px' : '0' }}>
                 <span style={{ color: '#006341', fontWeight: '600', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  عرض التفاصيل →
+                  View Details →
                 </span>
               </div>
             </div>
@@ -503,7 +503,7 @@ function ReportPage() {
         </div>
       )}
 
-      {/* ===== Details Modal with enhanced table (Arabic) ===== */}
+      {/* ===== Details Modal with enhanced table (English, responsive) ===== */}
       {selectedChecklist && (
         <div
           style={{
@@ -526,7 +526,7 @@ function ReportPage() {
             style={{
               background: 'white',
               borderRadius: '12px',
-              maxWidth: '950px',
+              maxWidth: '1100px',
               width: '100%',
               maxHeight: '90vh',
               overflow: 'auto',
@@ -579,11 +579,11 @@ function ReportPage() {
               </div>
               <div style={{ background: '#fef2f2', padding: '12px', borderRadius: '8px', textAlign: 'center', border: '1px solid #fee2e2' }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#dc2626' }}>{selectedChecklist.missingCount || 0}</div>
-                <div style={{ fontSize: '11px', color: '#6b7280' }}>المفقود</div>
+                <div style={{ fontSize: '11px', color: '#6b7280' }}>Missing</div>
               </div>
               <div style={{ background: '#fffbeb', padding: '12px', borderRadius: '8px', textAlign: 'center', border: '1px solid #fef3c7' }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#d97706' }}>{selectedChecklist.damagedCount || 0}</div>
-                <div style={{ fontSize: '11px', color: '#6b7280' }}>التالف</div>
+                <div style={{ fontSize: '11px', color: '#6b7280' }}>Damaged</div>
               </div>
               <div style={{ background: '#f3f4f6', padding: '12px', borderRadius: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#374151' }}>{selectedChecklist.totalItems || 0}</div>
@@ -609,7 +609,7 @@ function ReportPage() {
               <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
             </div>
 
-            {/* Equipment table with Arabic columns */}
+            {/* Equipment table with English columns: Name, Code, Total, Available, Missing, Damaged, Status */}
             {selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 ? (
               <div>
                 <h4 style={{
@@ -620,26 +620,27 @@ function ReportPage() {
                   fontSize: '16px',
                   fontWeight: '600'
                 }}>
-                  تفاصيل الأجهزة
+                  Equipment Details
                 </h4>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{
                     width: '100%',
                     borderCollapse: 'collapse',
-                    fontSize: '14px',
+                    fontSize: isMobile ? '12px' : '14px',
                     border: '1px solid #e5e7eb',
                     borderRadius: '8px',
-                    overflow: 'hidden'
+                    overflow: 'hidden',
+                    minWidth: isMobile ? '600px' : 'auto'
                   }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>الاسم</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>الكود</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>الإجمالي</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#16a34a' }}>المتاح</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#dc2626' }}>المفقود</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#d97706' }}>التالف</th>
-                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>الحالة</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Name</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Code</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Total</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#16a34a' }}>Available</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#dc2626' }}>Missing</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#d97706' }}>Damaged</th>
+                        <th style={{ padding: '10px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', fontWeight: '600', color: '#374151' }}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -679,35 +680,35 @@ function ReportPage() {
                             }
                           }
                         } else {
-                          // Fallback: compute missing
+                          // Fallback: compute missing = total - available - damaged
                           missingQty = totalQty - availableQty - damagedQty;
                         }
 
-                        // Determine status (Arabic)
+                        // Determine status (English)
                         let statusText = '';
                         let statusColor = '';
                         let statusBg = '';
                         if (damagedQty > 0) {
-                          statusText = '⚠️ تالف';
+                          statusText = '⚠️ Damaged';
                           statusColor = '#b45309';
                           statusBg = '#fffbeb';
                         } else if (availableQty >= totalQty) {
-                          statusText = '✅ مكتمل';
+                          statusText = '✅ Complete';
                           statusColor = '#16a34a';
                           statusBg = '#f0fdf4';
                         } else if (availableQty > 0 && availableQty < totalQty) {
-                          statusText = '⚠️ جزئي';
+                          statusText = '⚠️ Partial';
                           statusColor = '#d97706';
                           statusBg = '#fffbeb';
                         } else {
-                          statusText = '❌ مفقود';
+                          statusText = '❌ Missing';
                           statusColor = '#dc2626';
                           statusBg = '#fef2f2';
                         }
 
                         return (
                           <tr key={item._id || item.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>{item.name}</td>
+                            <td style={{ padding: '10px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>{item.name}</td>
                             <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{item.code || '—'}</td>
                             <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>{totalQty}</td>
                             <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: '600', color: '#16a34a' }}>{availableQty}</td>
@@ -721,7 +722,8 @@ function ReportPage() {
                                 padding: '2px 10px',
                                 borderRadius: '12px',
                                 display: 'inline-block',
-                                fontSize: '13px'
+                                fontSize: isMobile ? '11px' : '13px',
+                                whiteSpace: 'nowrap'
                               }}>
                                 {statusText}
                               </span>
@@ -735,7 +737,7 @@ function ReportPage() {
               </div>
             ) : (
               <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
-                لا توجد أجهزة مسجلة لهذه القائمة.
+                No equipment items found for this list.
               </div>
             )}
 
