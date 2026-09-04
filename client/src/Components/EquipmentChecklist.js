@@ -34,9 +34,9 @@ function EquipmentChecklist() {
   const [error, setError] = useState(null);
 
   const { width } = useWindowSize();
-  const isMobile = width < 640;
-  const isTablet = width >= 640 && width < 1024;
-  const baseFontSize = isMobile ? '13px' : isTablet ? '14px' : '15px';
+  const isMobile = width < 768; // توسيع نطاق الموبايل إلى 768 بكسل
+  const isTablet = width >= 768 && width < 1024;
+  const baseFontSize = isMobile ? '14px' : isTablet ? '15px' : '16px';
 
   // ========== Load equipment ==========
   useEffect(() => {
@@ -339,11 +339,12 @@ function EquipmentChecklist() {
   // ========== Main Render ==========
   return (
     <div style={{
-      padding: isMobile ? '10px 10px 90px 10px' : isTablet ? '16px' : '24px',
+      padding: isMobile ? '8px 8px 80px 8px' : isTablet ? '16px' : '24px',
       maxWidth: '1200px',
       margin: '0 auto',
       fontSize: baseFontSize,
-      boxSizing: 'border-box'
+      boxSizing: 'border-box',
+      width: '100%'
     }}>
       {/* Header */}
       <div style={{ marginBottom: isMobile ? '12px' : '20px' }}>
@@ -359,10 +360,10 @@ function EquipmentChecklist() {
             onClick={() => window.history.back()}
             style={{
               background: 'none', border: 'none', color: '#006341',
-              fontSize: isMobile ? '13px' : '14px', cursor: 'pointer',
+              fontSize: isMobile ? '15px' : '14px', cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: '6px',
               padding: isMobile ? '8px 0' : '0',
-              minHeight: isMobile ? '36px' : 'auto'
+              minHeight: isMobile ? '44px' : 'auto'
             }}
           >
             ← Back
@@ -375,26 +376,26 @@ function EquipmentChecklist() {
               padding: isMobile ? '10px 14px' : '10px 20px',
               background: '#c9a84c', color: '#004d32',
               border: 'none', borderRadius: '8px', cursor: 'pointer',
-              fontSize: isMobile ? '13px' : '14px', fontWeight: '600',
+              fontSize: isMobile ? '15px' : '14px', fontWeight: '600',
               alignSelf: isMobile ? 'stretch' : 'auto',
               justifyContent: 'center',
               minHeight: '44px'
             }}
           >
-            🖨️ Print Checklist
+            🖨️ Print
           </button>
         </div>
 
         <div style={{ borderBottom: '2px solid #d0e8dc', paddingBottom: isMobile ? '8px' : '12px' }}>
           <h1 style={{
-            fontSize: isMobile ? '19px' : isTablet ? '24px' : '28px',
+            fontSize: isMobile ? '20px' : isTablet ? '24px' : '28px',
             color: '#004d32',
             margin: '0 0 2px 0'
           }}>
             📋 Equipment Checklist
           </h1>
           <h2 style={{
-            fontSize: isMobile ? '15px' : isTablet ? '18px' : '20px',
+            fontSize: isMobile ? '16px' : isTablet ? '18px' : '20px',
             color: '#006341',
             margin: '0 0 2px 0',
             wordBreak: 'break-word'
@@ -402,7 +403,7 @@ function EquipmentChecklist() {
           <p style={{
             color: '#6a8a7a',
             margin: 0,
-            fontSize: isMobile ? '12px' : '14px'
+            fontSize: isMobile ? '13px' : '14px'
           }}>Department: {deptName || deptCode}</p>
           {submitted && submissionData && (
             <div style={{
@@ -411,7 +412,7 @@ function EquipmentChecklist() {
               background: '#d1fae5',
               borderRadius: '8px',
               color: '#065f46',
-              fontSize: isMobile ? '11px' : '13px',
+              fontSize: isMobile ? '12px' : '13px',
               lineHeight: 1.5
             }}>
               ✅ Already submitted on: {new Date(submissionData.submittedAt).toLocaleString()} by {submissionData.submittedBy}
@@ -434,7 +435,7 @@ function EquipmentChecklist() {
           gap: '10px'
         }}>
           <span style={{ fontWeight: '600', color: '#92400e', fontSize: isMobile ? '13px' : '14px' }}>
-            ⚠️ A completed report already exists for this list. You can start a new check.
+            ⚠️ A completed report already exists. Start a new check?
           </span>
           <button
             onClick={handleStartNewCheck}
@@ -467,15 +468,15 @@ function EquipmentChecklist() {
           <button
             onClick={handleSelectAll}
             style={{
-              padding: isMobile ? '10px 14px' : '10px 20px',
+              padding: isMobile ? '12px 14px' : '10px 20px',
               background: '#006341',
               color: 'white',
               border: 'none',
               borderRadius: '8px',
               cursor: 'pointer',
               fontWeight: '600',
-              fontSize: isMobile ? '12px' : '14px',
-              flex: '1 1 auto',
+              fontSize: isMobile ? '14px' : '14px',
+              flex: isMobile ? '1 1 45%' : '1 1 auto',
               minHeight: '44px'
             }}
           >
@@ -484,15 +485,15 @@ function EquipmentChecklist() {
           <button
             onClick={handleClearAll}
             style={{
-              padding: isMobile ? '10px 14px' : '10px 20px',
+              padding: isMobile ? '12px 14px' : '10px 20px',
               background: '#e5e7eb',
               color: '#374151',
               border: 'none',
               borderRadius: '8px',
               cursor: 'pointer',
               fontWeight: '600',
-              fontSize: isMobile ? '12px' : '14px',
-              flex: '1 1 auto',
+              fontSize: isMobile ? '14px' : '14px',
+              flex: isMobile ? '1 1 45%' : '1 1 auto',
               minHeight: '44px'
             }}
           >
@@ -508,14 +509,14 @@ function EquipmentChecklist() {
             display: 'flex',
             justifyContent: 'space-between',
             marginBottom: '4px',
-            fontSize: isMobile ? '11px' : '14px',
+            fontSize: isMobile ? '13px' : '14px',
             color: '#4b5563'
           }}>
-            <span>📊 Progress: {checkedCount} / {totalCount} items checked</span>
+            <span>📊 Progress: {checkedCount} / {totalCount}</span>
             <span>{Math.round(completionPercentage)}%</span>
           </div>
           <div style={{
-            height: isMobile ? '6px' : '8px',
+            height: isMobile ? '8px' : '8px',
             background: '#e5e7eb',
             borderRadius: '4px',
             overflow: 'hidden'
@@ -533,7 +534,7 @@ function EquipmentChecklist() {
 
       {/* Equipment list: cards on mobile, table on tablet/desktop */}
       {isMobile ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}>
           {equipment.map((item) => {
             const itemId = item._id.toString();
             const isChecked = checkedItems[itemId] || false;
@@ -545,12 +546,14 @@ function EquipmentChecklist() {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '10px',
-                  padding: '10px',
+                  gap: '12px',
+                  padding: '12px 10px',
                   borderRadius: '10px',
                   border: '1px solid #d0e8dc',
                   background: isChecked ? '#f0fdf4' : 'white',
-                  cursor: submitted ? 'default' : 'pointer'
+                  cursor: submitted ? 'default' : 'pointer',
+                  width: '100%',
+                  boxSizing: 'border-box'
                 }}
               >
                 <input
@@ -560,26 +563,27 @@ function EquipmentChecklist() {
                   disabled={submitted}
                   onClick={(e) => e.stopPropagation()}
                   style={{
-                    width: '22px',
-                    height: '22px',
-                    minWidth: '22px',
-                    cursor: submitted ? 'not-allowed' : 'pointer'
+                    width: '24px',
+                    height: '24px',
+                    minWidth: '24px',
+                    cursor: submitted ? 'not-allowed' : 'pointer',
+                    transform: 'scale(1.1)'
                   }}
                 />
                 {item.image ? (
                   <img src={item.image} alt={item.name} style={{
-                    width: '38px', height: '38px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0
+                    width: '42px', height: '42px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0
                   }} />
                 ) : (
                   <div style={{
-                    width: '38px', height: '38px', background: '#f3f4f6', borderRadius: '6px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0
+                    width: '42px', height: '42px', background: '#f3f4f6', borderRadius: '6px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0
                   }}>📷</div>
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
                     fontWeight: '600',
-                    fontSize: '13px',
+                    fontSize: '15px',
                     color: '#111827',
                     display: 'flex',
                     alignItems: 'center',
@@ -590,12 +594,12 @@ function EquipmentChecklist() {
                     {isChecked && <span style={{ color: '#006341', fontWeight: 'bold' }}>✓</span>}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '10px', color: '#6b7280' }}>{item.code || '—'}</span>
-                    <span style={{ fontSize: '10px', color: '#6b7280' }}>· Qty {item.quantity || 0}</span>
+                    <span style={{ fontSize: '12px', color: '#4b5563', fontFamily: 'monospace' }}>{item.code || '—'}</span>
+                    <span style={{ fontSize: '12px', color: '#4b5563' }}>· Qty {item.quantity || 0}</span>
                     <span style={{
-                      padding: '2px 8px',
+                      padding: '2px 10px',
                       borderRadius: '20px',
-                      fontSize: '9px',
+                      fontSize: '11px',
                       fontWeight: '600',
                       ...sStyle
                     }}>
@@ -619,7 +623,8 @@ function EquipmentChecklist() {
             width: '100%',
             borderCollapse: 'collapse',
             background: 'white',
-            fontSize: '14px'
+            fontSize: '14px',
+            minWidth: isTablet ? '600px' : 'auto'
           }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid #d0e8dc' }}>
@@ -694,7 +699,7 @@ function EquipmentChecklist() {
 
       {/* Summary */}
       <div style={{
-        padding: isMobile ? '10px' : '16px',
+        padding: isMobile ? '12px' : '16px',
         background: '#f9fafb',
         borderRadius: '12px',
         marginBottom: isMobile ? '12px' : '16px'
@@ -707,34 +712,34 @@ function EquipmentChecklist() {
         }}>
           <div>
             <div style={{
-              fontSize: isMobile ? '20px' : isTablet ? '24px' : '28px',
+              fontSize: isMobile ? '22px' : isTablet ? '24px' : '28px',
               fontWeight: '700',
               color: '#006341'
             }}>{checkedCount}</div>
             <div style={{
-              fontSize: isMobile ? '10px' : '12px',
+              fontSize: isMobile ? '11px' : '12px',
               color: '#6b7280'
             }}>Checked</div>
           </div>
           <div>
             <div style={{
-              fontSize: isMobile ? '20px' : isTablet ? '24px' : '28px',
+              fontSize: isMobile ? '22px' : isTablet ? '24px' : '28px',
               fontWeight: '700',
               color: '#6b7280'
             }}>{totalCount - checkedCount}</div>
             <div style={{
-              fontSize: isMobile ? '10px' : '12px',
+              fontSize: isMobile ? '11px' : '12px',
               color: '#6b7280'
             }}>Remaining</div>
           </div>
           <div>
             <div style={{
-              fontSize: isMobile ? '20px' : isTablet ? '24px' : '28px',
+              fontSize: isMobile ? '22px' : isTablet ? '24px' : '28px',
               fontWeight: '700',
               color: '#006341'
             }}>{totalCount}</div>
             <div style={{
-              fontSize: isMobile ? '10px' : '12px',
+              fontSize: isMobile ? '11px' : '12px',
               color: '#6b7280'
             }}>Total</div>
           </div>
@@ -748,26 +753,27 @@ function EquipmentChecklist() {
           left: 0,
           right: 0,
           bottom: 0,
-          padding: '10px 12px calc(10px + env(safe-area-inset-bottom))',
+          padding: '12px 16px calc(12px + env(safe-area-inset-bottom))',
           background: 'white',
-          boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
-          zIndex: 20
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.1)',
+          zIndex: 20,
+          borderTop: '1px solid #e5e7eb'
         } : { display: 'flex', justifyContent: 'center', gap: '12px' }}>
           <button
             onClick={handleSubmit}
             disabled={saving}
             style={{
-              padding: isMobile ? '13px 16px' : '12px 32px',
+              padding: isMobile ? '14px 16px' : '12px 32px',
               background: '#006341',
               color: 'white',
               border: 'none',
               borderRadius: '10px',
-              fontSize: isMobile ? '14px' : '16px',
+              fontSize: isMobile ? '16px' : '16px',
               fontWeight: '600',
               cursor: saving ? 'not-allowed' : 'pointer',
               opacity: saving ? 0.7 : 1,
               width: isMobile ? '100%' : 'auto',
-              minHeight: '48px'
+              minHeight: '52px'
             }}
           >
             {saving ? '⏳ Submitting...' : '✅ Submit & Confirm'}
@@ -784,23 +790,23 @@ function EquipmentChecklist() {
           background: '#d1fae5',
           borderRadius: '10px',
           color: '#065f46',
-          fontSize: isMobile ? '12px' : '14px',
+          fontSize: isMobile ? '13px' : '14px',
           lineHeight: 1.6
         }}>
-          <p>✅ This checklist has been confirmed and submitted to OT Department.</p>
+          <p>✅ This checklist has been confirmed and submitted.</p>
           <p>📅 Submitted on: {new Date(submissionData.submittedAt).toLocaleString()}</p>
           <p>👤 Submitted by: {submissionData.submittedBy}</p>
           <button
             onClick={() => navigate('/reports')}
             style={{
               marginTop: '8px',
-              padding: isMobile ? '10px 16px' : '8px 18px',
+              padding: isMobile ? '12px 20px' : '8px 18px',
               background: '#006341',
               color: 'white',
               border: 'none',
               borderRadius: '8px',
               cursor: 'pointer',
-              fontSize: isMobile ? '13px' : '14px',
+              fontSize: isMobile ? '15px' : '14px',
               minHeight: '44px'
             }}
           >
