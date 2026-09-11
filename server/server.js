@@ -735,12 +735,10 @@ app.post('/api/checklist/save', async (req, res) => {
           missing = 0;
         } else {
           avail = 0;
-          damaged = isDamaged ? totalQty : 0; // assuming whole item damaged if damaged flag
+          damaged = isDamaged ? totalQty : 0;
           missing = isDamaged ? 0 : totalQty;
         }
-        // If damaged flag is true, we need to adjust: if checked is false, missing should be 0 and damaged = totalQty
-        // But this is a simplified fallback; we can improve by using damagedItems as count if available.
-        // Better: if damagedItems contains the item with a number, use that.
+        // If damagedItems contains the item with a number, use that.
         if (damagedItems && damagedItems[itemId] !== undefined && typeof damagedItems[itemId] === 'number') {
           const dmg = damagedItems[itemId];
           damaged = dmg;

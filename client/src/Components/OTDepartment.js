@@ -777,7 +777,7 @@ function OTDepartment() {
   }, [currentEquipment, checkData]);
 
   // ================================
-  // ✅ MODIFIED: handleApproveAndSend now sends damagedItems and expiryDate
+  // ✅ MODIFIED: handleApproveAndSend now sends detailed quantities
   // ================================
   const handleApproveAndSend = async () => {
     if (!selectedListId) {
@@ -787,15 +787,32 @@ function OTDepartment() {
 
     const simpleChecked = {};
     const damagedItems = {};
+    const availableQuantities = {};   // ✅ جديد
+    const damagedQuantities = {};     // ✅ جديد
+    const missingQuantities = {};     // ✅ جديد
+
     currentEquipment.forEach(item => {
       const data = checkData[item.id];
+      const requiredQty = item.quantity || 0;
+
       if (data) {
-        simpleChecked[item.id] = (data.present >= item.quantity && !data.damaged);
-        if (data.damaged && data.damagedQuantity > 0) {
-          damagedItems[item.id] = data.damagedQuantity;
-        }
+        const available = data.present || 0;
+        const damaged = (data.damaged && data.damagedQuantity > 0)
+          ? Math.min(data.damagedQuantity, available)
+          : 0;
+        const missing = Math.max(0, requiredQty - available - damaged);
+
+        simpleChecked[item.id] = (available >= requiredQty && !data.damaged);
+        availableQuantities[item.id] = available;
+        damagedQuantities[item.id] = damaged;
+        missingQuantities[item.id] = missing;
+
+        if (damaged > 0) damagedItems[item.id] = damaged;
       } else {
         simpleChecked[item.id] = false;
+        availableQuantities[item.id] = 0;
+        damagedQuantities[item.id] = 0;
+        missingQuantities[item.id] = requiredQty;
       }
     });
 
@@ -807,8 +824,13 @@ function OTDepartment() {
       listId: selectedListId,
       deptCode: selectedDeptId,
       listName: selectedListName,
+      // الحقول القديمة (للتوافق)
       checkedItems: simpleChecked,
       damagedItems: damagedItems,
+      // ✅ الحقول الجديدة (المهمة)
+      availableQuantities: availableQuantities,
+      damagedQuantities: damagedQuantities,
+      missingQuantities: missingQuantities,
       submitted: true,
       submittedAt: new Date().toISOString(),
       submittedBy: userName,
@@ -829,7 +851,6 @@ function OTDepartment() {
       if (data.success) {
         alert('✅ Checklist submitted successfully!');
         setCheckMode(false);
-        // التوجيه مع state.refresh لتحديث صفحة التقارير
         navigate('/reports', { state: { refresh: true } });
       } else {
         alert('Error: ' + (data.message || 'Unknown error'));
@@ -1050,7 +1071,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // 🟣 CHECK MODE - مع التعديلات المتجاوبة
+  // 🟣 CHECK MODE
   // ============================================================
   if (checkMode) {
     const checkThStyle = {
@@ -1198,25 +1219,6 @@ function OTDepartment() {
                       e.target.style.display = 'none';
                     }}
                   />
-                  <div style={{
-                    position: "absolute",
-                    top: "50%",
-                    left: "50%",
-                    transform: "translate(-50%, -50%)",
-                    background: "rgba(0,0,0,0.5)",
-                    borderRadius: "50%",
-                    padding: "8px",
-                    opacity: 0,
-                    transition: "opacity 0.3s",
-                    pointerEvents: "none",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center"
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.opacity = "1"}
-                  onMouseLeave={(e) => e.currentTarget.style.opacity = "0"}>
-                    <Icons.zoomIn />
-                  </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleCheckListRemoveImage(); }}
                     style={{
@@ -1833,7 +1835,7 @@ function OTDepartment() {
   }
 
   // ============================================================
-  // 🟢 SIMPLE VIEW - متجاوب
+  // 🟢 SIMPLE VIEW
   // ============================================================
   if (isSimpleView && qrListId) {
     const simpleEquipment = equipment[qrListId] || [];
