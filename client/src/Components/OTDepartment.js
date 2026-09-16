@@ -746,34 +746,59 @@ function OTDepartment() {
     return "missing";
   };
 
+  // ============================================================
+  // ✅ FIXED: checkStats now counts QUANTITIES, not items count
+  // ============================================================
   const checkStats = useMemo(() => {
-    let totalRequired = 0;
-    let totalPresent = 0;
-    let okCount = 0;
-    let missingCount = 0;
-    let damagedCount = 0;
-    let undeterminedCount = 0;
+    let totalRequired = 0;    // مجموع الكميات المطلوبة
+    let totalPresent = 0;     // مجموع الكميات المتاحة
+    let okCount = 0;          // مجموع الكميات السليمة (المتاح - التالف)
+    let missingCount = 0;     // مجموع الكميات المفقودة
+    let damagedCount = 0;     // مجموع الكميات التالفة
+    let undeterminedCount = 0; // مجموع الكميات غير المحددة
 
     currentEquipment.forEach(item => {
-      totalRequired += item.quantity || 0;
+      const requiredQty = item.quantity || 0;
+      totalRequired += requiredQty;
+
       const data = checkData[item.id];
       if (!data) {
-        undeterminedCount += 1;
+        undeterminedCount += requiredQty;
         return;
       }
-      totalPresent += data.present || 0;
-      if (data.damaged && data.damagedQuantity > 0) {
-        damagedCount += 1;
-      } else if (data.present >= item.quantity) {
-        okCount += 1;
-      } else {
-        missingCount += 1;
-      }
+
+      const available = data.present || 0;
+      totalPresent += available;
+
+      // الكمية التالفة (لا تتجاوز المتاح)
+      const damagedQty = (data.damaged && data.damagedQuantity > 0)
+        ? Math.min(data.damagedQuantity, available)
+        : 0;
+
+      // المفقود = المطلوب - المتاح
+      const missingQty = Math.max(0, requiredQty - available);
+
+      // السليم = المتاح - التالف
+      const usableQty = Math.max(0, available - damagedQty);
+
+      damagedCount += damagedQty;
+      missingCount += missingQty;
+      okCount += usableQty;
     });
 
-    const percentage = totalRequired > 0 ? Math.round((totalPresent / totalRequired) * 100) : 0;
+    const percentage = totalRequired > 0
+      ? Math.round((totalPresent / totalRequired) * 100)
+      : 0;
 
-    return { totalRequired, totalPresent, okCount, missingCount, damagedCount, undeterminedCount, percentage };
+    return {
+      totalRequired,
+      totalPresent,
+      okCount,
+      missingCount,
+      damagedCount,
+      undeterminedCount,
+      percentage
+    };
   }, [currentEquipment, checkData]);
 
   // ================================
@@ -787,9 +812,9 @@ function OTDepartment() {
 
     const simpleChecked = {};
     const damagedItems = {};
-    const availableQuantities = {};   // ✅ جديد
-    const damagedQuantities = {};     // ✅ جديد
-    const missingQuantities = {};     // ✅ جديد
+    const availableQuantities = {};
+    const damagedQuantities = {};
+    const missingQuantities = {};
 
     currentEquipment.forEach(item => {
       const data = checkData[item.id];
@@ -800,7 +825,9 @@ function OTDepartment() {
         const damaged = (data.damaged && data.damagedQuantity > 0)
           ? Math.min(data.damagedQuantity, available)
           : 0;
-        const missing = Math.max(0, requiredQty - available - damaged);
+
+        // ✅ FIX: المفقود = المطلوب - المتاح (بدون طرح التالف مرة أخرى)
+        const missing = Math.max(0, requiredQty - available);
 
         simpleChecked[item.id] = (available >= requiredQty && !data.damaged);
         availableQuantities[item.id] = available;
