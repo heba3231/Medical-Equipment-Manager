@@ -16,6 +16,34 @@ function useWindowSize() {
 
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
+// ============================================================
+// ✅ API Helper — يفحص response.ok ويرمي خطأ واضح
+// ============================================================
+async function apiFetch(url, options = {}) {
+  const response = await fetch(url, {
+    cache: 'no-store',
+    ...options,
+  });
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    // مش JSON
+  }
+
+  if (!response.ok) {
+    const msg = data?.message || `HTTP ${response.status} ${response.statusText}`;
+    throw new Error(msg);
+  }
+
+  if (data && data.success === false) {
+    throw new Error(data.message || 'Request failed');
+  }
+
+  return data;
+}
+
 function OTDepartment() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -32,6 +60,7 @@ function OTDepartment() {
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [serverError, setServerError] = useState(null);
 
   const [newDept, setNewDept] = useState({ name: "", description: "" });
   const [editingDeptId, setEditingDeptId] = useState(null);
@@ -299,6 +328,9 @@ function OTDepartment() {
     }
   }, [qrListId, qrDeptCode]);
 
+  // ============================================================
+  // ✅ loadDepartments — بدون إنشاء default lists تلقائياً
+  // ============================================================
   const loadDepartments = async () => {
     try {
       setLoading(true);
@@ -306,99 +338,76 @@ function OTDepartment() {
       let depts;
 
       if (savedDepts) {
-        depts = JSON.parse(savedDepts);
-        setDepartments(depts);
+        try {
+          depts = JSON.parse(savedDepts);
+        } catch {
+          depts = defaultDepartments;
+        }
       } else {
         depts = defaultDepartments;
-        setDepartments(defaultDepartments);
         localStorage.setItem("ot_departments", JSON.stringify(defaultDepartments));
       }
 
+      setDepartments(depts);
+
+      // ✅ اجلب اللستات لكل قسم — بدون إنشاء default
       for (const dept of depts) {
         await fetchLists(dept.id);
       }
     } catch (err) {
       console.error("Error loading departments:", err);
       setDepartments(defaultDepartments);
-      localStorage.setItem("ot_departments", JSON.stringify(defaultDepartments));
-      for (const dept of defaultDepartments) {
-        await fetchLists(dept.id);
-      }
     } finally {
       setLoading(false);
     }
   };
 
+  // ============================================================
+  // ✅ fetchLists — بدون createDefaultList، مع فحص response.ok
+  // ============================================================
   const fetchLists = async (deptId) => {
     try {
-      const response = await fetch(`${API_BASE}/ot-custom-lists?deptCode=${deptId}`);
-      const data = await response.json();
+      const data = await apiFetch(
+        `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}`
+      );
 
-      if (data.success && data.data && data.data.length > 0) {
-        setLists(prev => ({ ...prev, [deptId]: data.data }));
-        for (const list of data.data) {
+      if (data.success) {
+        const lists = data.data || [];
+        setLists(prev => ({ ...prev, [deptId]: lists }));
+
+        // اجلب معدات كل لستة
+        for (const list of lists) {
           await fetchEquipment(list.id);
         }
-      } else {
-        const defaultList = {
-          id: `list_${Date.now()}_${deptId}`,
-          name: "Basic Equipment",
-          description: "Basic Equipment List",
-          deptCode: deptId,
-          equipment: []
-        };
-        await createDefaultList(defaultList);
       }
     } catch (err) {
-      console.error("Error fetching lists for", deptId, ":", err);
+      console.error("Error fetching lists for", deptId, ":", err.message);
+      // ✅ لا تنشئ default عند الفشل — فقط اعرض فاضي
+      setLists(prev => ({ ...prev, [deptId]: prev[deptId] || [] }));
     }
   };
 
-  const createDefaultList = async (listData) => {
-    try {
-      const response = await fetch(`${API_BASE}/ot-custom-lists`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(listData)
-      });
-      const data = await response.json();
-      if (data.success) {
-        setLists(prev => ({
-          ...prev,
-          [listData.deptCode]: [...(prev[listData.deptCode] || []), data.data]
-        }));
-        await fetchEquipment(listData.id);
-      }
-    } catch (err) {
-      console.error("Error creating default list:", err);
-    }
-  };
-
+  // ============================================================
+  // ✅ fetchEquipment — مع فحص response.ok
+  // ============================================================
   const fetchEquipment = async (listId) => {
     try {
-      const response = await fetch(`${API_BASE}/ot-custom-equipment/${listId}`);
-      const data = await response.json();
+      const data = await apiFetch(
+        `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}`
+      );
       if (data.success) {
-        setEquipment(prev => ({ ...prev, [listId]: data.data }));
+        setEquipment(prev => ({ ...prev, [listId]: data.data || [] }));
       }
     } catch (err) {
-      console.error("Error fetching equipment:", err);
+      console.error("Error fetching equipment:", err.message);
     }
   };
 
   const fetchEquipmentForList = async (listId) => {
-    try {
-      const response = await fetch(`${API_BASE}/ot-custom-equipment/${listId}`);
-      const data = await response.json();
-      if (data.success) {
-        setEquipment(prev => ({ ...prev, [listId]: data.data }));
-      }
-    } catch (err) {
-      console.error("Error fetching equipment:", err);
-    }
+    return fetchEquipment(listId);
   };
 
-  // ========== DEPARTMENT CRUD ==========
+  // ========== DEPARTMENT CRUD (localStorage) ==========
   const handleAddDept = () => {
     if (!newDept.name.trim()) return alert("Please enter department name");
 
@@ -416,19 +425,16 @@ function OTDepartment() {
       setEditingDeptId(null);
     } else {
       updatedDepts = [...departments, newDeptObj];
-      const defaultList = {
-        id: `list_${Date.now()}_${newDeptObj.id}`,
-        name: "Basic Equipment",
-        description: "Basic Equipment List",
-        deptCode: newDeptObj.id,
-        equipment: []
-      };
-      createDefaultList(defaultList);
     }
 
     setDepartments(updatedDepts);
     localStorage.setItem("ot_departments", JSON.stringify(updatedDepts));
     setNewDept({ name: "", description: "" });
+
+    // ✅ بعد إضافة قسم جديد، جهّزي state للستات
+    if (!editingDeptId) {
+      setLists(prev => ({ ...prev, [newDeptObj.id]: [] }));
+    }
   };
 
   const handleEditDept = (dept) => {
@@ -442,13 +448,25 @@ function OTDepartment() {
     const updatedDepts = departments.filter(d => d.id !== id);
     setDepartments(updatedDepts);
     localStorage.setItem("ot_departments", JSON.stringify(updatedDepts));
+
+    // ✅ احذفي لستات هذا القسم من السيرفر أيضاً
+    const deptLists = lists[id] || [];
+    Promise.all(
+      deptLists.map(list =>
+        apiFetch(`${API_BASE}/ot-custom-lists/${list.id}`, { method: "DELETE" })
+          .catch(err => console.warn("Failed to delete list from server:", list.id, err.message))
+      )
+    );
+
     setLists(prev => { const newState = { ...prev }; delete newState[id]; return newState; });
 
     if (selectedDeptId === id) setSelectedDeptId(null);
-    if (selectedListId && lists[id]?.find(l => l.id === selectedListId)) setSelectedListId(null);
+    if (selectedListId && (lists[id] || []).find(l => l.id === selectedListId)) setSelectedListId(null);
   };
 
-  // ========== LIST CRUD ==========
+  // ============================================================
+  // ✅ handleAddList — مع فحص الفشل + إعادة تحميل من السيرفر
+  // ============================================================
   const handleAddList = async () => {
     if (!newList.name.trim()) return alert("Please enter list name");
     if (!selectedDeptId) return alert("Please select a department first");
@@ -456,7 +474,7 @@ function OTDepartment() {
     setSaving(true);
     try {
       const listData = {
-        id: `list_${Date.now()}`,
+        id: editingListId || `list_${Date.now()}`,
         name: newList.name.trim(),
         description: newList.description.trim() || "",
         deptCode: selectedDeptId,
@@ -464,31 +482,27 @@ function OTDepartment() {
         createdBy: localStorage.getItem("userName") || "Admin"
       };
 
-      let response;
-      if (editingListId) {
-        response = await fetch(`${API_BASE}/ot-custom-lists/${editingListId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(listData)
-        });
-      } else {
-        response = await fetch(`${API_BASE}/ot-custom-lists`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(listData)
-        });
-      }
+      const url = editingListId
+        ? `${API_BASE}/ot-custom-lists/${editingListId}`
+        : `${API_BASE}/ot-custom-lists`;
+      const method = editingListId ? "PUT" : "POST";
 
-      const data = await response.json();
-      if (data.success) {
-        await fetchLists(selectedDeptId);
-        setNewList({ name: "", description: "" });
-        setEditingListId(null);
-      } else {
-        alert("Error: " + (data.message || "Unknown error"));
-      }
+      const data = await apiFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(listData)
+      });
+
+      if (!data.success) throw new Error(data.message || "Unknown error");
+
+      // ✅ إعادة تحميل من السيرفر للتأكد من الحفظ الفعلي
+      await fetchLists(selectedDeptId);
+
+      setNewList({ name: "", description: "" });
+      setEditingListId(null);
     } catch (err) {
-      alert("Error saving list: " + err.message);
+      console.error("Error saving list:", err);
+      alert("❌ فشل حفظ اللستة: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -499,28 +513,39 @@ function OTDepartment() {
     setNewList({ name: list.name, description: list.description || "" });
   };
 
+  // ============================================================
+  // ✅ handleDeleteList — مع فحص الفشل + إعادة تحميل
+  // ============================================================
   const handleDeleteList = async (listId, name) => {
     if (!window.confirm(`Delete list "${name}"? All equipment will be deleted!`)) return;
 
     try {
-      const response = await fetch(`${API_BASE}/ot-custom-lists/${listId}`, {
+      const data = await apiFetch(`${API_BASE}/ot-custom-lists/${listId}`, {
         method: "DELETE"
       });
-      const data = await response.json();
-      if (data.success) {
-        setLists(prev => ({
-          ...prev,
-          [selectedDeptId]: (prev[selectedDeptId] || []).filter(l => l.id !== listId)
-        }));
-        setEquipment(prev => { const newState = { ...prev }; delete newState[listId]; return newState; });
-        if (selectedListId === listId) setSelectedListId(null);
-      }
+
+      if (!data.success) throw new Error(data.message || "Delete failed");
+
+      // ✅ إعادة تحميل من السيرفر للتأكد من الحذف الفعلي
+      await fetchLists(selectedDeptId);
+
+      // نظفي state المعدات
+      setEquipment(prev => {
+        const copy = { ...prev };
+        delete copy[listId];
+        return copy;
+      });
+
+      if (selectedListId === listId) setSelectedListId(null);
     } catch (err) {
-      alert("Error deleting list: " + err.message);
+      console.error("Error deleting list:", err);
+      alert("❌ فشل حذف اللستة: " + err.message);
     }
   };
 
-  // ========== EQUIPMENT CRUD ==========
+  // ============================================================
+  // ✅ handleAddEquipment — مع فحص الفشل + إعادة تحميل
+  // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
       return alert("Please enter equipment name and code");
@@ -530,7 +555,7 @@ function OTDepartment() {
     setSaving(true);
     try {
       const equipData = {
-        id: `eq_${Date.now()}`,
+        id: editingEquipId || `eq_${Date.now()}`,
         listId: selectedListId,
         name: newEquipment.name.trim(),
         code: newEquipment.code.trim(),
@@ -538,30 +563,24 @@ function OTDepartment() {
         image: newEquipment.image || null
       };
 
-      let response;
-      if (editingEquipId) {
-        response = await fetch(`${API_BASE}/ot-custom-equipment/${editingEquipId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(equipData)
-        });
-      } else {
-        response = await fetch(`${API_BASE}/ot-custom-equipment`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(equipData)
-        });
-      }
+      const url = editingEquipId
+        ? `${API_BASE}/ot-custom-equipment/${editingEquipId}`
+        : `${API_BASE}/ot-custom-equipment`;
+      const method = editingEquipId ? "PUT" : "POST";
 
-      const data = await response.json();
-      if (data.success) {
-        await fetchEquipment(selectedListId);
-        resetEquipmentForm();
-      } else {
-        alert("Error: " + (data.message || "Unknown error"));
-      }
+      const data = await apiFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(equipData)
+      });
+
+      if (!data.success) throw new Error(data.message || "Unknown error");
+
+      await fetchEquipment(selectedListId);
+      resetEquipmentForm();
     } catch (err) {
-      alert("Error saving equipment: " + err.message);
+      console.error("Error saving equipment:", err);
+      alert("❌ فشل حفظ المعدة: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -578,19 +597,23 @@ function OTDepartment() {
     setImagePreview(item.image || null);
   };
 
+  // ============================================================
+  // ✅ handleDeleteEquipment — مع فحص الفشل + إعادة تحميل
+  // ============================================================
   const handleDeleteEquipment = async (id, name) => {
     if (!window.confirm(`Delete equipment "${name}"?`)) return;
 
     try {
-      const response = await fetch(`${API_BASE}/ot-custom-equipment/${id}`, {
+      const data = await apiFetch(`${API_BASE}/ot-custom-equipment/${id}`, {
         method: "DELETE"
       });
-      const data = await response.json();
-      if (data.success) {
-        await fetchEquipment(selectedListId);
-      }
+
+      if (!data.success) throw new Error(data.message || "Delete failed");
+
+      await fetchEquipment(selectedListId);
     } catch (err) {
-      alert("Error deleting equipment: " + err.message);
+      console.error("Error deleting equipment:", err);
+      alert("❌ فشل حذف المعدة: " + err.message);
     }
   };
 
@@ -659,7 +682,7 @@ function OTDepartment() {
       );
     }
 
-    switch(sortBy) {
+    switch (sortBy) {
       case 'name':
         result.sort((a, b) => a.name.localeCompare(b.name));
         break;
@@ -686,11 +709,11 @@ function OTDepartment() {
       };
     });
     setCheckData(initial);
-    
-    const userName = localStorage.getItem("userName") || 
-                     localStorage.getItem("adminName") || 
+
+    const userName = localStorage.getItem("userName") ||
+                     localStorage.getItem("adminName") ||
                      "Technician";
-    
+
     setCheckMeta({
       technician: userName,
       startedAt: new Date()
@@ -698,7 +721,7 @@ function OTDepartment() {
     const today = new Date();
     today.setMonth(today.getMonth() + 6);
     setExpiryDate(today);
-    
+
     setCheckListImage(selectedListObj?.image || null);
     setCheckMode(true);
   };
@@ -746,16 +769,13 @@ function OTDepartment() {
     return "missing";
   };
 
-  // ============================================================
-  // ✅ FIXED: checkStats now counts QUANTITIES, not items count
-  // ============================================================
   const checkStats = useMemo(() => {
-    let totalRequired = 0;    // مجموع الكميات المطلوبة
-    let totalPresent = 0;     // مجموع الكميات المتاحة
-    let okCount = 0;          // مجموع الكميات السليمة (المتاح - التالف)
-    let missingCount = 0;     // مجموع الكميات المفقودة
-    let damagedCount = 0;     // مجموع الكميات التالفة
-    let undeterminedCount = 0; // مجموع الكميات غير المحددة
+    let totalRequired = 0;
+    let totalPresent = 0;
+    let okCount = 0;
+    let missingCount = 0;
+    let damagedCount = 0;
+    let undeterminedCount = 0;
 
     currentEquipment.forEach(item => {
       const requiredQty = item.quantity || 0;
@@ -770,15 +790,11 @@ function OTDepartment() {
       const available = data.present || 0;
       totalPresent += available;
 
-      // الكمية التالفة (لا تتجاوز المتاح)
       const damagedQty = (data.damaged && data.damagedQuantity > 0)
         ? Math.min(data.damagedQuantity, available)
         : 0;
 
-      // المفقود = المطلوب - المتاح
       const missingQty = Math.max(0, requiredQty - available);
-
-      // السليم = المتاح - التالف
       const usableQty = Math.max(0, available - damagedQty);
 
       damagedCount += damagedQty;
@@ -801,9 +817,6 @@ function OTDepartment() {
     };
   }, [currentEquipment, checkData]);
 
-  // ================================
-  // ✅ MODIFIED: handleApproveAndSend now sends detailed quantities
-  // ================================
   const handleApproveAndSend = async () => {
     if (!selectedListId) {
       alert("No list selected.");
@@ -826,7 +839,6 @@ function OTDepartment() {
           ? Math.min(data.damagedQuantity, available)
           : 0;
 
-        // ✅ FIX: المفقود = المطلوب - المتاح (بدون طرح التالف مرة أخرى)
         const missing = Math.max(0, requiredQty - available);
 
         simpleChecked[item.id] = (available >= requiredQty && !data.damaged);
@@ -851,10 +863,8 @@ function OTDepartment() {
       listId: selectedListId,
       deptCode: selectedDeptId,
       listName: selectedListName,
-      // الحقول القديمة (للتوافق)
       checkedItems: simpleChecked,
       damagedItems: damagedItems,
-      // ✅ الحقول الجديدة (المهمة)
       availableQuantities: availableQuantities,
       damagedQuantities: damagedQuantities,
       missingQuantities: missingQuantities,
@@ -867,24 +877,20 @@ function OTDepartment() {
 
     try {
       setSaving(true);
-      const response = await fetch(`${API_BASE}/checklist/save`, {
+      const data = await apiFetch(`${API_BASE}/checklist/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      if (!data.success) throw new Error(data.message || "Unknown error");
 
-      if (data.success) {
-        alert('✅ Checklist submitted successfully!');
-        setCheckMode(false);
-        navigate('/reports', { state: { refresh: true } });
-      } else {
-        alert('Error: ' + (data.message || 'Unknown error'));
-      }
+      alert('✅ Checklist submitted successfully!');
+      setCheckMode(false);
+      navigate('/reports', { state: { refresh: true } });
     } catch (err) {
       console.error('Error submitting checklist:', err);
-      alert('Error submitting checklist: ' + err.message);
+      alert('❌ Error submitting checklist: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -897,16 +903,16 @@ function OTDepartment() {
   const handleCheckListImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { 
-        alert("⚠️ Image too large! Maximum 5MB"); 
-        return; 
+      if (file.size > 5 * 1024 * 1024) {
+        alert("⚠️ Image too large! Maximum 5MB");
+        return;
       }
       setIsUploadingImage(true);
       const reader = new FileReader();
       reader.onloadend = async () => {
         const imageData = reader.result;
         setCheckListImage(imageData);
-        
+
         try {
           const listData = {
             name: selectedListObj?.name || "",
@@ -915,19 +921,18 @@ function OTDepartment() {
             deptCode: selectedDeptId,
             roomId: null
           };
-          
-          const response = await fetch(`${API_BASE}/ot-custom-lists/${selectedListId}`, {
+
+          const result = await apiFetch(`${API_BASE}/ot-custom-lists/${selectedListId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(listData)
           });
-          
-          const result = await response.json();
+
           if (result.success) {
             setLists(prev => {
               const updatedLists = { ...prev };
               if (updatedLists[selectedDeptId]) {
-                updatedLists[selectedDeptId] = updatedLists[selectedDeptId].map(list => 
+                updatedLists[selectedDeptId] = updatedLists[selectedDeptId].map(list =>
                   list.id === selectedListId ? { ...list, image: imageData } : list
                 );
               }
@@ -950,7 +955,7 @@ function OTDepartment() {
 
   const handleCheckListRemoveImage = async () => {
     if (!window.confirm("Remove set image?")) return;
-    
+
     setCheckListImage(null);
     try {
       const listData = {
@@ -960,19 +965,18 @@ function OTDepartment() {
         deptCode: selectedDeptId,
         roomId: null
       };
-      
-      const response = await fetch(`${API_BASE}/ot-custom-lists/${selectedListId}`, {
+
+      const result = await apiFetch(`${API_BASE}/ot-custom-lists/${selectedListId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(listData)
       });
-      
-      const result = await response.json();
+
       if (result.success) {
         setLists(prev => {
           const updatedLists = { ...prev };
           if (updatedLists[selectedDeptId]) {
-            updatedLists[selectedDeptId] = updatedLists[selectedDeptId].map(list => 
+            updatedLists[selectedDeptId] = updatedLists[selectedDeptId].map(list =>
               list.id === selectedListId ? { ...list, image: null } : list
             );
           }
@@ -1237,9 +1241,9 @@ function OTDepartment() {
             }}>
               {checkListImage ? (
                 <>
-                  <img 
-                    src={checkListImage} 
-                    alt={selectedListName} 
+                  <img
+                    src={checkListImage}
+                    alt={selectedListName}
                     style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     onError={(e) => {
                       console.warn('⚠️ Failed to load set image');
@@ -1845,15 +1849,15 @@ function OTDepartment() {
             >
               <Icons.close />
             </button>
-            <img 
-              src={imageModal} 
-              alt="Zoomed view" 
-              style={{ 
-                maxWidth: '90%', 
-                maxHeight: '90%', 
+            <img
+              src={imageModal}
+              alt="Zoomed view"
+              style={{
+                maxWidth: '90%',
+                maxHeight: '90%',
                 borderRadius: '8px',
                 objectFit: 'contain'
-              }} 
+              }}
             />
           </div>
         )}
