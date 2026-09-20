@@ -5,22 +5,60 @@ import cors from "cors";
 import dns from "node:dns";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
 import AISearchService from './AISearchService.js';
 import setupAISearchRoutes from './AISearchRoutes.js';
 import dotenv from 'dotenv';
 
-// تحميل متغيرات البيئة من ملف .env
+// تحميل متغيرات البيئة
 dotenv.config();
 
-// Force Node.js to use Google DNS to fix Atlas connection issues
+// Force Google DNS (لحل مشاكل Atlas)
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 const app = express();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// ==================== CORS Configuration ====================
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+// ============================================================
+// CORS Configuration — يدعم عدة Origins (Render + محلي)
+// ============================================================
+const defaultOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'http://127.0.0.1:3000',
+];
+
+// CLIENT_URL ممكن يكون قيمة واحدة أو عدة قيم مفصولة بفاصلة
+const envOrigins = (process.env.CLIENT_URL || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+
+console.log('🌐 Allowed CORS origins:', allowedOrigins);
+
 app.use(cors({
-  origin: clientUrl,
+  origin: (origin, callback) => {
+    // اسمح بدون origin (Postman, curl, same-origin requests)
+    if (!origin) return callback(null, true);
+
+    // اسمح لأي origin إذا كان مطابق للقائمة
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // اسمح لأي *.onrender.com (اختياري — احذفيه لو بدك أكثر تقييداً)
+    if (origin.endsWith('.onrender.com')) {
+      return callback(null, true);
+    }
+
+    console.warn(`⚠️ CORS blocked origin: ${origin}`);
+    return callback(new Error(`CORS blocked: ${origin}`));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -29,16 +67,19 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// ==================== JWT & MongoDB Config ====================
+// ============================================================
+// JWT & MongoDB Config
+// ============================================================
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
 
-// ✅ MongoClient مع options أفضل لمنع الـ timeouts
+console.log('🔌 MongoDB URI:', MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'));
+
 const client = new MongoClient(MONGODB_URI, {
-  serverSelectionTimeoutMS: 8000,
+  serverSelectionTimeoutMS: 10000,
   socketTimeoutMS: 45000,
-  connectTimeoutMS: 8000,
+  connectTimeoutMS: 10000,
   maxPoolSize: 10,
   minPoolSize: 1,
   retryWrites: true,
@@ -46,7 +87,9 @@ const client = new MongoClient(MONGODB_URI, {
   heartbeatFrequencyMS: 10000,
 });
 
-// ==================== Connection State ====================
+// ============================================================
+// Connection State
+// ============================================================
 let db = null;
 let isConnecting = false;
 
@@ -60,9 +103,11 @@ let otSetsCollection;
 let checklistsCollection;
 let otCustomListsCollection;
 let otCustomEquipmentCollection;
-let otDepartmentsCollection; // ✅ جديد
+let otDepartmentsCollection;
 
-// ==================== Ensure Connection (Reusable) ====================
+// ============================================================
+// Ensure Connection
+// ============================================================
 async function ensureConnection() {
   if (db) return true;
 
@@ -90,7 +135,7 @@ async function ensureConnection() {
     checklistsCollection = db.collection("checklists");
     otCustomListsCollection = db.collection("ot_custom_lists");
     otCustomEquipmentCollection = db.collection("ot_custom_equipment");
-    otDepartmentsCollection = db.collection("ot_departments"); // ✅ جديد
+    otDepartmentsCollection = db.collection("ot_departments");
 
     // Indexes
     const indexTasks = [
@@ -107,7 +152,7 @@ async function ensureConnection() {
       () => otCustomListsCollection.createIndex({ id: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1 }),
       () => otCustomEquipmentCollection.createIndex({ id: 1 }),
-      () => otDepartmentsCollection.createIndex({ id: 1 }, { unique: true }), // ✅ جديد
+      () => otDepartmentsCollection.createIndex({ id: 1 }, { unique: true }),
     ];
     for (const task of indexTasks) {
       try { await task(); } catch (e) {
@@ -115,7 +160,7 @@ async function ensureConnection() {
       }
     }
 
-    // Create default admin if not exists
+    // Default admin
     let existingAdmin = await adminCollection.findOne({ staff_no: "host3487539" });
     if (!existingAdmin) {
       existingAdmin = await adminCollection.findOne({ staffNumber: "host3487539" });
@@ -135,12 +180,11 @@ async function ensureConnection() {
         lastLogin: null,
         createdAt: new Date()
       });
-      console.log("✅ Default admin created successfully");
+      console.log("✅ Default admin created");
     } else {
-      console.log("✅ Admin already exists:", existingAdmin.name);
+      console.log("✅ Admin exists:", existingAdmin.name);
     }
 
-    // ✅ Seed default OT departments
     await seedDefaultDepartments();
 
     console.log("✅ MongoDB connected successfully");
@@ -154,9 +198,19 @@ async function ensureConnection() {
   }
 }
 
-// ==================== Seed Default OT Departments ====================
+// ============================================================
+// Seed Default OT Departments (مرة وحدة فقط)
+// ============================================================
 async function seedDefaultDepartments() {
   try {
+    // ✅ نستخدم flag عشان ما نعيد الإنشاء حتى لو حذف المستخدم قسم
+    const settingsColl = db.collection("settings");
+    const flag = await settingsColl.findOne({ key: "departments_seeded_v1" });
+    if (flag) {
+      console.log("ℹ️ Default departments already seeded, skipping");
+      return;
+    }
+
     const defaults = [
       { id: "dept_women", name: "Women & Maternity", description: "Obstetrics and Gynecology Department" },
       { id: "dept_surgery", name: "General Surgery", description: "General Surgery Department" },
@@ -166,7 +220,7 @@ async function seedDefaultDepartments() {
       { id: "dept_pediatric", name: "Pediatric Surgery", description: "Pediatric Surgery Department" },
     ];
 
-    let createdCount = 0;
+    let created = 0;
     for (const dept of defaults) {
       const existing = await otDepartmentsCollection.findOne({ id: dept.id });
       if (!existing) {
@@ -175,18 +229,25 @@ async function seedDefaultDepartments() {
           isDefault: true,
           createdAt: new Date()
         });
-        createdCount++;
+        created++;
       }
     }
-    if (createdCount > 0) {
-      console.log(`✅ Seeded ${createdCount} default OT departments`);
-    }
+
+    await settingsColl.insertOne({
+      key: "departments_seeded_v1",
+      at: new Date(),
+      created
+    });
+
+    console.log(`✅ Seeded ${created} default OT departments (one-time)`);
   } catch (err) {
     console.error("⚠️ Error seeding OT departments:", err.message);
   }
 }
 
-// ==================== DB Middleware (قبل أي /api route) ====================
+// ============================================================
+// DB Middleware (قبل أي /api route)
+// ============================================================
 app.use('/api', async (req, res, next) => {
   if (req.method === 'OPTIONS') return next();
 
@@ -200,7 +261,9 @@ app.use('/api', async (req, res, next) => {
   next();
 });
 
-// ==================== Keep-Alive Ping ====================
+// ============================================================
+// Keep-Alive Ping
+// ============================================================
 setInterval(async () => {
   if (!db) {
     await ensureConnection();
@@ -209,18 +272,73 @@ setInterval(async () => {
   try {
     await db.command({ ping: 1 });
   } catch (err) {
-    console.warn("⏰ MongoDB ping failed, will reconnect on next request:", err.message);
+    console.warn("⏰ Ping failed, will reconnect:", err.message);
     db = null;
   }
 }, 60000);
 
-// ==================== Initial Connect ====================
+// ============================================================
+// Initial Connect
+// ============================================================
 ensureConnection();
 
-// ==================== AI Search Routes ====================
-setupAISearchRoutes(app);
+// ============================================================
+// AI Search Routes
+// ============================================================
+try {
+  setupAISearchRoutes(app);
+} catch (e) {
+  console.warn("⚠️ AI Search routes not loaded:", e.message);
+}
 
-// ==================== CUSTOM DEPARTMENTS ROUTES (in-memory, legacy) ====================
+// ============================================================
+// HEALTH CHECK (مهم جداً للتشخيص على Render)
+// ============================================================
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: "🚀 Medical Equipment API is running",
+    service: "backend",
+    dbConnected: !!db,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/api/health', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({
+        success: false,
+        dbConnected: false,
+        message: "DB not connected",
+      });
+    }
+    await db.command({ ping: 1 });
+    const [listsCount, equipmentCount, departmentsCount, checklistsCount] = await Promise.all([
+      otCustomListsCollection.countDocuments(),
+      otCustomEquipmentCollection.countDocuments(),
+      otDepartmentsCollection.countDocuments(),
+      checklistsCollection.countDocuments(),
+    ]);
+    res.json({
+      success: true,
+      dbConnected: true,
+      timestamp: new Date().toISOString(),
+      counts: {
+        otCustomLists: listsCount,
+        otCustomEquipment: equipmentCount,
+        otDepartments: departmentsCount,
+        checklists: checklistsCount,
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============================================================
+// CUSTOM DEPARTMENTS (in-memory legacy)
+// ============================================================
 let customDepartments = [];
 
 app.get("/api/custom-departments", (req, res) => {
@@ -258,14 +376,15 @@ app.delete("/api/custom-departments/:id", (req, res) => {
     if (customDepartments.length === initialLength) {
       return res.status(404).json({ success: false, message: "Department not found" });
     }
-    res.json({ success: true, message: "Department deleted successfully" });
+    res.json({ success: true, message: "Department deleted" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ==================== OT DEPARTMENTS ROUTES (MongoDB) ✅ جديد ====================
-
+// ============================================================
+// OT DEPARTMENTS ROUTES (MongoDB)
+// ============================================================
 app.get("/api/ot-departments", async (req, res) => {
   try {
     const depts = await otDepartmentsCollection
@@ -349,7 +468,6 @@ app.delete("/api/ot-departments/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Department not found" });
     }
 
-    // احذفي كل اللستات والمعدات المرتبطة
     const lists = await otCustomListsCollection.find({ deptCode: id }).toArray();
     for (const list of lists) {
       await otCustomEquipmentCollection.deleteMany({ listId: list.id });
@@ -364,8 +482,9 @@ app.delete("/api/ot-departments/:id", async (req, res) => {
   }
 });
 
-// ==================== STAFF ROUTES ====================
-
+// ============================================================
+// STAFF ROUTES
+// ============================================================
 app.post("/api/staff/register", async (req, res) => {
   try {
     const { name, staffNumber, password, confirmPassword, phone, department } = req.body;
@@ -487,8 +606,9 @@ app.delete("/api/staff/:id", async (req, res) => {
   }
 });
 
-// ==================== ADMIN ROUTES ====================
-
+// ============================================================
+// ADMIN ROUTES
+// ============================================================
 app.post('/api/admin/login', async (req, res) => {
   const { name, staff_no, password } = req.body;
   console.log("🔐 Admin login attempt - Name:", name, "Staff No:", staff_no);
@@ -504,17 +624,11 @@ app.post('/api/admin/login', async (req, res) => {
     });
 
     if (!admin) {
-      return res.status(401).json({
-        success: false,
-        message: "❌ Staff number not found"
-      });
+      return res.status(401).json({ success: false, message: "❌ Staff number not found" });
     }
 
     if (admin.isActive === false) {
-      return res.status(401).json({
-        success: false,
-        message: "❌ Account is deactivated"
-      });
+      return res.status(401).json({ success: false, message: "❌ Account is deactivated" });
     }
 
     let isPasswordValid = false;
@@ -528,15 +642,12 @@ app.post('/api/admin/login', async (req, res) => {
           { _id: admin._id },
           { $set: { password: hashedPassword } }
         );
-        console.log("✅ Password upgraded to hashed version");
+        console.log("✅ Password upgraded to hashed");
       }
     }
 
     if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: "❌ Incorrect password"
-      });
+      return res.status(401).json({ success: false, message: "❌ Incorrect password" });
     }
 
     await adminCollection.updateOne(
@@ -572,10 +683,7 @@ app.post('/api/admin/login', async (req, res) => {
 
   } catch (err) {
     console.error('❌ Admin login error:', err);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -627,12 +735,9 @@ app.get('/api/admin/all', verifyAdminToken, async (req, res) => {
   }
 });
 
-// ==================== EQUIPMENT ROUTES (القديم - للتوافق) ====================
-
-app.get("/", (req, res) => {
-  res.send("🚀 Server & MongoDB are working!");
-});
-
+// ============================================================
+// EQUIPMENT ROUTES (Legacy)
+// ============================================================
 app.get("/api/equipment", async (req, res) => {
   try {
     const { category } = req.query;
@@ -692,8 +797,9 @@ app.delete("/api/equipment/:id", async (req, res) => {
   }
 });
 
-// ==================== DEPARTMENT LISTS ROUTES ====================
-
+// ============================================================
+// DEPARTMENT LISTS ROUTES
+// ============================================================
 app.get("/api/dept-lists/:deptCode", async (req, res) => {
   try {
     const { deptCode } = req.params;
@@ -752,22 +858,18 @@ app.delete("/api/dept-lists/:id", async (req, res) => {
   }
 });
 
-// ==================== DEPARTMENT EQUIPMENT ROUTES ====================
-
+// ============================================================
+// DEPARTMENT EQUIPMENT ROUTES
+// ============================================================
 app.get("/api/dept-equipment/list/:listId", async (req, res) => {
   try {
     const { listId } = req.params;
-    console.log(`📡 Fetching equipment for list: ${listId}`);
-
     const items = await deptEquipmentCollection
       .find({ listId })
       .sort({ createdAt: 1 })
       .toArray();
-
-    console.log(`✅ Found ${items.length} equipment items`);
     res.json({ success: true, data: items });
   } catch (err) {
-    console.error('❌ Error fetching equipment:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -789,7 +891,7 @@ app.post("/api/dept-equipment", async (req, res) => {
   try {
     const { deptCode, listId, name, code, quantity, status, notes, image } = req.body;
     if (!deptCode || !listId || !name || !code) {
-      return res.status(400).json({ success: false, message: "Missing required fields: deptCode, listId, name, code" });
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
     const newItem = {
       deptCode, listId, name, code,
@@ -839,67 +941,43 @@ app.delete("/api/dept-equipment/:id", async (req, res) => {
   }
 });
 
-// ==================== CHECKLIST ROUTES ====================
-
+// ============================================================
+// CHECKLIST ROUTES
+// ============================================================
 app.get('/api/checklist/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
-    console.log(`📡 Fetching latest checklist for list: ${listId}`);
-
     const checklist = await checklistsCollection
       .find({ listId })
       .sort({ submittedAt: -1 })
       .limit(1)
       .toArray();
-
     const result = checklist.length > 0 ? checklist[0] : null;
-    console.log(`✅ Checklist found: ${result ? 'Yes' : 'No'}`);
     res.json({ success: true, data: result });
   } catch (error) {
-    console.error('❌ Error fetching checklist:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 app.post('/api/checklist/save', async (req, res) => {
-  console.log('📥 Received payload for checklist save:', req.body);
   try {
     const {
-      listId,
-      deptCode,
-      listName,
-      submitted,
-      submittedAt,
-      submittedBy,
-      userRole,
-      expiryDate,
-      availableQuantities,
-      damagedQuantities,
-      missingQuantities,
-      checkedItems,
-      damagedItems
+      listId, deptCode, listName, submitted, submittedAt, submittedBy, userRole, expiryDate,
+      availableQuantities, damagedQuantities, missingQuantities, checkedItems, damagedItems
     } = req.body;
-
-    console.log(`📤 Saving new checklist for: ${listId}`);
-    console.log(`   Submitted: ${submitted}, By: ${submittedBy}`);
 
     let equipmentList = [];
     let itemsFromDept = await deptEquipmentCollection.find({ listId }).toArray();
     if (itemsFromDept.length > 0) {
       equipmentList = itemsFromDept;
     } else {
-      let itemsFromCustom = await otCustomEquipmentCollection.find({ listId }).toArray();
-      equipmentList = itemsFromCustom;
+      equipmentList = await otCustomEquipmentCollection.find({ listId }).toArray();
     }
-    console.log(`   Found ${equipmentList.length} equipment items`);
 
     let totalItems = equipmentList.length;
     let checkedCount = 0;
     let missingCount = 0;
     let damagedCount = 0;
-    let totalAvailableQty = 0;
-    let totalDamagedQty = 0;
-    let totalMissingQty = 0;
 
     const finalAvailable = {};
     const finalDamaged = {};
@@ -920,17 +998,9 @@ app.post('/api/checklist/save', async (req, res) => {
         const isDamaged = (damagedItems && damagedItems[itemId]) || false;
         if (isChecked) {
           avail = totalQty;
-          damaged = 0;
-          missing = 0;
         } else {
-          avail = 0;
           damaged = isDamaged ? totalQty : 0;
           missing = isDamaged ? 0 : totalQty;
-        }
-        if (damagedItems && damagedItems[itemId] !== undefined && typeof damagedItems[itemId] === 'number') {
-          const dmg = damagedItems[itemId];
-          damaged = dmg;
-          missing = totalQty - avail - damaged;
         }
       }
 
@@ -938,30 +1008,18 @@ app.post('/api/checklist/save', async (req, res) => {
       finalDamaged[itemId] = damaged;
       finalMissing[itemId] = missing;
 
-      totalAvailableQty += avail;
-      totalDamagedQty += damaged;
-      totalMissingQty += missing;
-
       if (avail > 0) checkedCount++;
       if (missing > 0) missingCount++;
       if (damaged > 0) damagedCount++;
     });
 
-    console.log(`📊 Stats: totalItems=${totalItems}, checkedCount=${checkedCount}, missingCount=${missingCount}, damagedCount=${damagedCount}`);
-    console.log(`   Quantities: available=${totalAvailableQty}, missing=${totalMissingQty}, damaged=${totalDamagedQty}`);
-
     const newChecklist = {
-      listId,
-      deptCode,
-      listName,
+      listId, deptCode, listName,
       submitted: submitted || false,
       submittedAt: submittedAt || new Date().toISOString(),
       submittedBy: submittedBy || 'Staff',
       userRole: userRole || 'staff',
-      totalItems,
-      checkedCount,
-      missingCount,
-      damagedCount,
+      totalItems, checkedCount, missingCount, damagedCount,
       expiryDate: expiryDate || null,
       availableQuantities: finalAvailable,
       damagedQuantities: finalDamaged,
@@ -972,7 +1030,7 @@ app.post('/api/checklist/save', async (req, res) => {
     };
 
     const result = await checklistsCollection.insertOne(newChecklist);
-    console.log(`✅ New checklist saved with _id: ${result.insertedId}`);
+    console.log(`✅ Checklist saved: ${result.insertedId}`);
     res.json({ success: true, data: { ...newChecklist, _id: result.insertedId } });
   } catch (error) {
     console.error('❌ Error saving checklist:', error);
@@ -982,39 +1040,33 @@ app.post('/api/checklist/save', async (req, res) => {
 
 app.get('/api/checklists', async (req, res) => {
   try {
-    console.log(`📡 Fetching all submitted checklists`);
-
     const checklists = await checklistsCollection
       .find({ submitted: true })
       .sort({ submittedAt: -1 })
       .toArray();
-
-    console.log(`✅ Found ${checklists.length} submitted checklists`);
 
     for (let checklist of checklists) {
       const equipmentItems = await deptEquipmentCollection
         .find({ listId: checklist.listId })
         .toArray();
       if (equipmentItems.length === 0) {
-        const customItems = await otCustomEquipmentCollection
+        checklist.equipmentDetails = await otCustomEquipmentCollection
           .find({ listId: checklist.listId })
           .toArray();
-        checklist.equipmentDetails = customItems;
       } else {
         checklist.equipmentDetails = equipmentItems;
       }
     }
 
-    console.log(`✅ Sending ${checklists.length} checklists with equipment details`);
     res.json({ success: true, data: checklists });
   } catch (error) {
-    console.error('❌ Error fetching checklists:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ==================== OT CUSTOM LISTS ROUTES ====================
-
+// ============================================================
+// OT CUSTOM LISTS ROUTES
+// ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
     const { roomId, deptCode } = req.query;
@@ -1029,10 +1081,9 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       .toArray();
 
     for (let list of lists) {
-      const equipment = await otCustomEquipmentCollection
+      list.equipment = await otCustomEquipmentCollection
         .find({ listId: list.id })
         .toArray();
-      list.equipment = equipment;
     }
 
     console.log(`✅ Found ${lists.length} custom lists (deptCode=${deptCode || 'all'})`);
@@ -1055,7 +1106,7 @@ app.post('/api/ot-custom-lists', async (req, res) => {
 
     const existing = await otCustomListsCollection.findOne({ id });
     if (existing) {
-      console.warn(`⚠️ List with id ${id} already exists — updating instead`);
+      console.warn(`⚠️ List with id ${id} already exists — updating`);
       await otCustomListsCollection.updateOne(
         { id },
         { $set: {
@@ -1117,7 +1168,6 @@ app.put('/api/ot-custom-lists/:id', async (req, res) => {
     );
 
     if (result.matchedCount === 0) {
-      console.warn(`⚠️ List not found: ${id}`);
       return res.status(404).json({ success: false, message: "List not found" });
     }
 
@@ -1136,12 +1186,11 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
 
     const result = await otCustomListsCollection.deleteOne({ id });
     if (result.deletedCount === 0) {
-      console.warn(`⚠️ List not found for deletion: ${id}`);
       return res.status(404).json({ success: false, message: "List not found" });
     }
 
     const eqResult = await otCustomEquipmentCollection.deleteMany({ listId: id });
-    console.log(`✅ Custom list deleted: ${id} (+${eqResult.deletedCount} equipment items)`);
+    console.log(`✅ Custom list deleted: ${id} (+${eqResult.deletedCount} equipment)`);
     res.json({ success: true, message: "List deleted" });
   } catch (error) {
     console.error('❌ Error deleting custom list:', error);
@@ -1149,17 +1198,16 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
   }
 });
 
-// ==================== OT CUSTOM EQUIPMENT ROUTES ====================
-
+// ============================================================
+// OT CUSTOM EQUIPMENT ROUTES
+// ============================================================
 app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
-
     const equipment = await otCustomEquipmentCollection
       .find({ listId })
       .sort({ createdAt: 1 })
       .toArray();
-
     res.json({ success: true, data: equipment });
   } catch (error) {
     console.error('❌ Error fetching custom equipment:', error);
@@ -1179,7 +1227,6 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
 
     const existing = await otCustomEquipmentCollection.findOne({ id });
     if (existing) {
-      console.warn(`⚠️ Equipment with id ${id} already exists — skipping`);
       return res.json({ success: true, data: existing, alreadyExists: true });
     }
 
@@ -1237,12 +1284,10 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
 app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
-
     const result = await otCustomEquipmentCollection.deleteOne({ id });
     if (result.deletedCount === 0) {
       return res.status(404).json({ success: false, message: "Equipment not found" });
     }
-
     console.log(`✅ Custom equipment deleted: ${id}`);
     res.json({ success: true, message: "Equipment deleted" });
   } catch (error) {
@@ -1251,8 +1296,9 @@ app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
   }
 });
 
-// ==================== OT SURGERY/SET ROUTES ====================
-
+// ============================================================
+// OT SURGERY/SET ROUTES
+// ============================================================
 app.get("/api/ot/surgeries", async (req, res) => {
   try {
     const surgeries = await otSurgeriesCollection.find({}).sort({ createdAt: 1 }).toArray();
@@ -1306,7 +1352,7 @@ app.delete("/api/ot/surgeries/:id", async (req, res) => {
     }
     await otSetsCollection.deleteMany({ surgeryId: id });
 
-    res.json({ success: true, message: "Surgery and all related data deleted" });
+    res.json({ success: true, message: "Surgery and related data deleted" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -1386,7 +1432,7 @@ app.post("/api/ot/equipment", async (req, res) => {
   try {
     const { setId, name, code, quantity, status, notes, image } = req.body;
     if (!setId || !name || !code) {
-      return res.status(400).json({ success: false, message: "Missing required fields: setId, name, code" });
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
     const setInfo = await otSetsCollection.findOne({ _id: new ObjectId(setId) });
@@ -1446,15 +1492,15 @@ app.delete("/api/ot/equipment/:id", async (req, res) => {
   }
 });
 
-// ==================== TEST & DEBUG ROUTES ====================
-
+// ============================================================
+// DEBUG ROUTES
+// ============================================================
 app.get('/api/test/admins', async (req, res) => {
   try {
     const collectionsList = await db.listCollections().toArray();
     const collectionNames = collectionsList.map(c => c.name);
-    const adminCollectionTest = db.collection("admin");
-    let admin = await adminCollectionTest.findOne({ staff_no: "host3487539" });
-    if (!admin) admin = await adminCollectionTest.findOne({ staffNumber: "host3487539" });
+    let admin = await adminCollection.findOne({ staff_no: "host3487539" });
+    if (!admin) admin = await adminCollection.findOne({ staffNumber: "host3487539" });
     res.json({
       success: true,
       availableCollections: collectionNames,
@@ -1468,7 +1514,7 @@ app.get('/api/test/admins', async (req, res) => {
 
 app.get('/api/debug/admin-structure', async (req, res) => {
   try {
-    const allAdmins = await db.collection("admin").find({}).toArray();
+    const allAdmins = await adminCollection.find({}).toArray();
     res.json({
       success: true,
       totalAdmins: allAdmins.length,
@@ -1484,43 +1530,30 @@ app.get('/api/debug/admin-structure', async (req, res) => {
   }
 });
 
-// ✅ Route تشخيصي للتحقق من الاتصال بالـ DB
-app.get('/api/health', async (req, res) => {
-  try {
-    if (!db) {
-      return res.status(503).json({ success: false, dbConnected: false });
-    }
-    await db.command({ ping: 1 });
-    const listsCount = await otCustomListsCollection.countDocuments();
-    const equipmentCount = await otCustomEquipmentCollection.countDocuments();
-    const departmentsCount = await otDepartmentsCollection.countDocuments();
-    res.json({
-      success: true,
-      dbConnected: true,
-      counts: {
-        otCustomLists: listsCount,
-        otCustomEquipment: equipmentCount,
-        otDepartments: departmentsCount,
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+// ✅ Debug: صفحات وبيانات للتحقق من نفس المصدر
+app.get('/api/debug/info', async (req, res) => {
+  res.json({
+    success: true,
+    service: "backend",
+    mongodbDatabase: "medical_equipment",
+    mongoUriHost: MONGODB_URI.match(/@([^/?]+)/)?.[1] || 'unknown',
+    allowedOrigins,
+    nodeEnv: process.env.NODE_ENV || 'development',
+    renderServiceName: process.env.RENDER_SERVICE_NAME || null,
+    renderExternalUrl: process.env.RENDER_EXTERNAL_URL || null,
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// ==================== PDF GENERATION ROUTE ====================
-
+// ============================================================
+// PDF GENERATION ROUTE
+// ============================================================
 app.post('/api/generate-pdf', async (req, res) => {
   try {
     const { content, filename } = req.body;
-
     if (!content) {
-      return res.status(400).json({
-        success: false,
-        message: 'Content is required'
-      });
+      return res.status(400).json({ success: false, message: 'Content is required' });
     }
-
     res.json({
       success: true,
       message: 'PDF generated successfully',
@@ -1535,21 +1568,21 @@ app.post('/api/generate-pdf', async (req, res) => {
   }
 });
 
-// ==================== IMAGE PROXY ROUTE ====================
-
+// ============================================================
+// IMAGE PROXY ROUTE
+// ============================================================
 app.get('/api/image-proxy', async (req, res) => {
   try {
     const imageUrl = req.query.url;
-
     if (!imageUrl) {
       return res.status(400).json({ success: false, message: 'Image URL is required' });
     }
 
-    console.log(`📡 Fetching image from: ${imageUrl}`);
+    console.log(`📡 Fetching image: ${imageUrl}`);
 
     const response = await fetch(imageUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       }
     });
 
@@ -1564,31 +1597,56 @@ app.get('/api/image-proxy', async (req, res) => {
     res.set('Content-Type', contentType);
     res.set('Cache-Control', 'public, max-age=86400');
     res.send(buffer);
-
   } catch (error) {
     console.error('❌ Image proxy error:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ==================== SERVER START ====================
+// ============================================================
+// OPTIONAL: SERVE FRONTEND BUILD (إذا Frontend + Backend في نفس Service)
+// ============================================================
+const buildPath = path.join(__dirname, 'build');
+const hasBuild = fs.existsSync(path.join(buildPath, 'index.html'));
+
+if (hasBuild) {
+  console.log('📦 Serving frontend build from:', buildPath);
+  app.use(express.static(buildPath));
+
+  // ⚠️ مهم: لا نستخدم '*' في Express 5 — نستخدم regex
+  app.get(/^\/(?!api).*/, (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'));
+  });
+} else {
+  console.log('ℹ️ No frontend build found (API-only mode)');
+}
+
+// ============================================================
+// ERROR HANDLER (يجب أن يكون الأخير)
+// ============================================================
+app.use((err, req, res, next) => {
+  console.error('💥 Unhandled error:', err);
+  if (err.message?.startsWith('CORS')) {
+    return res.status(403).json({ success: false, message: err.message });
+  }
+  res.status(500).json({ success: false, message: err.message || 'Server error' });
+});
+
+// ============================================================
+// SERVER START
+// ============================================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, "0.0.0.0", () => {
+  console.log('═══════════════════════════════════════════════════════');
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
-  console.log(`👑 Admin credentials: staff_no=host3487539, password=123456`);
-  console.log(`📦 Dept Lists API:      /api/dept-lists/:deptCode`);
-  console.log(`📦 Dept Equipment API:  /api/dept-equipment/:deptCode/:listId`);
-  console.log(`📋 Checklist API:       /api/checklist/:listId (GET latest)`);
-  console.log(`✅ Checklist Save API:  /api/checklist/save`);
-  console.log(`📊 Reports API:         /api/checklists (GET all submitted)`);
-  console.log(`🆕 OT Departments API:  /api/ot-departments`);
-  console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
-  console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
-  console.log(`🆕 OT Equipment API:    /api/ot/equipment/:setId`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`👑 Admin: staff_no=host3487539, password=123456`);
+  console.log(`📦 OT Departments API:  /api/ot-departments`);
   console.log(`📋 OT Custom Lists API: /api/ot-custom-lists`);
   console.log(`🔧 OT Custom Equip API: /api/ot-custom-equipment`);
-  console.log(`🤖 AI Search API:       /api/ai-search/instrument?name=...`);
-  console.log(`🔧 Debug: /api/test/admins | /api/debug/admin-structure | /api/health`);
-  console.log(`✅ CORS allowed origin: ${clientUrl}`);
+  console.log(`✅ Health Check:        /api/health`);
+  console.log(`🔍 Debug Info:          /api/debug/info`);
+  console.log(`🌐 Allowed origins:     ${allowedOrigins.join(', ')}`);
+  console.log(`📦 Serving frontend:    ${hasBuild ? 'YES' : 'NO'}`);
+  console.log('═══════════════════════════════════════════════════════');
 });
