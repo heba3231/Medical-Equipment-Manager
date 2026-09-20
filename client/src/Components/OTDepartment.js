@@ -295,16 +295,6 @@ function OTDepartment() {
     ),
   };
 
-  // ========== DEFAULT DEPARTMENTS ==========
-  const defaultDepartments = [
-    { id: "dept_women", name: "Women & Maternity", description: "Obstetrics and Gynecology Department" },
-    { id: "dept_surgery", name: "General Surgery", description: "General Surgery Department" },
-    { id: "dept_ortho", name: "Orthopedics", description: "Orthopedic Surgery Department" },
-    { id: "dept_ent", name: "E.N.T", description: "Ear, Nose and Throat Department" },
-    { id: "dept_cardiac", name: "Cardiac Surgery", description: "Cardiac Surgery Department" },
-    { id: "dept_pediatric", name: "Pediatric Surgery", description: "Pediatric Surgery Department" },
-  ];
-
   // ========== GET SERVER IP FOR QR ==========
   useEffect(() => {
     const currentHostname = window.location.hostname;
@@ -324,39 +314,32 @@ function OTDepartment() {
     if (qrListId && qrDeptCode) {
       setSelectedDeptId(qrDeptCode);
       setSelectedListId(qrListId);
-      fetchEquipmentForList(qrListId);
+      fetchEquipment(qrListId);
     }
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — بدون إنشاء default lists تلقائياً
+  // ✅ loadDepartments — من MongoDB (بدل localStorage)
   // ============================================================
   const loadDepartments = async () => {
     try {
       setLoading(true);
-      const savedDepts = localStorage.getItem("ot_departments");
-      let depts;
+      setServerError(null);
 
-      if (savedDepts) {
-        try {
-          depts = JSON.parse(savedDepts);
-        } catch {
-          depts = defaultDepartments;
+      const data = await apiFetch(`${API_BASE}/ot-departments`);
+
+      if (data.success) {
+        const depts = data.data || [];
+        setDepartments(depts);
+
+        // اجلب اللستات لكل قسم
+        for (const dept of depts) {
+          await fetchLists(dept.id);
         }
-      } else {
-        depts = defaultDepartments;
-        localStorage.setItem("ot_departments", JSON.stringify(defaultDepartments));
-      }
-
-      setDepartments(depts);
-
-      // ✅ اجلب اللستات لكل قسم — بدون إنشاء default
-      for (const dept of depts) {
-        await fetchLists(dept.id);
       }
     } catch (err) {
-      console.error("Error loading departments:", err);
-      setDepartments(defaultDepartments);
+      console.error("Error loading departments:", err.message);
+      setServerError(err.message);
     } finally {
       setLoading(false);
     }
@@ -372,17 +355,15 @@ function OTDepartment() {
       );
 
       if (data.success) {
-        const lists = data.data || [];
-        setLists(prev => ({ ...prev, [deptId]: lists }));
+        const listsArr = data.data || [];
+        setLists(prev => ({ ...prev, [deptId]: listsArr }));
 
-        // اجلب معدات كل لستة
-        for (const list of lists) {
+        for (const list of listsArr) {
           await fetchEquipment(list.id);
         }
       }
     } catch (err) {
       console.error("Error fetching lists for", deptId, ":", err.message);
-      // ✅ لا تنشئ default عند الفشل — فقط اعرض فاضي
       setLists(prev => ({ ...prev, [deptId]: prev[deptId] || [] }));
     }
   };
@@ -403,37 +384,46 @@ function OTDepartment() {
     }
   };
 
-  const fetchEquipmentForList = async (listId) => {
-    return fetchEquipment(listId);
-  };
-
-  // ========== DEPARTMENT CRUD (localStorage) ==========
-  const handleAddDept = () => {
+  // ============================================================
+  // ✅ DEPARTMENT CRUD — عبر API
+  // ============================================================
+  const handleAddDept = async () => {
     if (!newDept.name.trim()) return alert("Please enter department name");
 
-    const newDeptObj = {
-      id: `dept_${Date.now()}`,
-      name: newDept.name.trim(),
-      description: newDept.description.trim() || ""
-    };
+    setSaving(true);
+    try {
+      if (editingDeptId) {
+        // تعديل
+        await apiFetch(`${API_BASE}/ot-departments/${editingDeptId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: newDept.name.trim(),
+            description: newDept.description.trim()
+          })
+        });
+        setEditingDeptId(null);
+      } else {
+        // إضافة جديدة
+        const deptId = `dept_${Date.now()}`;
+        await apiFetch(`${API_BASE}/ot-departments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: deptId,
+            name: newDept.name.trim(),
+            description: newDept.description.trim()
+          })
+        });
+      }
 
-    let updatedDepts;
-    if (editingDeptId) {
-      updatedDepts = departments.map(d =>
-        d.id === editingDeptId ? { ...d, ...newDeptObj } : d
-      );
-      setEditingDeptId(null);
-    } else {
-      updatedDepts = [...departments, newDeptObj];
-    }
-
-    setDepartments(updatedDepts);
-    localStorage.setItem("ot_departments", JSON.stringify(updatedDepts));
-    setNewDept({ name: "", description: "" });
-
-    // ✅ بعد إضافة قسم جديد، جهّزي state للستات
-    if (!editingDeptId) {
-      setLists(prev => ({ ...prev, [newDeptObj.id]: [] }));
+      await loadDepartments(); // ✅ إعادة تحميل من السيرفر
+      setNewDept({ name: "", description: "" });
+    } catch (err) {
+      console.error("Error saving department:", err);
+      alert("❌ فشل حفظ القسم: " + err.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -442,30 +432,29 @@ function OTDepartment() {
     setNewDept({ name: dept.name, description: dept.description || "" });
   };
 
-  const handleDeleteDept = (id, name) => {
+  const handleDeleteDept = async (id, name) => {
     if (!window.confirm(`Delete department "${name}"? All lists and equipment will be deleted!`)) return;
 
-    const updatedDepts = departments.filter(d => d.id !== id);
-    setDepartments(updatedDepts);
-    localStorage.setItem("ot_departments", JSON.stringify(updatedDepts));
+    try {
+      await apiFetch(`${API_BASE}/ot-departments/${id}`, { method: "DELETE" });
 
-    // ✅ احذفي لستات هذا القسم من السيرفر أيضاً
-    const deptLists = lists[id] || [];
-    Promise.all(
-      deptLists.map(list =>
-        apiFetch(`${API_BASE}/ot-custom-lists/${list.id}`, { method: "DELETE" })
-          .catch(err => console.warn("Failed to delete list from server:", list.id, err.message))
-      )
-    );
+      // نظفي state
+      setDepartments(prev => prev.filter(d => d.id !== id));
+      setLists(prev => { const c = { ...prev }; delete c[id]; return c; });
 
-    setLists(prev => { const newState = { ...prev }; delete newState[id]; return newState; });
+      if (selectedDeptId === id) setSelectedDeptId(null);
+      if (selectedListId) setSelectedListId(null);
 
-    if (selectedDeptId === id) setSelectedDeptId(null);
-    if (selectedListId && (lists[id] || []).find(l => l.id === selectedListId)) setSelectedListId(null);
+      // ✅ إعادة تحميل للتأكد
+      await loadDepartments();
+    } catch (err) {
+      console.error("Error deleting department:", err);
+      alert("❌ فشل حذف القسم: " + err.message);
+    }
   };
 
   // ============================================================
-  // ✅ handleAddList — مع فحص الفشل + إعادة تحميل من السيرفر
+  // ✅ LIST CRUD — مع فحص الفشل + إعادة تحميل
   // ============================================================
   const handleAddList = async () => {
     if (!newList.name.trim()) return alert("Please enter list name");
@@ -513,9 +502,6 @@ function OTDepartment() {
     setNewList({ name: list.name, description: list.description || "" });
   };
 
-  // ============================================================
-  // ✅ handleDeleteList — مع فحص الفشل + إعادة تحميل
-  // ============================================================
   const handleDeleteList = async (listId, name) => {
     if (!window.confirm(`Delete list "${name}"? All equipment will be deleted!`)) return;
 
@@ -529,7 +515,6 @@ function OTDepartment() {
       // ✅ إعادة تحميل من السيرفر للتأكد من الحذف الفعلي
       await fetchLists(selectedDeptId);
 
-      // نظفي state المعدات
       setEquipment(prev => {
         const copy = { ...prev };
         delete copy[listId];
@@ -544,7 +529,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ handleAddEquipment — مع فحص الفشل + إعادة تحميل
+  // ✅ EQUIPMENT CRUD — مع فحص الفشل + إعادة تحميل
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -597,9 +582,6 @@ function OTDepartment() {
     setImagePreview(item.image || null);
   };
 
-  // ============================================================
-  // ✅ handleDeleteEquipment — مع فحص الفشل + إعادة تحميل
-  // ============================================================
   const handleDeleteEquipment = async (id, name) => {
     if (!window.confirm(`Delete equipment "${name}"?`)) return;
 
@@ -989,7 +971,7 @@ function OTDepartment() {
     }
   };
 
-  // ===================== PRINT CHECKLIST FUNCTION =====================
+  // ===================== PRINT CHECKLIST =====================
   const handlePrintChecklist = () => {
     const technicianName = checkMeta.technician || "Technician";
     const dateObj = checkMeta.startedAt || new Date();
@@ -1083,7 +1065,7 @@ function OTDepartment() {
     printWindow.onload = () => { printWindow.print(); };
   };
 
-  // ========== PAPER-STYLE TABLE CELL STYLES ==========
+  // ========== TABLE CELL STYLES ==========
   const equipThStyle = {
     padding: isMobile ? "8px 6px" : "10px 8px",
     border: "2px solid #000000",
@@ -1217,7 +1199,6 @@ function OTDepartment() {
             flexWrap: "wrap",
             marginBottom: "20px"
           }} className="no-print">
-            {/* Set image */}
             <div style={{
               width: isMobile ? "100%" : "150px",
               height: isMobile ? "140px" : "110px",
@@ -1352,7 +1333,6 @@ function OTDepartment() {
               )}
             </div>
 
-            {/* Name + code */}
             <div style={{ minWidth: isMobile ? "100%" : "180px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px", flexWrap: "wrap" }}>
                 <span style={{ fontSize: isMobile ? "17px" : "19px", fontWeight: "700", color: "#1f2937" }}>
@@ -1372,7 +1352,6 @@ function OTDepartment() {
               </div>
             </div>
 
-            {/* Meta grid */}
             <div style={{
               display: "grid",
               gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, auto)",
@@ -1412,7 +1391,6 @@ function OTDepartment() {
               </div>
             </div>
 
-            {/* Expiry Date */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, marginLeft: isMobile ? "0" : "auto" }}>
               <div style={{
                 padding: isMobile ? "6px 12px" : "8px 16px",
@@ -1428,7 +1406,6 @@ function OTDepartment() {
               </div>
             </div>
 
-            {/* Percentage ring */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
               <div style={{
                 width: isMobile ? "72px" : "84px",
@@ -2122,6 +2099,23 @@ function OTDepartment() {
     );
   }
 
+  // ✅ رسالة خطأ الاتصال بالسيرفر
+  if (serverError && departments.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "60px 20px", maxWidth: "600px", margin: "0 auto" }}>
+        <div style={{ fontSize: "48px", marginBottom: "20px" }}>⚠️</div>
+        <h2 style={{ color: "#dc2626", marginBottom: "10px" }}>تعذّر الاتصال بالسيرفر</h2>
+        <p style={{ color: "#6b7280", marginBottom: "20px" }}>{serverError}</p>
+        <button
+          onClick={loadDepartments}
+          style={{ padding: "10px 24px", background: "#006341", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}
+        >
+          🔄 إعادة المحاولة
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       padding: isMobile ? "16px" : "30px",
@@ -2178,7 +2172,7 @@ function OTDepartment() {
         gap: "20px",
         alignItems: "start"
       }}>
-        {/* ===== LEFT COLUMN: DEPARTMENTS & LISTS ===== */}
+        {/* ===== LEFT COLUMN ===== */}
         <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
           {/* DEPARTMENTS SECTION */}
           <div style={{
@@ -2235,6 +2229,7 @@ function OTDepartment() {
                 <div style={{ display: "flex", gap: "6px" }}>
                   <button
                     onClick={handleAddDept}
+                    disabled={saving}
                     style={{
                       flex: 1,
                       padding: "8px",
@@ -2242,8 +2237,9 @@ function OTDepartment() {
                       color: "white",
                       border: "none",
                       borderRadius: "8px",
-                      cursor: "pointer",
+                      cursor: saving ? "not-allowed" : "pointer",
                       fontWeight: "600",
+                      opacity: saving ? 0.6 : 1,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -2251,7 +2247,7 @@ function OTDepartment() {
                       fontSize: isMobile ? "12px" : "13px"
                     }}
                   >
-                    <Icons.add />
+                    {saving ? "⏳" : <Icons.add />}
                     {editingDeptId ? "Update" : "Add"}
                   </button>
                   {editingDeptId && (
@@ -2280,7 +2276,7 @@ function OTDepartment() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               {departments.length === 0 ? (
-                <p style={{ color: "#9ca3af", fontSize: "13px" }}>No departments added yet.</p>
+                <p style={{ color: "#9ca3af", fontSize: "13px" }}>No departments available.</p>
               ) : (
                 departments.map(dept => (
                   <div
@@ -2722,7 +2718,7 @@ function OTDepartment() {
                 </div>
               )}
 
-              {/* ===== EQUIPMENT LIST HEADER WITH QR CODE ===== */}
+              {/* EQUIPMENT LIST HEADER WITH QR */}
               <div style={{
                 display: "flex",
                 flexDirection: isMobile ? "column" : "row",
@@ -2757,7 +2753,6 @@ function OTDepartment() {
                   alignItems: "center",
                   flexWrap: "wrap"
                 }}>
-                  {/* QR Code */}
                   <div
                     onClick={() => setShowQRModal(true)}
                     style={{
@@ -2804,7 +2799,6 @@ function OTDepartment() {
                     </div>
                   </div>
 
-                  {/* Search */}
                   <div style={{
                     display: "flex",
                     alignItems: "center",
@@ -2866,7 +2860,7 @@ function OTDepartment() {
                 </div>
               </div>
 
-              {/* ===== EQUIPMENT TABLE ===== */}
+              {/* EQUIPMENT TABLE */}
               {filteredAndSortedEquipment.length === 0 ? (
                 <div style={{
                   textAlign: "center",
@@ -3000,7 +2994,7 @@ function OTDepartment() {
         </div>
       </div>
 
-      {/* ===== QR MODAL ===== */}
+      {/* QR MODAL */}
       {showQRModal && (
         <div
           style={{
@@ -3083,7 +3077,7 @@ function OTDepartment() {
         </div>
       )}
 
-      {/* ===== Image Modal ===== */}
+      {/* Image Modal */}
       {imageModal && (
         <div
           style={{

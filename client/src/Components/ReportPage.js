@@ -21,7 +21,7 @@ function ReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // ===== STATE FOR DEPARTMENTS (Folders) =====
+  // ===== STATE FOR DEPARTMENTS (من MongoDB الآن) =====
   const [departments, setDepartments] = useState([]);
   const [selectedDeptId, setSelectedDeptId] = useState('');
 
@@ -34,17 +34,23 @@ function ReportPage() {
   const isMobile = width < 768;
   const isTablet = width >= 768 && width < 1024;
 
-  // ========== Load departments from localStorage ==========
+  // ============================================================
+  // ✅ تحميل الأقسام من MongoDB (بدل localStorage)
+  // ============================================================
   useEffect(() => {
-    const loadDepartments = () => {
+    const loadDepartments = async () => {
       try {
-        const saved = localStorage.getItem('ot_departments');
-        if (saved) {
-          const depts = JSON.parse(saved);
-          setDepartments(depts);
+        const response = await fetch(`${API_BASE}/ot-departments`, {
+          cache: 'no-store',
+        });
+        const data = await response.json();
+        if (data.success) {
+          setDepartments(data.data || []);
+        } else {
+          console.warn('Failed to load departments:', data.message);
         }
       } catch (e) {
-        console.warn('Could not load departments from localStorage', e);
+        console.warn('Could not load departments from server:', e.message);
       }
     };
     loadDepartments();
@@ -255,7 +261,7 @@ function ReportPage() {
         </div>
       </div>
 
-      {/* Folders */}
+      {/* Folders (Departments) */}
       <div style={{
         display: 'flex',
         flexWrap: 'wrap',
@@ -328,7 +334,7 @@ function ReportPage() {
         })}
         {departments.length === 0 && (
           <span style={{ color: '#9ca3af', fontSize: '13px' }}>
-            No departments found. Add departments from the OT Department page.
+            Loading departments...
           </span>
         )}
       </div>
@@ -464,7 +470,7 @@ function ReportPage() {
                     {item.listName || 'Equipment List'}
                   </span>
                   <span style={{ background: '#e6f0ec', color: '#065f46', padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>
-                    {item.deptCode || item.deptName || 'Department'}
+                    {departments.find(d => d.id === item.deptCode)?.name || item.deptCode || item.deptName || 'Department'}
                   </span>
                   <span style={{ background: '#d1fae5', color: '#065f46', padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>
                     ✅ Submitted
@@ -503,7 +509,7 @@ function ReportPage() {
         </div>
       )}
 
-      {/* ===== Details Modal with enhanced table (English, responsive) ===== */}
+      {/* ===== Details Modal ===== */}
       {selectedChecklist && (
         <div
           style={{
@@ -602,14 +608,14 @@ function ReportPage() {
               borderRadius: '8px',
               border: '1px solid #e5e7eb'
             }}>
-              <div><strong>Department:</strong> {selectedChecklist.deptCode || selectedChecklist.deptName || '—'}</div>
+              <div><strong>Department:</strong> {departments.find(d => d.id === selectedChecklist.deptCode)?.name || selectedChecklist.deptCode || selectedChecklist.deptName || '—'}</div>
               <div><strong>Submitted By:</strong> {selectedChecklist.submittedBy || '—'}</div>
               <div><strong>Submitted At:</strong> {selectedChecklist.submittedAt ? new Date(selectedChecklist.submittedAt).toLocaleString() : '—'}</div>
               <div><strong>Expiry Date:</strong> {formatDate(selectedChecklist.expiryDate)}</div>
               <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
             </div>
 
-            {/* Equipment table with English columns: Name, Code, Total, Available, Missing, Damaged, Status */}
+            {/* Equipment table */}
             {selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 ? (
               <div>
                 <h4 style={{
@@ -645,7 +651,6 @@ function ReportPage() {
                     </thead>
                     <tbody>
                       {selectedChecklist.equipmentDetails.map((item) => {
-                        // Find keys
                         const possibleKeys = [];
                         if (item.id) possibleKeys.push(item.id);
                         if (item._id) possibleKeys.push(item._id.toString());
@@ -655,7 +660,6 @@ function ReportPage() {
                         let damagedQty = 0;
                         let missingQty = 0;
 
-                        // Get quantities from stored objects
                         if (selectedChecklist.availableQuantities) {
                           for (const key of possibleKeys) {
                             if (selectedChecklist.availableQuantities[key] !== undefined) {
@@ -680,11 +684,9 @@ function ReportPage() {
                             }
                           }
                         } else {
-                          // Fallback: compute missing = total - available - damaged
                           missingQty = totalQty - availableQty - damagedQty;
                         }
 
-                        // Determine status (English)
                         let statusText = '';
                         let statusColor = '';
                         let statusBg = '';

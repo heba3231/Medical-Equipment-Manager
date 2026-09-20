@@ -60,13 +60,13 @@ let otSetsCollection;
 let checklistsCollection;
 let otCustomListsCollection;
 let otCustomEquipmentCollection;
+let otDepartmentsCollection; // ✅ جديد
 
 // ==================== Ensure Connection (Reusable) ====================
 async function ensureConnection() {
   if (db) return true;
 
   if (isConnecting) {
-    // انتظر الاتصال الجاري
     let waited = 0;
     while (isConnecting && waited < 10000) {
       await new Promise(r => setTimeout(r, 100));
@@ -90,8 +90,9 @@ async function ensureConnection() {
     checklistsCollection = db.collection("checklists");
     otCustomListsCollection = db.collection("ot_custom_lists");
     otCustomEquipmentCollection = db.collection("ot_custom_equipment");
+    otDepartmentsCollection = db.collection("ot_departments"); // ✅ جديد
 
-    // Indexes (كل واحد في try/catch مستقل حتى لا يفشل الاتصال لو واحد فشل)
+    // Indexes
     const indexTasks = [
       () => equipmentCollection.createIndex({ category: 1 }),
       () => equipmentCollection.createIndex({ code: 1 }),
@@ -106,6 +107,7 @@ async function ensureConnection() {
       () => otCustomListsCollection.createIndex({ id: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1 }),
       () => otCustomEquipmentCollection.createIndex({ id: 1 }),
+      () => otDepartmentsCollection.createIndex({ id: 1 }, { unique: true }), // ✅ جديد
     ];
     for (const task of indexTasks) {
       try { await task(); } catch (e) {
@@ -138,6 +140,9 @@ async function ensureConnection() {
       console.log("✅ Admin already exists:", existingAdmin.name);
     }
 
+    // ✅ Seed default OT departments
+    await seedDefaultDepartments();
+
     console.log("✅ MongoDB connected successfully");
     return true;
   } catch (error) {
@@ -149,9 +154,40 @@ async function ensureConnection() {
   }
 }
 
+// ==================== Seed Default OT Departments ====================
+async function seedDefaultDepartments() {
+  try {
+    const defaults = [
+      { id: "dept_women", name: "Women & Maternity", description: "Obstetrics and Gynecology Department" },
+      { id: "dept_surgery", name: "General Surgery", description: "General Surgery Department" },
+      { id: "dept_ortho", name: "Orthopedics", description: "Orthopedic Surgery Department" },
+      { id: "dept_ent", name: "E.N.T", description: "Ear, Nose and Throat Department" },
+      { id: "dept_cardiac", name: "Cardiac Surgery", description: "Cardiac Surgery Department" },
+      { id: "dept_pediatric", name: "Pediatric Surgery", description: "Pediatric Surgery Department" },
+    ];
+
+    let createdCount = 0;
+    for (const dept of defaults) {
+      const existing = await otDepartmentsCollection.findOne({ id: dept.id });
+      if (!existing) {
+        await otDepartmentsCollection.insertOne({
+          ...dept,
+          isDefault: true,
+          createdAt: new Date()
+        });
+        createdCount++;
+      }
+    }
+    if (createdCount > 0) {
+      console.log(`✅ Seeded ${createdCount} default OT departments`);
+    }
+  } catch (err) {
+    console.error("⚠️ Error seeding OT departments:", err.message);
+  }
+}
+
 // ==================== DB Middleware (قبل أي /api route) ====================
 app.use('/api', async (req, res, next) => {
-  // نتجاهل OPTIONS لأن CORS يتعامل معها
   if (req.method === 'OPTIONS') return next();
 
   const ok = await ensureConnection();
@@ -184,7 +220,7 @@ ensureConnection();
 // ==================== AI Search Routes ====================
 setupAISearchRoutes(app);
 
-// ==================== CUSTOM DEPARTMENTS ROUTES (in-memory) ====================
+// ==================== CUSTOM DEPARTMENTS ROUTES (in-memory, legacy) ====================
 let customDepartments = [];
 
 app.get("/api/custom-departments", (req, res) => {
@@ -224,6 +260,106 @@ app.delete("/api/custom-departments/:id", (req, res) => {
     }
     res.json({ success: true, message: "Department deleted successfully" });
   } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ==================== OT DEPARTMENTS ROUTES (MongoDB) ✅ جديد ====================
+
+app.get("/api/ot-departments", async (req, res) => {
+  try {
+    const depts = await otDepartmentsCollection
+      .find({})
+      .sort({ createdAt: 1 })
+      .toArray();
+    res.json({ success: true, data: depts });
+  } catch (err) {
+    console.error("❌ Error fetching OT departments:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/ot-departments", async (req, res) => {
+  try {
+    const { id, name, description } = req.body;
+    console.log(`📥 POST /api/ot-departments`, { id, name });
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: "name is required" });
+    }
+
+    const deptId = id || `dept_${Date.now()}`;
+
+    const existing = await otDepartmentsCollection.findOne({ id: deptId });
+    if (existing) {
+      return res.status(400).json({ success: false, message: "Department already exists" });
+    }
+
+    const newDept = {
+      id: deptId,
+      name: name.trim(),
+      description: description?.trim() || "",
+      isDefault: false,
+      createdAt: new Date()
+    };
+
+    await otDepartmentsCollection.insertOne(newDept);
+    console.log(`✅ OT Department created: ${name} (id=${deptId})`);
+    res.status(201).json({ success: true, data: newDept });
+  } catch (err) {
+    console.error("❌ Error creating OT department:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.put("/api/ot-departments/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description } = req.body;
+    console.log(`📥 PUT /api/ot-departments/${id}`, { name });
+
+    const result = await otDepartmentsCollection.updateOne(
+      { id },
+      { $set: {
+        name: name?.trim() || "",
+        description: description?.trim() || "",
+        updatedAt: new Date()
+      } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Department not found" });
+    }
+
+    console.log(`✅ OT Department updated: ${id}`);
+    res.json({ success: true, message: "Department updated" });
+  } catch (err) {
+    console.error("❌ Error updating OT department:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.delete("/api/ot-departments/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📥 DELETE /api/ot-departments/${id}`);
+
+    const result = await otDepartmentsCollection.deleteOne({ id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Department not found" });
+    }
+
+    // احذفي كل اللستات والمعدات المرتبطة
+    const lists = await otCustomListsCollection.find({ deptCode: id }).toArray();
+    for (const list of lists) {
+      await otCustomEquipmentCollection.deleteMany({ listId: list.id });
+    }
+    const listsResult = await otCustomListsCollection.deleteMany({ deptCode: id });
+
+    console.log(`✅ OT Department deleted: ${id} (+${listsResult.deletedCount} lists)`);
+    res.json({ success: true, message: "Department and related data deleted" });
+  } catch (err) {
+    console.error("❌ Error deleting OT department:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -917,7 +1053,6 @@ app.post('/api/ot-custom-lists', async (req, res) => {
       return res.status(400).json({ success: false, message: "id and name are required" });
     }
 
-    // ✅ منع التكرار بنفس الـ id
     const existing = await otCustomListsCollection.findOne({ id });
     if (existing) {
       console.warn(`⚠️ List with id ${id} already exists — updating instead`);
@@ -1116,7 +1251,7 @@ app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
   }
 });
 
-// ==================== OT DEPARTMENT ROUTES ====================
+// ==================== OT SURGERY/SET ROUTES ====================
 
 app.get("/api/ot/surgeries", async (req, res) => {
   try {
@@ -1358,12 +1493,14 @@ app.get('/api/health', async (req, res) => {
     await db.command({ ping: 1 });
     const listsCount = await otCustomListsCollection.countDocuments();
     const equipmentCount = await otCustomEquipmentCollection.countDocuments();
+    const departmentsCount = await otDepartmentsCollection.countDocuments();
     res.json({
       success: true,
       dbConnected: true,
       counts: {
         otCustomLists: listsCount,
         otCustomEquipment: equipmentCount,
+        otDepartments: departmentsCount,
       }
     });
   } catch (err) {
@@ -1445,6 +1582,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📋 Checklist API:       /api/checklist/:listId (GET latest)`);
   console.log(`✅ Checklist Save API:  /api/checklist/save`);
   console.log(`📊 Reports API:         /api/checklists (GET all submitted)`);
+  console.log(`🆕 OT Departments API:  /api/ot-departments`);
   console.log(`🆕 OT Surgeries API:    /api/ot/surgeries`);
   console.log(`🆕 OT Sets API:         /api/ot/sets/:surgeryId`);
   console.log(`🆕 OT Equipment API:    /api/ot/equipment/:setId`);
