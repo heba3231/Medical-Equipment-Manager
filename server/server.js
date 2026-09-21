@@ -58,6 +58,18 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // ============================================================
+// ✅ NO-CACHE MIDDLEWARE — منع الكاش من المتصفح والـ CDN
+// هذا يحل مشكلة: التلفون يضيف، اللابتوب ما يشوف التحديث
+// ============================================================
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('Surrogate-Control', 'no-store');
+  next();
+});
+
+// ============================================================
 // JWT & MongoDB Config
 // ============================================================
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
@@ -136,7 +148,7 @@ async function ensureConnection() {
     otDepartmentsCollection = db.collection("ot_departments");
 
     // ============================================================
-    // ✅ Indexes
+    // Indexes
     // ============================================================
     const indexTasks = [
       () => equipmentCollection.createIndex({ category: 1 }),
@@ -380,7 +392,7 @@ app.get('/api/debug/collections-stats', async (req, res) => {
   }
 });
 
-// ✅ تنظيف الأدوات اليتيمة والقديمة
+// تنظيف الأدوات اليتيمة والقديمة
 app.post('/api/debug/clean-orphans', async (req, res) => {
   try {
     console.log('🧹 Starting orphan cleanup...');
@@ -1151,7 +1163,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES — مُحسّنة بـ aggregation (أسرع 10-20x)
+// OT CUSTOM LISTS ROUTES — مُحسّنة بـ aggregation
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
@@ -1162,7 +1174,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
 
     const t0 = Date.now();
 
-    // ✅ استعلام واحد يجيب اللستات + المعدات (بدل N+1)
     const lists = await otCustomListsCollection
       .aggregate([
         { $match: match },
@@ -1389,7 +1400,7 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
   }
 });
 
-// ✅ DELETE route مُصلح — يدعم id و _id
+// DELETE route مُصلح — يدعم id و _id
 app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1399,11 +1410,9 @@ app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid equipment ID" });
     }
 
-    // ✅ حاول بـ id أولاً
     let result = await otCustomEquipmentCollection.deleteOne({ id });
     console.log(`   deleteOne({id: '${id}'}) → deletedCount=${result.deletedCount}`);
 
-    // ✅ إذا فشل، جرّب بـ _id (لو كان ObjectId صالح)
     if (result.deletedCount === 0) {
       try {
         if (ObjectId.isValid(id)) {
@@ -1759,7 +1768,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`👑 Admin: staff_no=host3487539, password=123456`);
   console.log(`📦 OT Departments:  /api/ot-departments`);
-  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (OPTIMIZED)`);
+  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (OPTIMIZED + NO-CACHE)`);
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
   console.log(`✅ Health Check:    /api/health`);
   console.log(`🔍 Debug Info:      /api/debug/info`);

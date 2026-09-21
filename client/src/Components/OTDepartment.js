@@ -1,5 +1,5 @@
 // Components/OTDepartment.js
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -359,7 +359,67 @@ function OTDepartment() {
       fetchEquipment(qrListId);
     }
   }, [qrListId, qrDeptCode]);
+  // ============================================================
+  // ✅ Refs لحفظ آخر قيم selectedDeptId و selectedListId
+  // ============================================================
+  const selectedDeptIdRef = useRef(selectedDeptId);
+  const selectedListIdRef = useRef(selectedListId);
 
+  useEffect(() => {
+    selectedDeptIdRef.current = selectedDeptId;
+    selectedListIdRef.current = selectedListId;
+  }, [selectedDeptId, selectedListId]);
+
+  // ============================================================
+  // ✅ Auto-Refresh كل 10 ثواني (للتوافق بين الأجهزة)
+  // ============================================================
+  useEffect(() => {
+    const POLL_INTERVAL = 10000; // 10 ثواني
+
+    const poll = async () => {
+      // لا نعمل poll إذا الصفحة مخفية
+      if (document.visibilityState !== 'visible') return;
+      // لا نعمل poll إلا إذا فيه قسم مختار
+      const deptId = selectedDeptIdRef.current;
+      if (!deptId) return;
+
+      try {
+        console.log('🔄 Auto-refresh (polling)...');
+        await fetchLists(deptId);
+        // fetchLists يجيب اللستات + المعدات معاً
+      } catch (err) {
+        console.warn('⚠️ Polling failed:', err.message);
+      }
+    };
+
+    const interval = setInterval(poll, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, []); // مرة وحدة فقط
+
+  // ============================================================
+  // ✅ Refresh فوري عند العودة للصفحة أو التركيز
+  // ============================================================
+  useEffect(() => {
+    const refresh = () => {
+      const deptId = selectedDeptIdRef.current;
+      if (deptId) {
+        console.log('🔄 Refresh on visibility/focus...');
+        fetchLists(deptId);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', refresh);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
   // ============================================================
   // ✅ loadDepartments — تحميل متوازي (أسرع 10-20 مرة)
   // ============================================================
@@ -721,6 +781,8 @@ function OTDepartment() {
       }));
 
       console.log(`✅ ${savedName} saved`);
+            // ✅ Refetch من السيرفر للتأكد من التزامن
+      await fetchEquipment(selectedListId);
     } catch (err) {
       console.error("❌ handleAddEquipment:", err);
 
