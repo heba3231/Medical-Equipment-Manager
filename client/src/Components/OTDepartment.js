@@ -144,6 +144,15 @@ function OTDepartment() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [expiryDate, setExpiryDate] = useState(null);
 
+  // ✅ Refs لحفظ القيم الحالية دون إعادة تشغيل Polling
+  const selectedDeptIdRef = useRef(selectedDeptId);
+  const selectedListIdRef = useRef(selectedListId);
+  const checkModeRef = useRef(checkMode);
+
+  useEffect(() => { selectedDeptIdRef.current = selectedDeptId; }, [selectedDeptId]);
+  useEffect(() => { selectedListIdRef.current = selectedListId; }, [selectedListId]);
+  useEffect(() => { checkModeRef.current = checkMode; }, [checkMode]);
+
   const { width } = useWindowSize();
   const isMobile = width < 768;
   const isTablet = width < 1024 && width >= 768;
@@ -359,67 +368,7 @@ function OTDepartment() {
       fetchEquipment(qrListId);
     }
   }, [qrListId, qrDeptCode]);
-  // ============================================================
-  // ✅ Refs لحفظ آخر قيم selectedDeptId و selectedListId
-  // ============================================================
-  const selectedDeptIdRef = useRef(selectedDeptId);
-  const selectedListIdRef = useRef(selectedListId);
 
-  useEffect(() => {
-    selectedDeptIdRef.current = selectedDeptId;
-    selectedListIdRef.current = selectedListId;
-  }, [selectedDeptId, selectedListId]);
-
-  // ============================================================
-  // ✅ Auto-Refresh كل 10 ثواني (للتوافق بين الأجهزة)
-  // ============================================================
-  useEffect(() => {
-    const POLL_INTERVAL = 10000; // 10 ثواني
-
-    const poll = async () => {
-      // لا نعمل poll إذا الصفحة مخفية
-      if (document.visibilityState !== 'visible') return;
-      // لا نعمل poll إلا إذا فيه قسم مختار
-      const deptId = selectedDeptIdRef.current;
-      if (!deptId) return;
-
-      try {
-        console.log('🔄 Auto-refresh (polling)...');
-        await fetchLists(deptId);
-        // fetchLists يجيب اللستات + المعدات معاً
-      } catch (err) {
-        console.warn('⚠️ Polling failed:', err.message);
-      }
-    };
-
-    const interval = setInterval(poll, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, []); // مرة وحدة فقط
-
-  // ============================================================
-  // ✅ Refresh فوري عند العودة للصفحة أو التركيز
-  // ============================================================
-  useEffect(() => {
-    const refresh = () => {
-      const deptId = selectedDeptIdRef.current;
-      if (deptId) {
-        console.log('🔄 Refresh on visibility/focus...');
-        fetchLists(deptId);
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') refresh();
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', refresh);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', refresh);
-    };
-  }, []);
   // ============================================================
   // ✅ loadDepartments — تحميل متوازي (أسرع 10-20 مرة)
   // ============================================================
@@ -525,21 +474,110 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ visibilitychange — تحديث عند العودة للصفحة
+  // ✅✅✅ POLLING — مزامنة تلقائية بين الأجهزة (كل 5 ثوانٍ)
   // ============================================================
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && selectedDeptId) {
-        console.log('🔄 Page visible — refreshing lists...');
-        fetchLists(selectedDeptId);
-        if (selectedListId) {
-          fetchEquipment(selectedListId);
+    let isRefreshing = false;
+
+    const refreshAll = async () => {
+      // تجاهل إذا التبويب مخفي
+      if (document.visibilityState !== 'visible') return;
+      // تجاهل إذا في وسط تحديث سابق
+      if (isRefreshing) return;
+      // تجاهل إذا المستخدم في وضع الفحص (لا نريد إزعاجه)
+      if (checkModeRef.current) return;
+
+      isRefreshing = true;
+
+      try {
+        // 1. اجلب الأقسام
+        const deptsData = await apiFetch(
+          `${API_BASE}/ot-departments?_t=${Date.now()}`
+        );
+        const depts = deptsData.data || [];
+
+        if (depts.length === 0) {
+          setDepartments(depts);
+          setLists({});
+          setEquipment({});
+          return;
         }
+
+        // 2. اجلب اللستات + المعدات لكل الأقسام بالتوازي
+        const results = await Promise.all(
+          depts.map(dept =>
+            apiFetch(
+              `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(dept.id)}&_t=${Date.now()}`
+            )
+              .then(d => ({ deptId: dept.id, lists: d.data || [] }))
+              .catch(() => ({ deptId: dept.id, lists: [] }))
+          )
+        );
+
+        const newLists = {};
+        const newEquipment = {};
+
+        for (const { deptId, lists } of results) {
+          newLists[deptId] = lists;
+          for (const list of lists) {
+            newEquipment[list.id] = list.equipment || [];
+          }
+        }
+
+        // 3. حدّث الحالة — مع الحفاظ على العناصر optimistic (لو موجودة)
+        setDepartments(depts);
+        setLists(newLists);
+
+        setEquipment(prev => {
+          const merged = {};
+          // دمج كل listId من السيرفر
+          for (const listId in newEquipment) {
+            const serverItems = newEquipment[listId];
+            const serverIds = new Set(serverItems.map(i => i.id));
+            // احتفظ بالعناصر optimistic التي لم يصلها السيرفر بعد
+            const optimisticItems = (prev[listId] || []).filter(
+              i => i._optimistic && !serverIds.has(i.id)
+            );
+            merged[listId] = [...serverItems, ...optimisticItems];
+          }
+          // احتفظ بأي listId غير موجود في السيرفر (لاست أضيفت محلياً)
+          for (const listId in prev) {
+            if (!merged[listId]) {
+              merged[listId] = prev[listId].filter(i => i._optimistic);
+            }
+          }
+          return merged;
+        });
+
+        console.log('🔄 Polled sync — data refreshed from server');
+      } catch (err) {
+        // فشل صامت — لا نريد إزعاج المستخدم
+        console.warn('⚠️ Poll refresh failed:', err.message);
+      } finally {
+        isRefreshing = false;
       }
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [selectedDeptId, selectedListId]);
+
+    // ✅ Polling كل 5 ثوانٍ
+    const pollInterval = setInterval(refreshAll, 5000);
+
+    // ✅ تحديث فوري عند رجوع التبويب أو focus النافذة
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('🔄 Page focused — refreshing...');
+        refreshAll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleFocus);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []); // ← مرة واحدة فقط — لا يعاد تشغيله
 
   // ============================================================
   // ✅ DEPARTMENT CRUD
@@ -781,8 +819,6 @@ function OTDepartment() {
       }));
 
       console.log(`✅ ${savedName} saved`);
-            // ✅ Refetch من السيرفر للتأكد من التزامن
-      await fetchEquipment(selectedListId);
     } catch (err) {
       console.error("❌ handleAddEquipment:", err);
 

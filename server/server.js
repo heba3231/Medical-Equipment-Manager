@@ -41,11 +41,47 @@ const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
 
 console.log('🌐 Allowed CORS origins:', allowedOrigins);
 
+// ✅ دالة للتحقق من IP محلي (لأجهزة الشبكة المحلية مثل التلفون)
+function isLocalNetworkOrigin(origin) {
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    const host = url.hostname;
+
+    // localhost / 127.0.0.1
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+
+    // IPv4 private ranges
+    // 192.168.0.0/16
+    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+    // 10.0.0.0/8
+    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+    // 172.16.0.0/12
+    if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 app.use(cors({
   origin: (origin, callback) => {
+    // اسمح بالطلبات بدون origin (مثل Postman أو تطبيقات الموبايل الأصلية)
     if (!origin) return callback(null, true);
+
+    // القائمة المعتمدة
     if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    // نطاقات Render
     if (origin.endsWith('.onrender.com')) return callback(null, true);
+
+    // ✅ اسمح بأي IP محلي في الشبكة (للتلفون واللابتوب على نفس الواي فاي)
+    if (isLocalNetworkOrigin(origin)) {
+      console.log(`✅ CORS allowed local network origin: ${origin}`);
+      return callback(null, true);
+    }
+
     console.warn(`⚠️ CORS blocked origin: ${origin}`);
     return callback(new Error(`CORS blocked: ${origin}`));
   },
@@ -56,18 +92,6 @@ app.use(cors({
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
-// ============================================================
-// ✅ NO-CACHE MIDDLEWARE — منع الكاش من المتصفح والـ CDN
-// هذا يحل مشكلة: التلفون يضيف، اللابتوب ما يشوف التحديث
-// ============================================================
-app.use('/api', (req, res, next) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
-  res.set('Surrogate-Control', 'no-store');
-  next();
-});
 
 // ============================================================
 // JWT & MongoDB Config
@@ -148,7 +172,7 @@ async function ensureConnection() {
     otDepartmentsCollection = db.collection("ot_departments");
 
     // ============================================================
-    // Indexes
+    // ✅ Indexes
     // ============================================================
     const indexTasks = [
       () => equipmentCollection.createIndex({ category: 1 }),
@@ -392,7 +416,7 @@ app.get('/api/debug/collections-stats', async (req, res) => {
   }
 });
 
-// تنظيف الأدوات اليتيمة والقديمة
+// ✅ تنظيف الأدوات اليتيمة والقديمة
 app.post('/api/debug/clean-orphans', async (req, res) => {
   try {
     console.log('🧹 Starting orphan cleanup...');
@@ -1163,7 +1187,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// OT CUSTOM LISTS ROUTES — مُحسّنة بـ aggregation
+// ✅ OT CUSTOM LISTS ROUTES — مُحسّنة بـ aggregation (أسرع 10-20x)
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
@@ -1174,6 +1198,7 @@ app.get('/api/ot-custom-lists', async (req, res) => {
 
     const t0 = Date.now();
 
+    // ✅ استعلام واحد يجيب اللستات + المعدات (بدل N+1)
     const lists = await otCustomListsCollection
       .aggregate([
         { $match: match },
@@ -1400,7 +1425,7 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
   }
 });
 
-// DELETE route مُصلح — يدعم id و _id
+// ✅ DELETE route مُصلح — يدعم id و _id
 app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1410,9 +1435,11 @@ app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid equipment ID" });
     }
 
+    // ✅ حاول بـ id أولاً
     let result = await otCustomEquipmentCollection.deleteOne({ id });
     console.log(`   deleteOne({id: '${id}'}) → deletedCount=${result.deletedCount}`);
 
+    // ✅ إذا فشل، جرّب بـ _id (لو كان ObjectId صالح)
     if (result.deletedCount === 0) {
       try {
         if (ObjectId.isValid(id)) {
@@ -1768,13 +1795,14 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`👑 Admin: staff_no=host3487539, password=123456`);
   console.log(`📦 OT Departments:  /api/ot-departments`);
-  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (OPTIMIZED + NO-CACHE)`);
+  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (OPTIMIZED)`);
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
   console.log(`✅ Health Check:    /api/health`);
   console.log(`🔍 Debug Info:      /api/debug/info`);
   console.log(`📊 Collections:     /api/debug/collections-stats`);
   console.log(`🧹 Cleanup:         POST /api/debug/clean-orphans`);
   console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
+  console.log(`🏠 Local network:   ALLOWED (192.168.x.x, 10.x.x.x, 172.16-31.x.x)`);
   console.log(`📦 Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
   console.log('═══════════════════════════════════════════════════════');
 });
