@@ -747,17 +747,18 @@ function OTDepartment() {
     const savedCode = optimisticItem.code;
     const savedQty = optimisticItem.quantity;
     const savedImg = optimisticItem.image;
+    const savedListId = selectedListId;
 
     // أضف/عدّل فوراً في الواجهة
     if (!isEditing) {
       setEquipment(prev => ({
         ...prev,
-        [selectedListId]: [...(prev[selectedListId] || []), optimisticItem]
+        [savedListId]: [...(prev[savedListId] || []), optimisticItem]
       }));
     } else {
       setEquipment(prev => ({
         ...prev,
-        [selectedListId]: (prev[selectedListId] || []).map(item =>
+        [savedListId]: (prev[savedListId] || []).map(item =>
           item.id === editingEquipId ? { ...item, ...optimisticItem, _optimistic: true } : item
         )
       }));
@@ -771,7 +772,7 @@ function OTDepartment() {
     try {
       const equipData = {
         id: editingEquipId || tempId,
-        listId: selectedListId,
+        listId: savedListId,
         name: savedName,
         code: savedCode,
         quantity: savedQty,
@@ -808,13 +809,24 @@ function OTDepartment() {
       if (!data.success) throw new Error(data.message || "Unknown error");
 
       // ✅ 3. استبدل الـ optimistic element بالحقيقي
+      // ✅ مع Fallback defensive — لا تختفي المعدّة حتى لو لم يُرجع السيرفر data
       setEquipment(prev => ({
         ...prev,
-        [selectedListId]: (prev[selectedListId] || []).map(item => {
-          if (item.id === tempId || (isEditing && item.id === editingEquipId)) {
-            return { ...data.data, _optimistic: false };
-          }
-          return item;
+        [savedListId]: (prev[savedListId] || []).map(item => {
+          const matches = item.id === tempId || (isEditing && item.id === editingEquipId);
+          if (!matches) return item;
+
+          // ✅ استخدم data.data إن وُجد، وإلا استخدم optimisticItem كـ fallback
+          const finalData = (data.data && data.data.id)
+            ? data.data
+            : { ...optimisticItem };
+
+          return {
+            ...finalData,
+            _optimistic: false,
+            id: finalData.id || item.id,
+            listId: finalData.listId || savedListId,
+          };
         })
       }));
 
@@ -825,7 +837,7 @@ function OTDepartment() {
       // ✅ إذا فشل، احذف الـ optimistic element
       setEquipment(prev => ({
         ...prev,
-        [selectedListId]: (prev[selectedListId] || []).filter(item => !item._optimistic)
+        [savedListId]: (prev[savedListId] || []).filter(item => !item._optimistic)
       }));
 
       alert("❌ فشل حفظ المعدة: " + err.message);
@@ -865,13 +877,14 @@ function OTDepartment() {
 
     if (!window.confirm(`Delete equipment "${name}"?`)) return;
 
+    const currentListId = selectedListId;
     // ✅ احفظ العنصر لو فشل الحذف
-    const backup = (equipment[selectedListId] || []).find(item => item.id === id);
+    const backup = (equipment[currentListId] || []).find(item => item.id === id);
 
     // ✅ 1. احذف فوراً من الواجهة
     setEquipment(prev => ({
       ...prev,
-      [selectedListId]: (prev[selectedListId] || []).filter(item => item.id !== id)
+      [currentListId]: (prev[currentListId] || []).filter(item => item.id !== id)
     }));
 
     console.log(`📤 DELETE equipment: ${id}`);
@@ -899,7 +912,7 @@ function OTDepartment() {
       if (backup) {
         setEquipment(prev => ({
           ...prev,
-          [selectedListId]: [...(prev[selectedListId] || []), backup]
+          [currentListId]: [...(prev[currentListId] || []), backup]
         }));
       }
 

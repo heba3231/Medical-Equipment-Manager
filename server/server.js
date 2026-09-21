@@ -52,11 +52,8 @@ function isLocalNetworkOrigin(origin) {
     if (host === 'localhost' || host === '127.0.0.1') return true;
 
     // IPv4 private ranges
-    // 192.168.0.0/16
     if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-    // 10.0.0.0/8
     if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-    // 172.16.0.0/12
     if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
 
     return false;
@@ -67,16 +64,11 @@ function isLocalNetworkOrigin(origin) {
 
 app.use(cors({
   origin: (origin, callback) => {
-    // اسمح بالطلبات بدون origin (مثل Postman أو تطبيقات الموبايل الأصلية)
     if (!origin) return callback(null, true);
-
-    // القائمة المعتمدة
     if (allowedOrigins.includes(origin)) return callback(null, true);
-
-    // نطاقات Render
     if (origin.endsWith('.onrender.com')) return callback(null, true);
 
-    // ✅ اسمح بأي IP محلي في الشبكة (للتلفون واللابتوب على نفس الواي فاي)
+    // ✅ اسمح بأي IP محلي في الشبكة
     if (isLocalNetworkOrigin(origin)) {
       console.log(`✅ CORS allowed local network origin: ${origin}`);
       return callback(null, true);
@@ -548,6 +540,7 @@ app.post("/api/ot-departments", async (req, res) => {
   }
 });
 
+// ✅ PUT — يُرجع البيانات المُحدَّثة
 app.put("/api/ot-departments/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -567,8 +560,15 @@ app.put("/api/ot-departments/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Department not found" });
     }
 
+    // ✅ إرجاع المستند المُحدَّث
+    const updatedDoc = await otDepartmentsCollection.findOne({ id });
+
     console.log(`✅ Department updated: ${id}`);
-    res.json({ success: true, message: "Department updated" });
+    res.json({
+      success: true,
+      message: "Department updated",
+      data: updatedDoc
+    });
   } catch (err) {
     console.error("❌ Error updating department:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -1276,6 +1276,7 @@ app.post('/api/ot-custom-lists', async (req, res) => {
   }
 });
 
+// ✅ PUT — يُرجع البيانات المُحدَّثة
 app.put('/api/ot-custom-lists/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1304,8 +1305,16 @@ app.put('/api/ot-custom-lists/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: "List not found" });
     }
 
+    // ✅ إرجاع المستند المُحدَّث
+    const updatedDoc = await otCustomListsCollection.findOne({ id });
+
     console.log(`✅ Custom list updated: ${id}`);
-    res.json({ success: true, message: "List updated", modifiedCount: result.modifiedCount });
+    res.json({
+      success: true,
+      message: "List updated",
+      data: updatedDoc,
+      modifiedCount: result.modifiedCount
+    });
   } catch (error) {
     console.error('❌ Error updating custom list:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1394,14 +1403,19 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
   }
 });
 
+// ✅ PUT — يُرجع البيانات المُحدَّثة (الإصلاح الرئيسي)
 app.put('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, code, quantity, status, image } = req.body;
 
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Equipment ID is required" });
+    }
+
     const updatedEquipment = {
-      name: name.trim(),
-      code: code.trim(),
+      name: name?.trim() || "",
+      code: code?.trim() || "",
       quantity: parseInt(quantity) || 1,
       status: status || "Available",
       image: image || null,
@@ -1417,8 +1431,16 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: "Equipment not found" });
     }
 
-    console.log(`✅ Custom equipment updated: ${name}`);
-    res.json({ success: true, message: "Equipment updated" });
+    // ✅ جلب المستند المُحدَّث وإرجاعه للواجهة
+    const updatedDoc = await otCustomEquipmentCollection.findOne({ id });
+
+    console.log(`✅ Custom equipment updated: ${name} (id=${id})`);
+    res.json({
+      success: true,
+      message: "Equipment updated",
+      data: updatedDoc,
+      modifiedCount: result.modifiedCount
+    });
   } catch (error) {
     console.error('❌ Error updating custom equipment:', error);
     res.status(500).json({ success: false, message: error.message });
