@@ -21,14 +21,50 @@ const API_BASE =
   process.env.REACT_APP_API_URL ||
   `${window.location.origin}/api`;
 
-// للتشخيص (شوفيه في Console)
 if (typeof window !== 'undefined') {
   window.__API_BASE__ = API_BASE;
   console.log('🔍 API_BASE =', API_BASE);
 }
 
 // ============================================================
-// ✅ API Helper — يفحص response.ok ويمنع الـ cache
+// ✅ ضغط الصور — يقلل الحجم بنسبة 95%
+// ============================================================
+function compressImage(file, maxDimension = 500, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+
+        // تصغير الأبعاد مع الحفاظ على النسبة
+        if (width > height && width > maxDimension) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else if (height > maxDimension) {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressed);
+      };
+      img.onerror = () => reject(new Error('فشل تحميل الصورة'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('فشل قراءة الملف'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// ============================================================
+// ✅ API Helper
 // ============================================================
 async function apiFetch(url, options = {}) {
   const response = await fetch(url, {
@@ -44,8 +80,10 @@ async function apiFetch(url, options = {}) {
   }
 
   if (!response.ok) {
-    const msg = data?.message || `HTTP ${response.status} ${response.statusText}`;
-    throw new Error(msg);
+    const err = new Error(data?.message || `HTTP ${response.status} ${response.statusText}`);
+    err.status = response.status;
+    err.data = data;
+    throw err;
   }
 
   if (data && data.success === false) {
@@ -330,7 +368,7 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — من MongoDB
+  // ✅ loadDepartments
   // ============================================================
   const loadDepartments = async () => {
     try {
@@ -344,7 +382,6 @@ function OTDepartment() {
         const depts = data.data || [];
         setDepartments(depts);
 
-        // اجلب اللستات لكل قسم
         for (const dept of depts) {
           await fetchLists(dept.id);
         }
@@ -358,7 +395,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists — بدون createDefaultList
+  // ✅ fetchLists
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -397,6 +434,7 @@ function OTDepartment() {
       }
     } catch (err) {
       console.error("❌ fetchEquipment error:", err.message);
+      // ✅ لا نمسح state — نخلي القديم أفضل من لا شي
     }
   };
 
@@ -419,7 +457,7 @@ function OTDepartment() {
         });
         setEditingDeptId(null);
       } else {
-        const deptId = `dept_${Date.now()}`;
+        const deptId = `dept_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         await apiFetch(`${API_BASE}/ot-departments`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -466,7 +504,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ LIST CRUD — مع فحص الفشل + إعادة تحميل + logging
+  // ✅ LIST CRUD
   // ============================================================
   const handleAddList = async () => {
     if (!newList.name.trim()) return alert("Please enter list name");
@@ -543,7 +581,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD
+  // ✅ EQUIPMENT CRUD — مع retry عند 409
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -562,23 +600,48 @@ function OTDepartment() {
         image: newEquipment.image || null
       };
 
-      console.log('📤 POST equipment:', equipData);
+      console.log('📤 POST equipment:', { ...equipData, image: equipData.image ? `[${equipData.image.length} chars]` : null });
 
       const url = editingEquipId
         ? `${API_BASE}/ot-custom-equipment/${editingEquipId}`
         : `${API_BASE}/ot-custom-equipment`;
       const method = editingEquipId ? "PUT" : "POST";
 
-      const data = await apiFetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(equipData)
-      });
+      let data;
+      try {
+        data = await apiFetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(equipData)
+        });
+      } catch (err) {
+        // ✅ إذا ID موجود مسبقاً (409) → نجدد ID ونعيد المحاولة
+        if (err.status === 409 || err.data?.alreadyExists) {
+          console.warn('⚠️ ID collision, retrying with new ID');
+          equipData.id = `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          data = await apiFetch(`${API_BASE}/ot-custom-equipment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(equipData)
+          });
+        } else {
+          throw err;
+        }
+      }
 
       console.log('📥 Response:', data);
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
+      // ✅ أضف مباشرة للـ state (optimistic)
+      if (!editingEquipId && data.data) {
+        setEquipment(prev => ({
+          ...prev,
+          [selectedListId]: [...(prev[selectedListId] || []), data.data]
+        }));
+      }
+
+      // ✅ ثم refetch للتأكد من التزامن
       await fetchEquipment(selectedListId);
       resetEquipmentForm();
     } catch (err) {
@@ -623,17 +686,28 @@ function OTDepartment() {
     setEditingEquipId(null);
   };
 
-  // ========== IMAGE HANDLING ==========
-  const handleImageChange = (e) => {
+  // ============================================================
+  // ✅ IMAGE HANDLING — مع ضغط
+  // ============================================================
+  const handleImageChange = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) { alert("Image too large! Maximum 5MB"); return; }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-        setNewEquipment(prev => ({ ...prev, image: reader.result }));
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    // ✅ حد أقصى 5MB قبل الضغط
+    if (file.size > 5 * 1024 * 1024) {
+      alert("⚠️ الصورة كبيرة! الحد الأقصى 5MB قبل الضغط");
+      return;
+    }
+
+    try {
+      // ✅ ضغط الصورة — يحولها إلى ~50KB
+      const compressed = await compressImage(file, 500, 0.7);
+      console.log(`📷 Image compressed: ${file.size} bytes → ${compressed.length} chars`);
+
+      setImagePreview(compressed);
+      setNewEquipment(prev => ({ ...prev, image: compressed }));
+    } catch (err) {
+      alert("❌ فشل معالجة الصورة: " + err.message);
     }
   };
 
@@ -642,18 +716,7 @@ function OTDepartment() {
     input.type = 'file';
     input.accept = 'image/*';
     input.capture = 'environment';
-    input.onchange = (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        if (file.size > 5 * 1024 * 1024) { alert("Image too large! Maximum 5MB"); return; }
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setImagePreview(reader.result);
-          setNewEquipment(prev => ({ ...prev, image: reader.result }));
-        };
-        reader.readAsDataURL(file);
-      }
-    };
+    input.onchange = handleImageChange;
     input.click();
   };
 
@@ -900,56 +963,55 @@ function OTDepartment() {
     alert("📢 Shortage notification sent to room administrator");
   };
 
-  const handleCheckListImageUpload = (e) => {
+  // ✅ رفع صورة اللستة — مع ضغط
+  const handleCheckListImageUpload = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert("⚠️ Image too large! Maximum 5MB");
-        return;
-      }
-      setIsUploadingImage(true);
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const imageData = reader.result;
-        setCheckListImage(imageData);
+    if (!file) return;
 
-        try {
-          const listData = {
-            name: selectedListObj?.name || "",
-            description: selectedListObj?.description || "",
-            image: imageData,
-            deptCode: selectedDeptId,
-            roomId: null
-          };
+    if (file.size > 5 * 1024 * 1024) {
+      alert("⚠️ الصورة كبيرة! الحد الأقصى 5MB");
+      return;
+    }
 
-          const result = await apiFetch(`${API_BASE}/ot-custom-lists/${selectedListId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(listData)
-          });
+    setIsUploadingImage(true);
+    try {
+      const compressed = await compressImage(file, 600, 0.7);
+      console.log(`📷 Set image compressed: ${file.size} → ${compressed.length} chars`);
+      setCheckListImage(compressed);
 
-          if (result.success) {
-            setLists(prev => {
-              const updatedLists = { ...prev };
-              if (updatedLists[selectedDeptId]) {
-                updatedLists[selectedDeptId] = updatedLists[selectedDeptId].map(list =>
-                  list.id === selectedListId ? { ...list, image: imageData } : list
-                );
-              }
-              return updatedLists;
-            });
-          } else {
-            alert("❌ Failed to save image: " + (result.message || "Unknown error"));
-            setCheckListImage(null);
-          }
-        } catch (err) {
-          alert("❌ Error saving image: " + err.message);
-          setCheckListImage(null);
-        } finally {
-          setIsUploadingImage(false);
-        }
+      const listData = {
+        name: selectedListObj?.name || "",
+        description: selectedListObj?.description || "",
+        image: compressed,
+        deptCode: selectedDeptId,
+        roomId: null
       };
-      reader.readAsDataURL(file);
+
+      const result = await apiFetch(`${API_BASE}/ot-custom-lists/${selectedListId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(listData)
+      });
+
+      if (result.success) {
+        setLists(prev => {
+          const updatedLists = { ...prev };
+          if (updatedLists[selectedDeptId]) {
+            updatedLists[selectedDeptId] = updatedLists[selectedDeptId].map(list =>
+              list.id === selectedListId ? { ...list, image: compressed } : list
+            );
+          }
+          return updatedLists;
+        });
+      } else {
+        alert("❌ Failed to save image: " + (result.message || "Unknown error"));
+        setCheckListImage(null);
+      }
+    } catch (err) {
+      alert("❌ فشل رفع الصورة: " + err.message);
+      setCheckListImage(null);
+    } finally {
+      setIsUploadingImage(false);
     }
   };
 
@@ -1043,7 +1105,6 @@ function OTDepartment() {
           thead th { background: #f0f7f4; color: #004d32; font-weight: 700; padding: 8px 6px; border: 1px solid #999; text-align: left; }
           tbody td { padding: 7px 6px; border: 1px solid #999; vertical-align: middle; }
           .col-index { text-align: center; width: 36px; }
-          .col-name { text-align: left; }
           .col-required { text-align: center; width: 70px; }
           .col-available { text-align: center; width: 70px; }
           .col-status { text-align: left; width: 120px; }
@@ -1118,7 +1179,6 @@ function OTDepartment() {
         background: "#eef1f0",
         minHeight: "100vh"
       }}>
-        {/* TOP BAR */}
         <div style={{
           background: "#ffffff",
           borderBottom: "1px solid #e5e7eb",
@@ -1196,7 +1256,6 @@ function OTDepartment() {
         </div>
 
         <div style={{ maxWidth: "1300px", margin: "0 auto", padding: isMobile ? "12px 10px 100px" : "22px 24px 120px" }}>
-          {/* SET INFO CARD */}
           <div style={{
             background: "#ffffff",
             borderRadius: "16px",
@@ -1447,7 +1506,6 @@ function OTDepartment() {
             </div>
           </div>
 
-          {/* CHECK TABLE */}
           <div style={{
             background: "#ffffff",
             borderRadius: "16px",
@@ -1682,7 +1740,6 @@ function OTDepartment() {
           </div>
         </div>
 
-        {/* FIXED BOTTOM BAR */}
         <div style={{
           position: "fixed",
           bottom: 0,
@@ -2108,7 +2165,6 @@ function OTDepartment() {
     );
   }
 
-  // ✅ رسالة خطأ الاتصال بالسيرفر
   if (serverError && departments.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", maxWidth: "600px", margin: "0 auto" }}>

@@ -15,7 +15,7 @@ import dotenv from 'dotenv';
 // تحميل متغيرات البيئة
 dotenv.config();
 
-// Force Google DNS (لحل مشاكل Atlas)
+// Force Google DNS
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 const app = express();
@@ -23,7 +23,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ============================================================
-// CORS Configuration — يدعم عدة Origins (Render + محلي)
+// CORS Configuration
 // ============================================================
 const defaultOrigins = [
   'http://localhost:3000',
@@ -44,16 +44,8 @@ console.log('🌐 Allowed CORS origins:', allowedOrigins);
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    // اسمح لأي *.onrender.com
-    if (origin.endsWith('.onrender.com')) {
-      return callback(null, true);
-    }
-
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (origin.endsWith('.onrender.com')) return callback(null, true);
     console.warn(`⚠️ CORS blocked origin: ${origin}`);
     return callback(new Error(`CORS blocked: ${origin}`));
   },
@@ -105,12 +97,11 @@ let otCustomEquipmentCollection;
 let otDepartmentsCollection;
 
 // ============================================================
-// Ensure Connection (مع timeout ذكي)
+// Ensure Connection
 // ============================================================
 async function ensureConnection() {
   if (db) return true;
 
-  // لو فيه محاولة جارية، انتظرها
   if (isConnecting) {
     let waited = 0;
     while (isConnecting && waited < 15000) {
@@ -120,7 +111,6 @@ async function ensureConnection() {
     return !!db;
   }
 
-  // منع محاولات سريعة متكررة
   const now = Date.now();
   if (now - lastConnectAttempt < 1000) {
     await new Promise(r => setTimeout(r, 1000));
@@ -145,21 +135,47 @@ async function ensureConnection() {
     otCustomEquipmentCollection = db.collection("ot_custom_equipment");
     otDepartmentsCollection = db.collection("ot_departments");
 
-    // Indexes
+    // ============================================================
+    // ✅ Indexes — مهمة جداً لمنع "Sort exceeded memory limit"
+    // ============================================================
     const indexTasks = [
+      // Equipment
       () => equipmentCollection.createIndex({ category: 1 }),
       () => equipmentCollection.createIndex({ code: 1 }),
+
+      // Dept Equipment
       () => deptEquipmentCollection.createIndex({ deptCode: 1, listId: 1 }),
+      () => deptEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
+
+      // Dept Lists
       () => deptListsCollection.createIndex({ deptCode: 1 }),
+      () => deptListsCollection.createIndex({ deptCode: 1, createdAt: 1 }),
+
+      // OT Surgeries / Sets
       () => otSurgeriesCollection.createIndex({ name: 1 }),
       () => otSetsCollection.createIndex({ surgeryId: 1 }),
+
+      // Checklists
       () => checklistsCollection.createIndex({ listId: 1 }),
       () => checklistsCollection.createIndex({ submittedAt: -1 }),
+      () => checklistsCollection.createIndex({ listId: 1, submittedAt: -1 }),
+
+      // OT Custom Lists
       () => otCustomListsCollection.createIndex({ deptCode: 1 }),
+      () => otCustomListsCollection.createIndex({ roomId: 1 }),
       () => otCustomListsCollection.createIndex({ id: 1 }),
+      () => otCustomListsCollection.createIndex({ deptCode: 1, createdAt: -1 }),
+
+      // OT Custom Equipment
       () => otCustomEquipmentCollection.createIndex({ listId: 1 }),
       () => otCustomEquipmentCollection.createIndex({ id: 1 }),
+      // ✅ مهم جداً: يسمح بفرز سريع بدون تحميل كل شي في الذاكرة
+      () => otCustomEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
+      () => otCustomEquipmentCollection.createIndex({ listId: 1, _id: 1 }),
+
+      // OT Departments
       () => otDepartmentsCollection.createIndex({ id: 1 }, { unique: true }),
+      () => otDepartmentsCollection.createIndex({ createdAt: 1 }),
     ];
     for (const task of indexTasks) {
       try { await task(); } catch (e) {
@@ -206,7 +222,7 @@ async function ensureConnection() {
 }
 
 // ============================================================
-// Seed Default OT Departments (مرة وحدة فقط)
+// Seed Default OT Departments (once)
 // ============================================================
 async function seedDefaultDepartments() {
   try {
@@ -252,7 +268,7 @@ async function seedDefaultDepartments() {
 }
 
 // ============================================================
-// DB Middleware (قبل أي /api route)
+// DB Middleware (before /api routes)
 // ============================================================
 app.use('/api', async (req, res, next) => {
   if (req.method === 'OPTIONS') return next();
@@ -298,7 +314,7 @@ try {
 }
 
 // ============================================================
-// HEALTH CHECK + ROOT
+// HEALTH & ROOT
 // ============================================================
 app.get('/', (req, res) => {
   res.json({
@@ -342,7 +358,6 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Debug info — للتأكد من نفس المصدر
 app.get('/api/debug/info', async (req, res) => {
   res.json({
     success: true,
@@ -355,6 +370,31 @@ app.get('/api/debug/info', async (req, res) => {
     renderExternalUrl: process.env.RENDER_EXTERNAL_URL || null,
     timestamp: new Date().toISOString(),
   });
+});
+
+// Debug route: إحصائيات الكولكشن
+app.get('/api/debug/collections-stats', async (req, res) => {
+  try {
+    const collections = ['ot_custom_lists', 'ot_custom_equipment', 'ot_departments', 'checklists'];
+    const stats = {};
+    for (const name of collections) {
+      try {
+        const count = await db.collection(name).countDocuments();
+        const collStats = await db.command({ collStats: name }).catch(() => null);
+        stats[name] = {
+          count,
+          avgObjSize: collStats?.avgObjSize || 0,
+          sizeMB: collStats?.size ? (collStats.size / 1024 / 1024).toFixed(2) : '0',
+          storageSizeMB: collStats?.storageSize ? (collStats.storageSize / 1024 / 1024).toFixed(2) : '0',
+        };
+      } catch (e) {
+        stats[name] = { error: e.message };
+      }
+    }
+    res.json({ success: true, stats });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
@@ -886,6 +926,7 @@ app.get("/api/dept-equipment/list/:listId", async (req, res) => {
     const items = await deptEquipmentCollection
       .find({ listId })
       .sort({ createdAt: 1 })
+      .allowDiskUse(true)
       .toArray();
     res.json({ success: true, data: items });
   } catch (err) {
@@ -899,6 +940,7 @@ app.get("/api/dept-equipment/:deptCode/:listId", async (req, res) => {
     const items = await deptEquipmentCollection
       .find({ deptCode, listId })
       .sort({ createdAt: 1 })
+      .allowDiskUse(true)
       .toArray();
     res.json({ success: true, data: items });
   } catch (err) {
@@ -970,6 +1012,7 @@ app.get('/api/checklist/:listId', async (req, res) => {
       .find({ listId })
       .sort({ submittedAt: -1 })
       .limit(1)
+      .allowDiskUse(true)
       .toArray();
     const result = checklist.length > 0 ? checklist[0] : null;
     res.json({ success: true, data: result });
@@ -1062,15 +1105,19 @@ app.get('/api/checklists', async (req, res) => {
     const checklists = await checklistsCollection
       .find({ submitted: true })
       .sort({ submittedAt: -1 })
+      .limit(500)              // ✅ حد أقصى معقول
+      .allowDiskUse(true)      // ✅ احتياط
       .toArray();
 
     for (let checklist of checklists) {
       const equipmentItems = await deptEquipmentCollection
         .find({ listId: checklist.listId })
+        .limit(200)
         .toArray();
       if (equipmentItems.length === 0) {
         checklist.equipmentDetails = await otCustomEquipmentCollection
           .find({ listId: checklist.listId })
+          .limit(200)
           .toArray();
       } else {
         checklist.equipmentDetails = equipmentItems;
@@ -1084,7 +1131,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// OT CUSTOM LISTS ROUTES (مهم!)
+// OT CUSTOM LISTS ROUTES
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
@@ -1096,12 +1143,15 @@ app.get('/api/ot-custom-lists', async (req, res) => {
 
     const lists = await otCustomListsCollection
       .find(query)
-      .sort({ createdAt: -1 })
+      .sort({ _id: 1 })          // ✅ _id له index افتراضي
+      .allowDiskUse(true)
       .toArray();
 
     for (let list of lists) {
       list.equipment = await otCustomEquipmentCollection
         .find({ listId: list.id })
+        .sort({ _id: 1 })
+        .allowDiskUse(true)
         .toArray();
     }
 
@@ -1218,15 +1268,23 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
 });
 
 // ============================================================
-// OT CUSTOM EQUIPMENT ROUTES
+// OT CUSTOM EQUIPMENT ROUTES — ✅ FIXED
 // ============================================================
+
+// ✅ GET — يستخدم _id بدل createdAt + allowDiskUse لمنع "Sort exceeded memory limit"
 app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
+    console.log(`📡 GET /api/ot-custom-equipment/${listId}`);
+
     const equipment = await otCustomEquipmentCollection
       .find({ listId })
-      .sort({ createdAt: 1 })
+      .sort({ _id: 1 })          // ✅ _id index افتراضي — لا يحتاج ذاكرة
+      .allowDiskUse(true)         // ✅ احتياط لو لا زال كبير
+      .limit(1000)                // ✅ حد أقصى معقول
       .toArray();
+
+    console.log(`✅ Found ${equipment.length} items for list ${listId}`);
     res.json({ success: true, data: equipment });
   } catch (error) {
     console.error('❌ Error fetching custom equipment:', error);
@@ -1244,9 +1302,15 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
       return res.status(400).json({ success: false, message: "id, listId, name, and code are required" });
     }
 
+    // ✅ تحقق من التكرار — لو موجود، رجّع 409 (لا ترجعه كنجاح!)
     const existing = await otCustomEquipmentCollection.findOne({ id });
     if (existing) {
-      return res.json({ success: true, data: existing, alreadyExists: true });
+      console.warn(`⚠️ Equipment ID collision: ${id}`);
+      return res.status(409).json({
+        success: false,
+        alreadyExists: true,
+        message: "Equipment ID already exists. Please retry.",
+      });
     }
 
     const newEquipment = {
@@ -1261,8 +1325,8 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
     };
 
     const result = await otCustomEquipmentCollection.insertOne(newEquipment);
-    console.log(`✅ Custom equipment added: ${name} → list ${listId}`);
-    res.json({ success: true, data: { ...newEquipment, _id: result.insertedId } });
+    console.log(`✅ Custom equipment added: ${name} → list ${listId} (id=${id})`);
+    res.status(201).json({ success: true, data: { ...newEquipment, _id: result.insertedId } });
   } catch (error) {
     console.error('❌ Error adding custom equipment:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1440,6 +1504,7 @@ app.get("/api/ot/equipment/:setId", async (req, res) => {
     const equipment = await deptEquipmentCollection
       .find({ listId: setId })
       .sort({ createdAt: 1 })
+      .allowDiskUse(true)
       .toArray();
     res.json({ success: true, data: equipment });
   } catch (err) {
@@ -1617,7 +1682,6 @@ if (hasBuild) {
   console.log('📦 Serving frontend build from:', buildPath);
   app.use(express.static(buildPath));
 
-  // SPA fallback (لا يمس /api)
   app.get(/^\/(?!api).*/, (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
   });
@@ -1626,7 +1690,7 @@ if (hasBuild) {
 }
 
 // ============================================================
-// ERROR HANDLER (الأخير)
+// ERROR HANDLER
 // ============================================================
 app.use((err, req, res, next) => {
   console.error('💥 Unhandled error:', err.message);
@@ -1650,6 +1714,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
   console.log(`✅ Health Check:    /api/health`);
   console.log(`🔍 Debug Info:      /api/debug/info`);
+  console.log(`📊 Collections:     /api/debug/collections-stats`);
   console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
   console.log(`📦 Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
   console.log('═══════════════════════════════════════════════════════');
