@@ -136,7 +136,7 @@ async function ensureConnection() {
     otDepartmentsCollection = db.collection("ot_departments");
 
     // ============================================================
-    // ✅ Indexes — مهمة جداً لمنع "Sort exceeded memory limit"
+    // ✅ Indexes — لمنع "Sort exceeded memory limit"
     // ============================================================
     const indexTasks = [
       // Equipment
@@ -169,7 +169,6 @@ async function ensureConnection() {
       // OT Custom Equipment
       () => otCustomEquipmentCollection.createIndex({ listId: 1 }),
       () => otCustomEquipmentCollection.createIndex({ id: 1 }),
-      // ✅ مهم جداً: يسمح بفرز سريع بدون تحميل كل شي في الذاكرة
       () => otCustomEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1, _id: 1 }),
 
@@ -268,7 +267,7 @@ async function seedDefaultDepartments() {
 }
 
 // ============================================================
-// DB Middleware (before /api routes)
+// DB Middleware
 // ============================================================
 app.use('/api', async (req, res, next) => {
   if (req.method === 'OPTIONS') return next();
@@ -372,7 +371,6 @@ app.get('/api/debug/info', async (req, res) => {
   });
 });
 
-// Debug route: إحصائيات الكولكشن
 app.get('/api/debug/collections-stats', async (req, res) => {
   try {
     const collections = ['ot_custom_lists', 'ot_custom_equipment', 'ot_departments', 'checklists'];
@@ -1105,8 +1103,8 @@ app.get('/api/checklists', async (req, res) => {
     const checklists = await checklistsCollection
       .find({ submitted: true })
       .sort({ submittedAt: -1 })
-      .limit(500)              // ✅ حد أقصى معقول
-      .allowDiskUse(true)      // ✅ احتياط
+      .limit(500)
+      .allowDiskUse(true)
       .toArray();
 
     for (let checklist of checklists) {
@@ -1143,7 +1141,7 @@ app.get('/api/ot-custom-lists', async (req, res) => {
 
     const lists = await otCustomListsCollection
       .find(query)
-      .sort({ _id: 1 })          // ✅ _id له index افتراضي
+      .sort({ _id: 1 })
       .allowDiskUse(true)
       .toArray();
 
@@ -1268,10 +1266,8 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
 });
 
 // ============================================================
-// OT CUSTOM EQUIPMENT ROUTES — ✅ FIXED
+// OT CUSTOM EQUIPMENT ROUTES
 // ============================================================
-
-// ✅ GET — يستخدم _id بدل createdAt + allowDiskUse لمنع "Sort exceeded memory limit"
 app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
@@ -1279,9 +1275,9 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
 
     const equipment = await otCustomEquipmentCollection
       .find({ listId })
-      .sort({ _id: 1 })          // ✅ _id index افتراضي — لا يحتاج ذاكرة
-      .allowDiskUse(true)         // ✅ احتياط لو لا زال كبير
-      .limit(1000)                // ✅ حد أقصى معقول
+      .sort({ _id: 1 })
+      .allowDiskUse(true)
+      .limit(1000)
       .toArray();
 
     console.log(`✅ Found ${equipment.length} items for list ${listId}`);
@@ -1302,7 +1298,6 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
       return res.status(400).json({ success: false, message: "id, listId, name, and code are required" });
     }
 
-    // ✅ تحقق من التكرار — لو موجود، رجّع 409 (لا ترجعه كنجاح!)
     const existing = await otCustomEquipmentCollection.findOne({ id });
     if (existing) {
       console.warn(`⚠️ Equipment ID collision: ${id}`);

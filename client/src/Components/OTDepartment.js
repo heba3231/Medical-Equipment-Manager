@@ -38,7 +38,6 @@ function compressImage(file, maxDimension = 500, quality = 0.7) {
         const canvas = document.createElement('canvas');
         let { width, height } = img;
 
-        // تصغير الأبعاد مع الحفاظ على النسبة
         if (width > height && width > maxDimension) {
           height = Math.round((height * maxDimension) / width);
           width = maxDimension;
@@ -434,7 +433,7 @@ function OTDepartment() {
       }
     } catch (err) {
       console.error("❌ fetchEquipment error:", err.message);
-      // ✅ لا نمسح state — نخلي القديم أفضل من لا شي
+      // لا نمسح القديم عند الفشل
     }
   };
 
@@ -693,14 +692,12 @@ function OTDepartment() {
     const file = e.target.files[0];
     if (!file) return;
 
-    // ✅ حد أقصى 5MB قبل الضغط
     if (file.size > 5 * 1024 * 1024) {
       alert("⚠️ الصورة كبيرة! الحد الأقصى 5MB قبل الضغط");
       return;
     }
 
     try {
-      // ✅ ضغط الصورة — يحولها إلى ~50KB
       const compressed = await compressImage(file, 500, 0.7);
       console.log(`📷 Image compressed: ${file.size} bytes → ${compressed.length} chars`);
 
