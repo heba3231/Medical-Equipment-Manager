@@ -14,10 +14,21 @@ function useWindowSize() {
   return size;
 }
 
-const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
+// ============================================================
+// ✅ API_BASE — يشتغل على Render وفي development
+// ============================================================
+const API_BASE =
+  process.env.REACT_APP_API_URL ||
+  `${window.location.origin}/api`;
+
+// للتشخيص (شوفيه في Console)
+if (typeof window !== 'undefined') {
+  window.__API_BASE__ = API_BASE;
+  console.log('🔍 API_BASE =', API_BASE);
+}
 
 // ============================================================
-// ✅ API Helper — يفحص response.ok ويرمي خطأ واضح
+// ✅ API Helper — يفحص response.ok ويمنع الـ cache
 // ============================================================
 async function apiFetch(url, options = {}) {
   const response = await fetch(url, {
@@ -319,14 +330,15 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — من MongoDB (بدل localStorage)
+  // ✅ loadDepartments — من MongoDB
   // ============================================================
   const loadDepartments = async () => {
     try {
       setLoading(true);
       setServerError(null);
 
-      const data = await apiFetch(`${API_BASE}/ot-departments`);
+      const data = await apiFetch(`${API_BASE}/ot-departments?_t=${Date.now()}`);
+      console.log('📥 loadDepartments:', data.data?.length || 0, 'departments');
 
       if (data.success) {
         const depts = data.data || [];
@@ -338,7 +350,7 @@ function OTDepartment() {
         }
       }
     } catch (err) {
-      console.error("Error loading departments:", err.message);
+      console.error("❌ loadDepartments error:", err.message);
       setServerError(err.message);
     } finally {
       setLoading(false);
@@ -346,13 +358,15 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists — بدون createDefaultList، مع فحص response.ok
+  // ✅ fetchLists — بدون createDefaultList
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
       const data = await apiFetch(
-        `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}`
+        `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}&_t=${Date.now()}`
       );
+
+      console.log(`📥 fetchLists [${deptId}]:`, data.data?.length || 0, 'lists');
 
       if (data.success) {
         const listsArr = data.data || [];
@@ -363,29 +377,31 @@ function OTDepartment() {
         }
       }
     } catch (err) {
-      console.error("Error fetching lists for", deptId, ":", err.message);
+      console.error("❌ fetchLists error for", deptId, ":", err.message);
       setLists(prev => ({ ...prev, [deptId]: prev[deptId] || [] }));
     }
   };
 
   // ============================================================
-  // ✅ fetchEquipment — مع فحص response.ok
+  // ✅ fetchEquipment
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
       const data = await apiFetch(
-        `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}`
+        `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}?_t=${Date.now()}`
       );
+      console.log(`📥 fetchEquipment [${listId}]:`, data.data?.length || 0, 'items');
+
       if (data.success) {
         setEquipment(prev => ({ ...prev, [listId]: data.data || [] }));
       }
     } catch (err) {
-      console.error("Error fetching equipment:", err.message);
+      console.error("❌ fetchEquipment error:", err.message);
     }
   };
 
   // ============================================================
-  // ✅ DEPARTMENT CRUD — عبر API
+  // ✅ DEPARTMENT CRUD
   // ============================================================
   const handleAddDept = async () => {
     if (!newDept.name.trim()) return alert("Please enter department name");
@@ -393,7 +409,6 @@ function OTDepartment() {
     setSaving(true);
     try {
       if (editingDeptId) {
-        // تعديل
         await apiFetch(`${API_BASE}/ot-departments/${editingDeptId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -404,7 +419,6 @@ function OTDepartment() {
         });
         setEditingDeptId(null);
       } else {
-        // إضافة جديدة
         const deptId = `dept_${Date.now()}`;
         await apiFetch(`${API_BASE}/ot-departments`, {
           method: "POST",
@@ -417,10 +431,10 @@ function OTDepartment() {
         });
       }
 
-      await loadDepartments(); // ✅ إعادة تحميل من السيرفر
+      await loadDepartments();
       setNewDept({ name: "", description: "" });
     } catch (err) {
-      console.error("Error saving department:", err);
+      console.error("❌ handleAddDept:", err);
       alert("❌ فشل حفظ القسم: " + err.message);
     } finally {
       setSaving(false);
@@ -438,23 +452,21 @@ function OTDepartment() {
     try {
       await apiFetch(`${API_BASE}/ot-departments/${id}`, { method: "DELETE" });
 
-      // نظفي state
       setDepartments(prev => prev.filter(d => d.id !== id));
       setLists(prev => { const c = { ...prev }; delete c[id]; return c; });
 
       if (selectedDeptId === id) setSelectedDeptId(null);
       if (selectedListId) setSelectedListId(null);
 
-      // ✅ إعادة تحميل للتأكد
       await loadDepartments();
     } catch (err) {
-      console.error("Error deleting department:", err);
+      console.error("❌ handleDeleteDept:", err);
       alert("❌ فشل حذف القسم: " + err.message);
     }
   };
 
   // ============================================================
-  // ✅ LIST CRUD — مع فحص الفشل + إعادة تحميل
+  // ✅ LIST CRUD — مع فحص الفشل + إعادة تحميل + logging
   // ============================================================
   const handleAddList = async () => {
     if (!newList.name.trim()) return alert("Please enter list name");
@@ -463,13 +475,15 @@ function OTDepartment() {
     setSaving(true);
     try {
       const listData = {
-        id: editingListId || `list_${Date.now()}`,
+        id: editingListId || `list_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         name: newList.name.trim(),
         description: newList.description.trim() || "",
         deptCode: selectedDeptId,
         roomId: null,
         createdBy: localStorage.getItem("userName") || "Admin"
       };
+
+      console.log('📤 POST list:', listData);
 
       const url = editingListId
         ? `${API_BASE}/ot-custom-lists/${editingListId}`
@@ -482,15 +496,16 @@ function OTDepartment() {
         body: JSON.stringify(listData)
       });
 
+      console.log('📥 Response:', data);
+
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ إعادة تحميل من السيرفر للتأكد من الحفظ الفعلي
       await fetchLists(selectedDeptId);
 
       setNewList({ name: "", description: "" });
       setEditingListId(null);
     } catch (err) {
-      console.error("Error saving list:", err);
+      console.error("❌ handleAddList:", err);
       alert("❌ فشل حفظ اللستة: " + err.message);
     } finally {
       setSaving(false);
@@ -512,7 +527,6 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Delete failed");
 
-      // ✅ إعادة تحميل من السيرفر للتأكد من الحذف الفعلي
       await fetchLists(selectedDeptId);
 
       setEquipment(prev => {
@@ -523,13 +537,13 @@ function OTDepartment() {
 
       if (selectedListId === listId) setSelectedListId(null);
     } catch (err) {
-      console.error("Error deleting list:", err);
+      console.error("❌ handleDeleteList:", err);
       alert("❌ فشل حذف اللستة: " + err.message);
     }
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD — مع فحص الفشل + إعادة تحميل
+  // ✅ EQUIPMENT CRUD
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -540,13 +554,15 @@ function OTDepartment() {
     setSaving(true);
     try {
       const equipData = {
-        id: editingEquipId || `eq_${Date.now()}`,
+        id: editingEquipId || `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         listId: selectedListId,
         name: newEquipment.name.trim(),
         code: newEquipment.code.trim(),
         quantity: parseInt(newEquipment.quantity) || 1,
         image: newEquipment.image || null
       };
+
+      console.log('📤 POST equipment:', equipData);
 
       const url = editingEquipId
         ? `${API_BASE}/ot-custom-equipment/${editingEquipId}`
@@ -559,12 +575,14 @@ function OTDepartment() {
         body: JSON.stringify(equipData)
       });
 
+      console.log('📥 Response:', data);
+
       if (!data.success) throw new Error(data.message || "Unknown error");
 
       await fetchEquipment(selectedListId);
       resetEquipmentForm();
     } catch (err) {
-      console.error("Error saving equipment:", err);
+      console.error("❌ handleAddEquipment:", err);
       alert("❌ فشل حفظ المعدة: " + err.message);
     } finally {
       setSaving(false);
@@ -594,7 +612,7 @@ function OTDepartment() {
 
       await fetchEquipment(selectedListId);
     } catch (err) {
-      console.error("Error deleting equipment:", err);
+      console.error("❌ handleDeleteEquipment:", err);
       alert("❌ فشل حذف المعدة: " + err.message);
     }
   };
@@ -871,7 +889,7 @@ function OTDepartment() {
       setCheckMode(false);
       navigate('/reports', { state: { refresh: true } });
     } catch (err) {
-      console.error('Error submitting checklist:', err);
+      console.error('❌ Error submitting checklist:', err);
       alert('❌ Error submitting checklist: ' + err.message);
     } finally {
       setSaving(false);
@@ -1016,16 +1034,7 @@ function OTDepartment() {
           @page { size: A4; margin: 16mm 14mm; }
           body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; color: #1f2937; }
           .print-page { width: 100%; }
-          .meta-line {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            gap: 16px;
-            margin-bottom: 18px;
-            padding-bottom: 10px;
-            border-bottom: 1.5px solid #004d32;
-            flex-wrap: wrap;
-          }
+          .meta-line { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 18px; padding-bottom: 10px; border-bottom: 1.5px solid #004d32; flex-wrap: wrap; }
           .meta-item { display: flex; align-items: baseline; gap: 6px; }
           .meta-label { font-size: 12px; font-weight: 700; color: #004d32; text-transform: uppercase; letter-spacing: 0.5px; }
           .meta-value { font-size: 14px; font-weight: 700; color: #111827; }
@@ -2105,7 +2114,10 @@ function OTDepartment() {
       <div style={{ textAlign: "center", padding: "60px 20px", maxWidth: "600px", margin: "0 auto" }}>
         <div style={{ fontSize: "48px", marginBottom: "20px" }}>⚠️</div>
         <h2 style={{ color: "#dc2626", marginBottom: "10px" }}>تعذّر الاتصال بالسيرفر</h2>
-        <p style={{ color: "#6b7280", marginBottom: "20px" }}>{serverError}</p>
+        <p style={{ color: "#6b7280", marginBottom: "8px" }}>{serverError}</p>
+        <p style={{ color: "#9ca3af", fontSize: "12px", marginBottom: "20px", wordBreak: "break-all" }}>
+          API: {API_BASE}
+        </p>
         <button
           onClick={loadDepartments}
           style={{ padding: "10px 24px", background: "#006341", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}

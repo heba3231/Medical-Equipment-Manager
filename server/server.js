@@ -28,10 +28,10 @@ const __dirname = path.dirname(__filename);
 const defaultOrigins = [
   'http://localhost:3000',
   'http://localhost:5000',
+  'http://localhost:5173',
   'http://127.0.0.1:3000',
 ];
 
-// CLIENT_URL ممكن يكون قيمة واحدة أو عدة قيم مفصولة بفاصلة
 const envOrigins = (process.env.CLIENT_URL || '')
   .split(',')
   .map(s => s.trim())
@@ -43,15 +43,13 @@ console.log('🌐 Allowed CORS origins:', allowedOrigins);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // اسمح بدون origin (Postman, curl, same-origin requests)
     if (!origin) return callback(null, true);
 
-    // اسمح لأي origin إذا كان مطابق للقائمة
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
-    // اسمح لأي *.onrender.com (اختياري — احذفيه لو بدك أكثر تقييداً)
+    // اسمح لأي *.onrender.com
     if (origin.endsWith('.onrender.com')) {
       return callback(null, true);
     }
@@ -77,9 +75,9 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluste
 console.log('🔌 MongoDB URI:', MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'));
 
 const client = new MongoClient(MONGODB_URI, {
-  serverSelectionTimeoutMS: 10000,
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 10000,
+  serverSelectionTimeoutMS: 15000,
+  socketTimeoutMS: 60000,
+  connectTimeoutMS: 15000,
   maxPoolSize: 10,
   minPoolSize: 1,
   retryWrites: true,
@@ -92,6 +90,7 @@ const client = new MongoClient(MONGODB_URI, {
 // ============================================================
 let db = null;
 let isConnecting = false;
+let lastConnectAttempt = 0;
 
 let equipmentCollection;
 let staffCollection;
@@ -106,22 +105,31 @@ let otCustomEquipmentCollection;
 let otDepartmentsCollection;
 
 // ============================================================
-// Ensure Connection
+// Ensure Connection (مع timeout ذكي)
 // ============================================================
 async function ensureConnection() {
   if (db) return true;
 
+  // لو فيه محاولة جارية، انتظرها
   if (isConnecting) {
     let waited = 0;
-    while (isConnecting && waited < 10000) {
+    while (isConnecting && waited < 15000) {
       await new Promise(r => setTimeout(r, 100));
       waited += 100;
     }
     return !!db;
   }
 
+  // منع محاولات سريعة متكررة
+  const now = Date.now();
+  if (now - lastConnectAttempt < 1000) {
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  lastConnectAttempt = Date.now();
+
   isConnecting = true;
   try {
+    console.log('🔌 Connecting to MongoDB...');
     await client.connect();
     db = client.db("medical_equipment");
 
@@ -148,7 +156,6 @@ async function ensureConnection() {
       () => checklistsCollection.createIndex({ listId: 1 }),
       () => checklistsCollection.createIndex({ submittedAt: -1 }),
       () => otCustomListsCollection.createIndex({ deptCode: 1 }),
-      () => otCustomListsCollection.createIndex({ roomId: 1 }),
       () => otCustomListsCollection.createIndex({ id: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1 }),
       () => otCustomEquipmentCollection.createIndex({ id: 1 }),
@@ -156,7 +163,7 @@ async function ensureConnection() {
     ];
     for (const task of indexTasks) {
       try { await task(); } catch (e) {
-        console.warn("⚠️ Index creation warning:", e.message);
+        console.warn("⚠️ Index warning:", e.message);
       }
     }
 
@@ -167,7 +174,7 @@ async function ensureConnection() {
     }
 
     if (!existingAdmin) {
-      console.log("⚠️ Admin not found! Creating default admin...");
+      console.log("⚠️ Creating default admin...");
       const hashedPassword = await bcrypt.hash("123456", 10);
       await adminCollection.insertOne({
         name: "System Administrator",
@@ -203,11 +210,10 @@ async function ensureConnection() {
 // ============================================================
 async function seedDefaultDepartments() {
   try {
-    // ✅ نستخدم flag عشان ما نعيد الإنشاء حتى لو حذف المستخدم قسم
     const settingsColl = db.collection("settings");
     const flag = await settingsColl.findOne({ key: "departments_seeded_v1" });
     if (flag) {
-      console.log("ℹ️ Default departments already seeded, skipping");
+      console.log("ℹ️ Departments already seeded");
       return;
     }
 
@@ -239,9 +245,9 @@ async function seedDefaultDepartments() {
       created
     });
 
-    console.log(`✅ Seeded ${created} default OT departments (one-time)`);
+    console.log(`✅ Seeded ${created} default departments (one-time)`);
   } catch (err) {
-    console.error("⚠️ Error seeding OT departments:", err.message);
+    console.error("⚠️ Seed error:", err.message);
   }
 }
 
@@ -275,7 +281,7 @@ setInterval(async () => {
     console.warn("⏰ Ping failed, will reconnect:", err.message);
     db = null;
   }
-}, 60000);
+}, 45000);
 
 // ============================================================
 // Initial Connect
@@ -292,7 +298,7 @@ try {
 }
 
 // ============================================================
-// HEALTH CHECK (مهم جداً للتشخيص على Render)
+// HEALTH CHECK + ROOT
 // ============================================================
 app.get('/', (req, res) => {
   res.json({
@@ -336,6 +342,21 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// Debug info — للتأكد من نفس المصدر
+app.get('/api/debug/info', async (req, res) => {
+  res.json({
+    success: true,
+    service: "backend",
+    mongodbDatabase: "medical_equipment",
+    mongoUriHost: MONGODB_URI.match(/@([^/?]+)/)?.[1] || 'unknown',
+    allowedOrigins,
+    nodeEnv: process.env.NODE_ENV || 'development',
+    renderServiceName: process.env.RENDER_SERVICE_NAME || null,
+    renderExternalUrl: process.env.RENDER_EXTERNAL_URL || null,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // ============================================================
 // CUSTOM DEPARTMENTS (in-memory legacy)
 // ============================================================
@@ -359,7 +380,7 @@ app.post("/api/custom-departments", (req, res) => {
       createdAt: new Date().toISOString()
     };
     if (customDepartments.find(d => d.name.toLowerCase() === newDept.name.toLowerCase())) {
-      return res.status(400).json({ success: false, message: "Department name already exists" });
+      return res.status(400).json({ success: false, message: "Department already exists" });
     }
     customDepartments.push(newDept);
     res.status(201).json({ success: true, data: newDept });
@@ -393,7 +414,7 @@ app.get("/api/ot-departments", async (req, res) => {
       .toArray();
     res.json({ success: true, data: depts });
   } catch (err) {
-    console.error("❌ Error fetching OT departments:", err);
+    console.error("❌ Error fetching departments:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -423,10 +444,10 @@ app.post("/api/ot-departments", async (req, res) => {
     };
 
     await otDepartmentsCollection.insertOne(newDept);
-    console.log(`✅ OT Department created: ${name} (id=${deptId})`);
+    console.log(`✅ Department created: ${name} (${deptId})`);
     res.status(201).json({ success: true, data: newDept });
   } catch (err) {
-    console.error("❌ Error creating OT department:", err);
+    console.error("❌ Error creating department:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -435,7 +456,7 @@ app.put("/api/ot-departments/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description } = req.body;
-    console.log(`📥 PUT /api/ot-departments/${id}`, { name });
+    console.log(`📥 PUT /api/ot-departments/${id}`);
 
     const result = await otDepartmentsCollection.updateOne(
       { id },
@@ -450,10 +471,10 @@ app.put("/api/ot-departments/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Department not found" });
     }
 
-    console.log(`✅ OT Department updated: ${id}`);
+    console.log(`✅ Department updated: ${id}`);
     res.json({ success: true, message: "Department updated" });
   } catch (err) {
-    console.error("❌ Error updating OT department:", err);
+    console.error("❌ Error updating department:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -474,10 +495,10 @@ app.delete("/api/ot-departments/:id", async (req, res) => {
     }
     const listsResult = await otCustomListsCollection.deleteMany({ deptCode: id });
 
-    console.log(`✅ OT Department deleted: ${id} (+${listsResult.deletedCount} lists)`);
+    console.log(`✅ Department deleted: ${id} (+${listsResult.deletedCount} lists)`);
     res.json({ success: true, message: "Department and related data deleted" });
   } catch (err) {
-    console.error("❌ Error deleting OT department:", err);
+    console.error("❌ Error deleting department:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -611,7 +632,7 @@ app.delete("/api/staff/:id", async (req, res) => {
 // ============================================================
 app.post('/api/admin/login', async (req, res) => {
   const { name, staff_no, password } = req.body;
-  console.log("🔐 Admin login attempt - Name:", name, "Staff No:", staff_no);
+  console.log("🔐 Admin login - Name:", name, "Staff No:", staff_no);
 
   try {
     const admin = await adminCollection.findOne({
@@ -626,7 +647,6 @@ app.post('/api/admin/login', async (req, res) => {
     if (!admin) {
       return res.status(401).json({ success: false, message: "❌ Staff number not found" });
     }
-
     if (admin.isActive === false) {
       return res.status(401).json({ success: false, message: "❌ Account is deactivated" });
     }
@@ -680,7 +700,6 @@ app.post('/api/admin/login', async (req, res) => {
         department: admin.department || "Administration"
       }
     });
-
   } catch (err) {
     console.error('❌ Admin login error:', err);
     res.status(500).json({ success: false, message: "Server error" });
@@ -764,7 +783,7 @@ app.post("/api/equipment", async (req, res) => {
   try {
     const newItem = { ...req.body, createdAt: new Date(), updatedAt: new Date() };
     if (!newItem.name || !newItem.code || !newItem.category) {
-      return res.status(400).json({ success: false, message: "Missing required fields: name, code, category" });
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
     const result = await equipmentCollection.insertOne(newItem);
     res.status(201).json({ success: true, message: "Equipment added", id: result.insertedId });
@@ -852,7 +871,7 @@ app.delete("/api/dept-lists/:id", async (req, res) => {
     const result = await deptListsCollection.deleteOne({ _id: new ObjectId(id) });
     if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "List not found" });
     await deptEquipmentCollection.deleteMany({ listId: id });
-    res.json({ success: true, message: "List and its equipment deleted" });
+    res.json({ success: true, message: "List and equipment deleted" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -1065,7 +1084,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// OT CUSTOM LISTS ROUTES
+// OT CUSTOM LISTS ROUTES (مهم!)
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
@@ -1106,7 +1125,7 @@ app.post('/api/ot-custom-lists', async (req, res) => {
 
     const existing = await otCustomListsCollection.findOne({ id });
     if (existing) {
-      console.warn(`⚠️ List with id ${id} already exists — updating`);
+      console.warn(`⚠️ List ${id} exists — updating`);
       await otCustomListsCollection.updateOne(
         { id },
         { $set: {
@@ -1148,7 +1167,7 @@ app.put('/api/ot-custom-lists/:id', async (req, res) => {
     const { id } = req.params;
     const { name, description, deptCode, roomId, image } = req.body;
 
-    console.log(`📥 PUT /api/ot-custom-lists/${id}`, { name, deptCode });
+    console.log(`📥 PUT /api/ot-custom-lists/${id}`);
 
     const updatedList = {
       name: name?.trim() || "",
@@ -1190,7 +1209,7 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
     }
 
     const eqResult = await otCustomEquipmentCollection.deleteMany({ listId: id });
-    console.log(`✅ Custom list deleted: ${id} (+${eqResult.deletedCount} equipment)`);
+    console.log(`✅ Custom list deleted: ${id} (+${eqResult.deletedCount} equip)`);
     res.json({ success: true, message: "List deleted" });
   } catch (error) {
     console.error('❌ Error deleting custom list:', error);
@@ -1409,7 +1428,7 @@ app.delete("/api/ot/sets/:id", async (req, res) => {
 
     await deptEquipmentCollection.deleteMany({ listId: id });
 
-    res.json({ success: true, message: "Set and its equipment deleted" });
+    res.json({ success: true, message: "Set and equipment deleted" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -1530,21 +1549,6 @@ app.get('/api/debug/admin-structure', async (req, res) => {
   }
 });
 
-// ✅ Debug: صفحات وبيانات للتحقق من نفس المصدر
-app.get('/api/debug/info', async (req, res) => {
-  res.json({
-    success: true,
-    service: "backend",
-    mongodbDatabase: "medical_equipment",
-    mongoUriHost: MONGODB_URI.match(/@([^/?]+)/)?.[1] || 'unknown',
-    allowedOrigins,
-    nodeEnv: process.env.NODE_ENV || 'development',
-    renderServiceName: process.env.RENDER_SERVICE_NAME || null,
-    renderExternalUrl: process.env.RENDER_EXTERNAL_URL || null,
-    timestamp: new Date().toISOString(),
-  });
-});
-
 // ============================================================
 // PDF GENERATION ROUTE
 // ============================================================
@@ -1604,7 +1608,7 @@ app.get('/api/image-proxy', async (req, res) => {
 });
 
 // ============================================================
-// OPTIONAL: SERVE FRONTEND BUILD (إذا Frontend + Backend في نفس Service)
+// OPTIONAL: SERVE FRONTEND BUILD
 // ============================================================
 const buildPath = path.join(__dirname, 'build');
 const hasBuild = fs.existsSync(path.join(buildPath, 'index.html'));
@@ -1613,7 +1617,7 @@ if (hasBuild) {
   console.log('📦 Serving frontend build from:', buildPath);
   app.use(express.static(buildPath));
 
-  // ⚠️ مهم: لا نستخدم '*' في Express 5 — نستخدم regex
+  // SPA fallback (لا يمس /api)
   app.get(/^\/(?!api).*/, (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
   });
@@ -1622,10 +1626,10 @@ if (hasBuild) {
 }
 
 // ============================================================
-// ERROR HANDLER (يجب أن يكون الأخير)
+// ERROR HANDLER (الأخير)
 // ============================================================
 app.use((err, req, res, next) => {
-  console.error('💥 Unhandled error:', err);
+  console.error('💥 Unhandled error:', err.message);
   if (err.message?.startsWith('CORS')) {
     return res.status(403).json({ success: false, message: err.message });
   }
@@ -1641,12 +1645,12 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`👑 Admin: staff_no=host3487539, password=123456`);
-  console.log(`📦 OT Departments API:  /api/ot-departments`);
-  console.log(`📋 OT Custom Lists API: /api/ot-custom-lists`);
-  console.log(`🔧 OT Custom Equip API: /api/ot-custom-equipment`);
-  console.log(`✅ Health Check:        /api/health`);
-  console.log(`🔍 Debug Info:          /api/debug/info`);
-  console.log(`🌐 Allowed origins:     ${allowedOrigins.join(', ')}`);
-  console.log(`📦 Serving frontend:    ${hasBuild ? 'YES' : 'NO'}`);
+  console.log(`📦 OT Departments:  /api/ot-departments`);
+  console.log(`📋 OT Custom Lists: /api/ot-custom-lists`);
+  console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
+  console.log(`✅ Health Check:    /api/health`);
+  console.log(`🔍 Debug Info:      /api/debug/info`);
+  console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
+  console.log(`📦 Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
   console.log('═══════════════════════════════════════════════════════');
 });
