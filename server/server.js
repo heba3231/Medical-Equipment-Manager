@@ -395,6 +395,49 @@ app.get('/api/debug/collections-stats', async (req, res) => {
   }
 });
 
+// ✅ تنظيف الأدوات اليتيمة والقديمة (بدون id)
+app.post('/api/debug/clean-orphans', async (req, res) => {
+  try {
+    console.log('🧹 Starting orphan cleanup...');
+
+    // 1. احذف أدوات ما عندها id
+    const noIdResult = await otCustomEquipmentCollection.deleteMany({
+      $or: [
+        { id: { $exists: false } },
+        { id: null },
+        { id: "" }
+      ]
+    });
+
+    // 2. احذف أدوات مرتبطة بلستات محذوفة
+    const allLists = await otCustomListsCollection.distinct('id');
+    const orphansResult = await otCustomEquipmentCollection.deleteMany({
+      listId: { $nin: allLists }
+    });
+
+    // 3. احذف لستات مرتبطة بأقسام محذوفة
+    const allDepts = await otDepartmentsCollection.distinct('id');
+    const orphanListsResult = await otCustomListsCollection.deleteMany({
+      deptCode: { $nin: allDepts }
+    });
+
+    console.log(`🧹 Cleanup done:`);
+    console.log(`   - Deleted ${noIdResult.deletedCount} equipment without id`);
+    console.log(`   - Deleted ${orphansResult.deletedCount} orphan equipment`);
+    console.log(`   - Deleted ${orphanListsResult.deletedCount} orphan lists`);
+
+    res.json({
+      success: true,
+      deletedNoId: noIdResult.deletedCount,
+      deletedOrphans: orphansResult.deletedCount,
+      deletedOrphanLists: orphanListsResult.deletedCount,
+    });
+  } catch (err) {
+    console.error('❌ Cleanup error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ============================================================
 // CUSTOM DEPARTMENTS (in-memory legacy)
 // ============================================================
@@ -442,7 +485,7 @@ app.delete("/api/custom-departments/:id", (req, res) => {
 });
 
 // ============================================================
-// OT DEPARTMENTS ROUTES (MongoDB)
+// OT DEPARTMENTS ROUTES
 // ============================================================
 app.get("/api/ot-departments", async (req, res) => {
   try {
@@ -1359,13 +1402,39 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
   }
 });
 
+// ============================================================
+// ✅ DELETE route مُصلح — يدعم id و _id
+// ============================================================
 app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await otCustomEquipmentCollection.deleteOne({ id });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ success: false, message: "Equipment not found" });
+    console.log(`📥 DELETE /api/ot-custom-equipment/${id}`);
+
+    if (!id || id === 'undefined' || id === 'null') {
+      return res.status(400).json({ success: false, message: "Invalid equipment ID" });
     }
+
+    // ✅ حاول بـ id أولاً
+    let result = await otCustomEquipmentCollection.deleteOne({ id });
+    console.log(`   deleteOne({id: '${id}'}) → deletedCount=${result.deletedCount}`);
+
+    // ✅ إذا فشل، جرّب بـ _id (لو كان ObjectId صالح)
+    if (result.deletedCount === 0) {
+      try {
+        if (ObjectId.isValid(id)) {
+          result = await otCustomEquipmentCollection.deleteOne({ _id: new ObjectId(id) });
+          console.log(`   deleteOne({_id: '${id}'}) → deletedCount=${result.deletedCount}`);
+        }
+      } catch (e) {
+        console.warn('   _id attempt failed:', e.message);
+      }
+    }
+
+    if (result.deletedCount === 0) {
+      console.warn(`⚠️ Equipment not found for deletion: ${id}`);
+      return res.status(404).json({ success: false, message: "Equipment not found in database" });
+    }
+
     console.log(`✅ Custom equipment deleted: ${id}`);
     res.json({ success: true, message: "Equipment deleted" });
   } catch (error) {
@@ -1710,6 +1779,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Health Check:    /api/health`);
   console.log(`🔍 Debug Info:      /api/debug/info`);
   console.log(`📊 Collections:     /api/debug/collections-stats`);
+  console.log(`🧹 Cleanup:         POST /api/debug/clean-orphans`);
   console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
   console.log(`📦 Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
   console.log('═══════════════════════════════════════════════════════');

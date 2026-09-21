@@ -15,7 +15,7 @@ function useWindowSize() {
 }
 
 // ============================================================
-// ✅ API_BASE — يشتغل على Render وفي development
+// ✅ API_BASE
 // ============================================================
 const API_BASE =
   process.env.REACT_APP_API_URL ||
@@ -27,7 +27,7 @@ if (typeof window !== 'undefined') {
 }
 
 // ============================================================
-// ✅ ضغط الصور — يقلل الحجم بنسبة 95%
+// ✅ ضغط الصور
 // ============================================================
 function compressImage(file, maxDimension = 500, quality = 0.7) {
   return new Promise((resolve, reject) => {
@@ -75,7 +75,7 @@ async function apiFetch(url, options = {}) {
   try {
     data = await response.json();
   } catch {
-    // مش JSON
+    // not JSON
   }
 
   if (!response.ok) {
@@ -98,7 +98,7 @@ function OTDepartment() {
   const userRole = localStorage.getItem("userRole");
   const isAdmin = userRole === "admin";
 
-  // ========== CHECK FOR SIMPLE VIEW (QR SCAN) ==========
+  // ========== CHECK FOR SIMPLE VIEW ==========
   const queryParams = new URLSearchParams(location.search);
   const isSimpleView = queryParams.get("view") === "simple";
   const qrDeptCode = queryParams.get("deptCode");
@@ -131,15 +131,12 @@ function OTDepartment() {
   const [imagePreview, setImagePreview] = useState(null);
   const [imageModal, setImageModal] = useState(null);
 
-  // ========== SEARCH & SORT STATE ==========
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("name");
 
-  // ========== QR CODE STATE ==========
   const [showQRModal, setShowQRModal] = useState(false);
   const [serverIP, setServerIP] = useState(window.location.hostname);
 
-  // ========== CHECK (Checklist) STATE ==========
   const [checkMode, setCheckMode] = useState(false);
   const [checkData, setCheckData] = useState({});
   const [checkMeta, setCheckMeta] = useState({ technician: "", startedAt: null });
@@ -147,7 +144,6 @@ function OTDepartment() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [expiryDate, setExpiryDate] = useState(null);
 
-  // ========== RESPONSIVE ==========
   const { width } = useWindowSize();
   const isMobile = width < 768;
   const isTablet = width < 1024 && width >= 768;
@@ -327,12 +323,10 @@ function OTDepartment() {
         <polyline points="20 6 9 17 4 12" />
       </svg>
     ),
-    zoomIn: () => (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        <line x1="11" y1="8" x2="11" y2="14" />
-        <line x1="8" y1="11" x2="14" y2="11" />
+    refresh: () => (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <polyline points="1 4 1 10 7 10" />
+        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
       </svg>
     ),
     close: () => (
@@ -419,23 +413,41 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment
+  // ✅ fetchEquipment — التزامن بين الأجهزة
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
+      // ✅ _t يمنع الكاش — كل جهاز يجيب أحدث نسخة من MongoDB
       const data = await apiFetch(
         `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}?_t=${Date.now()}`
       );
       console.log(`📥 fetchEquipment [${listId}]:`, data.data?.length || 0, 'items');
 
       if (data.success) {
+        // ✅ استبدل كامل — لا دمج
         setEquipment(prev => ({ ...prev, [listId]: data.data || [] }));
       }
     } catch (err) {
       console.error("❌ fetchEquipment error:", err.message);
-      // لا نمسح القديم عند الفشل
     }
   };
+
+  // ============================================================
+  // ✅ تحديث كامل عند العودة للصفحة (للتزامن بين الأجهزة)
+  // ============================================================
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && selectedDeptId) {
+        console.log('🔄 Page visible — refreshing lists...');
+        fetchLists(selectedDeptId);
+        if (selectedListId) {
+          fetchEquipment(selectedListId);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [selectedDeptId, selectedListId]);
 
   // ============================================================
   // ✅ DEPARTMENT CRUD
@@ -580,7 +592,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD — مع retry عند 409
+  // ✅ EQUIPMENT CRUD
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -614,7 +626,6 @@ function OTDepartment() {
           body: JSON.stringify(equipData)
         });
       } catch (err) {
-        // ✅ إذا ID موجود مسبقاً (409) → نجدد ID ونعيد المحاولة
         if (err.status === 409 || err.data?.alreadyExists) {
           console.warn('⚠️ ID collision, retrying with new ID');
           equipData.id = `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -632,7 +643,7 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ أضف مباشرة للـ state (optimistic)
+      // ✅ أضف مباشرة للـ state
       if (!editingEquipId && data.data) {
         setEquipment(prev => ({
           ...prev,
@@ -640,7 +651,7 @@ function OTDepartment() {
         }));
       }
 
-      // ✅ ثم refetch للتأكد من التزامن
+      // ✅ ثم refetch من السيرفر
       await fetchEquipment(selectedListId);
       resetEquipmentForm();
     } catch (err) {
@@ -662,16 +673,48 @@ function OTDepartment() {
     setImagePreview(item.image || null);
   };
 
+  // ============================================================
+  // ✅ handleDeleteEquipment — مُصلحة
+  // ============================================================
   const handleDeleteEquipment = async (id, name) => {
+    // ✅ حماية: إذا ما فيه id
+    if (!id) {
+      alert("❌ هذه المعدة قديمة ولا يمكن حذفها — يرجى حذفها من MongoDB");
+      console.error("❌ Cannot delete: item.id is undefined");
+      return;
+    }
+
     if (!window.confirm(`Delete equipment "${name}"?`)) return;
 
     try {
-      const data = await apiFetch(`${API_BASE}/ot-custom-equipment/${id}`, {
-        method: "DELETE"
+      const url = `${API_BASE}/ot-custom-equipment/${encodeURIComponent(id)}`;
+      console.log(`📤 DELETE ${url}`);
+
+      const response = await fetch(url, {
+        method: "DELETE",
+        cache: 'no-store',
       });
 
-      if (!data.success) throw new Error(data.message || "Delete failed");
+      const data = await response.json().catch(() => null);
+      console.log('📥 Delete response:', response.status, data);
 
+      if (!response.ok) {
+        throw new Error(data?.message || `HTTP ${response.status}`);
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.message || "Delete failed");
+      }
+
+      // ✅ احذف من state مباشرة (optimistic)
+      setEquipment(prev => ({
+        ...prev,
+        [selectedListId]: (prev[selectedListId] || []).filter(item => item.id !== id)
+      }));
+
+      console.log(`✅ Equipment deleted: ${id}`);
+
+      // ✅ ثم refetch للتأكد من التزامن
       await fetchEquipment(selectedListId);
     } catch (err) {
       console.error("❌ handleDeleteEquipment:", err);
@@ -960,7 +1003,6 @@ function OTDepartment() {
     alert("📢 Shortage notification sent to room administrator");
   };
 
-  // ✅ رفع صورة اللستة — مع ضغط
   const handleCheckListImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -2214,20 +2256,44 @@ function OTDepartment() {
             Manage departments, lists, and equipment
           </p>
         </div>
-        <span style={{
-          padding: "4px 12px",
-          borderRadius: "20px",
-          background: isAdmin ? "#d1fae5" : "#fef3c7",
-          color: isAdmin ? "#065f46" : "#92400e",
-          fontSize: isMobile ? "11px" : "13px",
-          fontWeight: "600",
-          display: "flex",
-          alignItems: "center",
-          gap: "4px"
-        }}>
-          {isAdmin ? <Icons.admin /> : <Icons.staff />}
-          {isAdmin ? "Admin Mode" : "Staff Mode"}
-        </span>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={() => {
+              loadDepartments();
+              if (selectedListId) fetchEquipment(selectedListId);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "8px 14px",
+              background: "#e5e7eb",
+              color: "#374151",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontWeight: "600",
+              fontSize: isMobile ? "12px" : "13px"
+            }}
+            title="Refresh data from server"
+          >
+            <Icons.refresh /> Refresh
+          </button>
+          <span style={{
+            padding: "4px 12px",
+            borderRadius: "20px",
+            background: isAdmin ? "#d1fae5" : "#fef3c7",
+            color: isAdmin ? "#065f46" : "#92400e",
+            fontSize: isMobile ? "11px" : "13px",
+            fontWeight: "600",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px"
+          }}>
+            {isAdmin ? <Icons.admin /> : <Icons.staff />}
+            {isAdmin ? "Admin Mode" : "Staff Mode"}
+          </span>
+        </div>
       </div>
 
       {/* ===== TWO COLUMN LAYOUT ===== */}
@@ -2571,28 +2637,51 @@ function OTDepartment() {
               Equipment {selectedListId && `- ${currentLists.find(l => l.id === selectedListId)?.name || ""}`}
             </h2>
 
-            {selectedListId && currentEquipment.length > 0 && (
-              <button
-                onClick={startCheck}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: isMobile ? "8px 14px" : "10px 20px",
-                  background: "linear-gradient(135deg, #004d32, #006341)",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "10px",
-                  cursor: "pointer",
-                  fontWeight: "700",
-                  fontSize: isMobile ? "12px" : "13px",
-                  boxShadow: "0 3px 10px rgba(0,77,50,0.25)"
-                }}
-              >
-                <Icons.checkCircle />
-                Start Checklist
-              </button>
-            )}
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {selectedListId && (
+                <button
+                  onClick={() => fetchEquipment(selectedListId)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: isMobile ? "6px 12px" : "8px 14px",
+                    background: "#f3f4f6",
+                    color: "#374151",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    fontWeight: "600",
+                    fontSize: isMobile ? "11px" : "12px"
+                  }}
+                  title="Refresh equipment from server"
+                >
+                  <Icons.refresh /> Refresh
+                </button>
+              )}
+              {selectedListId && currentEquipment.length > 0 && (
+                <button
+                  onClick={startCheck}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: isMobile ? "8px 14px" : "10px 20px",
+                    background: "linear-gradient(135deg, #004d32, #006341)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "10px",
+                    cursor: "pointer",
+                    fontWeight: "700",
+                    fontSize: isMobile ? "12px" : "13px",
+                    boxShadow: "0 3px 10px rgba(0,77,50,0.25)"
+                  }}
+                >
+                  <Icons.checkCircle />
+                  Start Checklist
+                </button>
+              )}
+            </div>
           </div>
 
           {!selectedListId ? (
@@ -2834,16 +2923,6 @@ function OTDepartment() {
                       boxShadow: '0 2px 8px rgba(0,99,65,0.1)',
                       minWidth: isMobile ? '60px' : '80px'
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#c9a84c';
-                      e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,99,65,0.2)';
-                      e.currentTarget.style.transform = 'scale(1.02)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#006341';
-                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,99,65,0.1)';
-                      e.currentTarget.style.transform = 'scale(1)';
-                    }}
                   >
                     <QRCodeCanvas
                       value={getQRUrl()}
@@ -2969,7 +3048,7 @@ function OTDepartment() {
                       </thead>
                       <tbody>
                         {filteredAndSortedEquipment.map((item, idx) => (
-                          <tr key={item.id} style={{ background: idx % 2 === 0 ? "#ffffff" : "#f5f5f5" }}>
+                          <tr key={item.id || item._id} style={{ background: idx % 2 === 0 ? "#ffffff" : "#f5f5f5" }}>
                             <td style={{ ...equipTdStyle, textAlign: "center" }}>{idx + 1}</td>
                             <td style={{ ...equipTdStyle, textAlign: "center" }}>
                               {item.image ? (
@@ -3018,7 +3097,7 @@ function OTDepartment() {
                                     <Icons.edit />
                                   </button>
                                   <button
-                                    onClick={() => handleDeleteEquipment(item.id, item.name)}
+                                    onClick={() => handleDeleteEquipment(item.id || item._id, item.name)}
                                     title="Delete"
                                     style={{
                                       padding: "4px 6px",
