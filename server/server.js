@@ -74,8 +74,8 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // ============================================================
 // JWT & MongoDB Config
@@ -115,6 +115,114 @@ let checklistsCollection;
 let otCustomListsCollection;
 let otCustomEquipmentCollection;
 let otDepartmentsCollection;
+
+// ============================================================
+// ✅ Legacy Migration: dept_lists → ot_custom_lists
+// ============================================================
+async function migrateLegacyLists() {
+  try {
+    const settingsColl = db.collection("settings");
+    const flag = await settingsColl.findOne({ key: "legacy_migration_v1" });
+
+    if (flag) {
+      console.log("ℹ️ Legacy migration already done, skipping");
+      return;
+    }
+
+    console.log("🔄 Starting legacy migration: dept_lists → ot_custom_lists");
+
+    // 1. جلب كل البيانات القديمة
+    const oldLists = await deptListsCollection.find({}).toArray();
+    const oldEquipment = await deptEquipmentCollection.find({}).toArray();
+
+    console.log(`📦 Found ${oldLists.length} old lists, ${oldEquipment.length} old equipment items`);
+
+    // 2. خريطة: _id القديم → id الجديد
+    const idMap = {};
+    let listsCopied = 0;
+    let listsSkipped = 0;
+    let equipmentCopied = 0;
+    let equipmentSkipped = 0;
+
+    // 3. نسخ اللستات
+    for (const oldList of oldLists) {
+      const oldIdStr = oldList._id.toString();
+      const newId = `list_legacy_${oldIdStr}`;
+
+      idMap[oldIdStr] = newId;
+
+      const existing = await otCustomListsCollection.findOne({ id: newId });
+      if (existing) {
+        listsSkipped++;
+        continue;
+      }
+
+      await otCustomListsCollection.insertOne({
+        id: newId,
+        name: oldList.name || "Untitled List",
+        description: oldList.description || "",
+        deptCode: oldList.deptCode || "General",
+        roomId: null,
+        image: null,
+        equipment: [],
+        createdBy: "Legacy Migration",
+        createdAt: oldList.createdAt || new Date(),
+        _migratedFrom: oldIdStr,
+      });
+      listsCopied++;
+    }
+
+    // 4. نسخ المعدات
+    for (const oldEq of oldEquipment) {
+      const oldEqIdStr = oldEq._id.toString();
+      const oldListIdStr = String(oldEq.listId || "");
+
+      // تجاهل المعدات التي لا تنتمي إلى dept_lists
+      const newListId = idMap[oldListIdStr];
+      if (!newListId) continue;
+
+      const newEqId = `eq_legacy_${oldEqIdStr}`;
+
+      const existing = await otCustomEquipmentCollection.findOne({ id: newEqId });
+      if (existing) {
+        equipmentSkipped++;
+        continue;
+      }
+
+      await otCustomEquipmentCollection.insertOne({
+        id: newEqId,
+        listId: newListId,
+        name: oldEq.name || "Unknown",
+        code: oldEq.code || "",
+        quantity: parseInt(oldEq.quantity) || 1,
+        status: oldEq.status || "Available",
+        image: oldEq.image || null,
+        createdAt: oldEq.createdAt || new Date(),
+        _migratedFrom: oldEqIdStr,
+      });
+      equipmentCopied++;
+    }
+
+    // 5. سجّل أن الترحيل تم
+    await settingsColl.insertOne({
+      key: "legacy_migration_v1",
+      at: new Date(),
+      listsCopied,
+      listsSkipped,
+      equipmentCopied,
+      equipmentSkipped,
+      totalOldLists: oldLists.length,
+      totalOldEquipment: oldEquipment.length,
+    });
+
+    console.log(`✅ Legacy migration complete: ${listsCopied} lists, ${equipmentCopied} equipment copied`);
+    if (listsSkipped > 0 || equipmentSkipped > 0) {
+      console.log(`ℹ️ Skipped (already existed): ${listsSkipped} lists, ${equipmentSkipped} equipment`);
+    }
+  } catch (err) {
+    console.error("⚠️ Legacy migration error:", err.message);
+  }
+}
 
 // ============================================================
 // Ensure Connection
@@ -213,6 +321,7 @@ async function ensureConnection() {
     }
 
     await seedDefaultDepartments();
+    await migrateLegacyLists();
 
     console.log("✅ MongoDB connected successfully");
     return true;
@@ -378,7 +487,15 @@ app.get('/api/debug/info', async (req, res) => {
 
 app.get('/api/debug/collections-stats', async (req, res) => {
   try {
-    const collections = ['ot_custom_lists', 'ot_custom_equipment', 'ot_departments', 'checklists'];
+    const collections = [
+      'ot_custom_lists',
+      'ot_custom_equipment',
+      'ot_departments',
+      'checklists',
+      'dept_lists',
+      'dept_equipment',
+      'settings'
+    ];
     const stats = {};
     for (const name of collections) {
       try {
@@ -532,7 +649,6 @@ app.post("/api/ot-departments", async (req, res) => {
   }
 });
 
-// ✅ PUT — يُرجع البيانات المُحدَّثة
 app.put("/api/ot-departments/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -904,7 +1020,7 @@ app.delete("/api/equipment/:id", async (req, res) => {
 });
 
 // ============================================================
-// DEPARTMENT LISTS ROUTES
+// DEPARTMENT LISTS ROUTES (Legacy)
 // ============================================================
 app.get("/api/dept-lists/:deptCode", async (req, res) => {
   try {
@@ -965,13 +1081,13 @@ app.delete("/api/dept-lists/:id", async (req, res) => {
 });
 
 // ============================================================
-// DEPARTMENT EQUIPMENT ROUTES
+// DEPARTMENT EQUIPMENT ROUTES (Legacy)
 // ============================================================
 app.get("/api/dept-equipment/list/:listId", async (req, res) => {
   try {
     const { listId } = req.params;
     const items = await deptEquipmentCollection
-      .find({ listId }, { allowDiskUse: true })
+      .find({ listId })
       .sort({ createdAt: 1 })
       .toArray();
     res.json({ success: true, data: items });
@@ -984,7 +1100,7 @@ app.get("/api/dept-equipment/:deptCode/:listId", async (req, res) => {
   try {
     const { deptCode, listId } = req.params;
     const items = await deptEquipmentCollection
-      .find({ deptCode, listId }, { allowDiskUse: true })
+      .find({ deptCode, listId })
       .sort({ createdAt: 1 })
       .toArray();
     res.json({ success: true, data: items });
@@ -1054,7 +1170,7 @@ app.get('/api/checklist/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
     const checklist = await checklistsCollection
-      .find({ listId }, { allowDiskUse: true })
+      .find({ listId })
       .sort({ submittedAt: -1 })
       .limit(1)
       .toArray();
@@ -1147,7 +1263,7 @@ app.post('/api/checklist/save', async (req, res) => {
 app.get('/api/checklists', async (req, res) => {
   try {
     const checklists = await checklistsCollection
-      .find({ submitted: true }, { allowDiskUse: true })
+      .find({ submitted: true })
       .sort({ submittedAt: -1 })
       .limit(500)
       .toArray();
@@ -1174,7 +1290,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES — مع إصلاح allowDiskUse
+// ✅ OT CUSTOM LISTS ROUTES — بدون aggregation (يعمل مع أي حجم بيانات)
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
@@ -1185,27 +1301,38 @@ app.get('/api/ot-custom-lists', async (req, res) => {
 
     const t0 = Date.now();
 
-    // ✅ allowDiskUse يُمرر كخيار داخل aggregate()
+    // 1. جلب اللستات
     const lists = await otCustomListsCollection
-      .aggregate([
-        { $match: match },
-        { $sort: { createdAt: -1 } },
-        {
-          $lookup: {
-            from: 'ot_custom_equipment',
-            let: { listId: '$id' },
-            pipeline: [
-              { $match: { $expr: { $eq: ['$listId', '$$listId'] } } },
-              { $sort: { _id: 1 } },
-              { $limit: 500 }
-            ],
-            as: 'equipment'
-          }
-        }
-      ], { allowDiskUse: true })
+      .find(match)
+      .sort({ createdAt: -1 })
+      .limit(500)
       .toArray();
 
-    console.log(`✅ Found ${lists.length} custom lists (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
+    if (lists.length === 0) {
+      console.log(`✅ Found 0 custom lists (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
+      return res.json({ success: true, data: [] });
+    }
+
+    // 2. جلب كل المعدات المرتبطة بهذه اللستات — استعلام واحد
+    const listIds = lists.map(l => l.id).filter(Boolean);
+    const allEquipment = await otCustomEquipmentCollection
+      .find({ listId: { $in: listIds } })
+      .sort({ _id: 1 })
+      .toArray();
+
+    // 3. تجميع المعدات حسب listId
+    const equipmentByList = {};
+    for (const eq of allEquipment) {
+      if (!equipmentByList[eq.listId]) equipmentByList[eq.listId] = [];
+      equipmentByList[eq.listId].push(eq);
+    }
+
+    // 4. دمج المعدات داخل كل لستة
+    for (const list of lists) {
+      list.equipment = equipmentByList[list.id] || [];
+    }
+
+    console.log(`✅ Found ${lists.length} custom lists + ${allEquipment.length} equipment items (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
     res.json({ success: true, data: lists });
   } catch (error) {
     console.error('❌ Error fetching custom lists:', error);
@@ -1262,7 +1389,6 @@ app.post('/api/ot-custom-lists', async (req, res) => {
   }
 });
 
-// ✅ PUT — يُرجع البيانات المُحدَّثة
 app.put('/api/ot-custom-lists/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1334,7 +1460,7 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
     console.log(`📡 GET /api/ot-custom-equipment/${listId}`);
 
     const equipment = await otCustomEquipmentCollection
-      .find({ listId }, { allowDiskUse: true })
+      .find({ listId })
       .sort({ _id: 1 })
       .limit(1000)
       .toArray();
@@ -1387,7 +1513,6 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
   }
 });
 
-// ✅ PUT — يُرجع البيانات المُحدَّثة
 app.put('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1589,7 +1714,7 @@ app.get("/api/ot/equipment/:setId", async (req, res) => {
   try {
     const { setId } = req.params;
     const equipment = await deptEquipmentCollection
-      .find({ listId: setId }, { allowDiskUse: true })
+      .find({ listId: setId })
       .sort({ createdAt: 1 })
       .toArray();
     res.json({ success: true, data: equipment });
@@ -1796,8 +1921,9 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`👑 Admin: staff_no=host3487539, password=123456`);
   console.log(`📦 OT Departments:  /api/ot-departments`);
-  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (FIXED allowDiskUse)`);
+  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (two-query, no aggregation)`);
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
+  console.log(`🔄 Legacy Migration: dept_lists → ot_custom_lists (auto on startup)`);
   console.log(`✅ Health Check:    /api/health`);
   console.log(`🔍 Debug Info:      /api/debug/info`);
   console.log(`📊 Collections:     /api/debug/collections-stats`);
