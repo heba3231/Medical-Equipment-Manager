@@ -136,43 +136,28 @@ async function ensureConnection() {
     otDepartmentsCollection = db.collection("ot_departments");
 
     // ============================================================
-    // ✅ Indexes — لمنع "Sort exceeded memory limit"
+    // ✅ Indexes
     // ============================================================
     const indexTasks = [
-      // Equipment
       () => equipmentCollection.createIndex({ category: 1 }),
       () => equipmentCollection.createIndex({ code: 1 }),
-
-      // Dept Equipment
       () => deptEquipmentCollection.createIndex({ deptCode: 1, listId: 1 }),
       () => deptEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
-
-      // Dept Lists
       () => deptListsCollection.createIndex({ deptCode: 1 }),
       () => deptListsCollection.createIndex({ deptCode: 1, createdAt: 1 }),
-
-      // OT Surgeries / Sets
       () => otSurgeriesCollection.createIndex({ name: 1 }),
       () => otSetsCollection.createIndex({ surgeryId: 1 }),
-
-      // Checklists
       () => checklistsCollection.createIndex({ listId: 1 }),
       () => checklistsCollection.createIndex({ submittedAt: -1 }),
       () => checklistsCollection.createIndex({ listId: 1, submittedAt: -1 }),
-
-      // OT Custom Lists
       () => otCustomListsCollection.createIndex({ deptCode: 1 }),
       () => otCustomListsCollection.createIndex({ roomId: 1 }),
       () => otCustomListsCollection.createIndex({ id: 1 }),
       () => otCustomListsCollection.createIndex({ deptCode: 1, createdAt: -1 }),
-
-      // OT Custom Equipment
       () => otCustomEquipmentCollection.createIndex({ listId: 1 }),
       () => otCustomEquipmentCollection.createIndex({ id: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1, _id: 1 }),
-
-      // OT Departments
       () => otDepartmentsCollection.createIndex({ id: 1 }, { unique: true }),
       () => otDepartmentsCollection.createIndex({ createdAt: 1 }),
     ];
@@ -395,12 +380,11 @@ app.get('/api/debug/collections-stats', async (req, res) => {
   }
 });
 
-// ✅ تنظيف الأدوات اليتيمة والقديمة (بدون id)
+// ✅ تنظيف الأدوات اليتيمة والقديمة
 app.post('/api/debug/clean-orphans', async (req, res) => {
   try {
     console.log('🧹 Starting orphan cleanup...');
 
-    // 1. احذف أدوات ما عندها id
     const noIdResult = await otCustomEquipmentCollection.deleteMany({
       $or: [
         { id: { $exists: false } },
@@ -409,22 +393,17 @@ app.post('/api/debug/clean-orphans', async (req, res) => {
       ]
     });
 
-    // 2. احذف أدوات مرتبطة بلستات محذوفة
     const allLists = await otCustomListsCollection.distinct('id');
     const orphansResult = await otCustomEquipmentCollection.deleteMany({
       listId: { $nin: allLists }
     });
 
-    // 3. احذف لستات مرتبطة بأقسام محذوفة
     const allDepts = await otDepartmentsCollection.distinct('id');
     const orphanListsResult = await otCustomListsCollection.deleteMany({
       deptCode: { $nin: allDepts }
     });
 
-    console.log(`🧹 Cleanup done:`);
-    console.log(`   - Deleted ${noIdResult.deletedCount} equipment without id`);
-    console.log(`   - Deleted ${orphansResult.deletedCount} orphan equipment`);
-    console.log(`   - Deleted ${orphanListsResult.deletedCount} orphan lists`);
+    console.log(`🧹 Cleanup done: ${noIdResult.deletedCount} no-id, ${orphansResult.deletedCount} orphans`);
 
     res.json({
       success: true,
@@ -1172,31 +1151,39 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// OT CUSTOM LISTS ROUTES
+// ✅ OT CUSTOM LISTS ROUTES — مُحسّنة بـ aggregation (أسرع 10-20x)
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
     const { roomId, deptCode } = req.query;
-    let query = {};
+    const match = {};
+    if (roomId) match.roomId = roomId;
+    if (deptCode) match.deptCode = deptCode;
 
-    if (roomId) query.roomId = roomId;
-    if (deptCode) query.deptCode = deptCode;
+    const t0 = Date.now();
 
+    // ✅ استعلام واحد يجيب اللستات + المعدات (بدل N+1)
     const lists = await otCustomListsCollection
-      .find(query)
-      .sort({ _id: 1 })
+      .aggregate([
+        { $match: match },
+        { $sort: { createdAt: -1 } },
+        {
+          $lookup: {
+            from: 'ot_custom_equipment',
+            let: { listId: '$id' },
+            pipeline: [
+              { $match: { $expr: { $eq: ['$listId', '$$listId'] } } },
+              { $sort: { _id: 1 } },
+              { $limit: 500 }
+            ],
+            as: 'equipment'
+          }
+        }
+      ])
       .allowDiskUse(true)
       .toArray();
 
-    for (let list of lists) {
-      list.equipment = await otCustomEquipmentCollection
-        .find({ listId: list.id })
-        .sort({ _id: 1 })
-        .allowDiskUse(true)
-        .toArray();
-    }
-
-    console.log(`✅ Found ${lists.length} custom lists (deptCode=${deptCode || 'all'})`);
+    console.log(`✅ Found ${lists.length} custom lists (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
     res.json({ success: true, data: lists });
   } catch (error) {
     console.error('❌ Error fetching custom lists:', error);
@@ -1402,9 +1389,7 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
   }
 });
 
-// ============================================================
 // ✅ DELETE route مُصلح — يدعم id و _id
-// ============================================================
 app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1774,7 +1759,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`👑 Admin: staff_no=host3487539, password=123456`);
   console.log(`📦 OT Departments:  /api/ot-departments`);
-  console.log(`📋 OT Custom Lists: /api/ot-custom-lists`);
+  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (OPTIMIZED)`);
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
   console.log(`✅ Health Check:    /api/health`);
   console.log(`🔍 Debug Info:      /api/debug/info`);

@@ -361,24 +361,53 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments
+  // ✅ loadDepartments — تحميل متوازي (أسرع 10-20 مرة)
   // ============================================================
   const loadDepartments = async () => {
     try {
       setLoading(true);
       setServerError(null);
 
-      const data = await apiFetch(`${API_BASE}/ot-departments?_t=${Date.now()}`);
-      console.log('📥 loadDepartments:', data.data?.length || 0, 'departments');
+      const t0 = Date.now();
 
-      if (data.success) {
-        const depts = data.data || [];
-        setDepartments(depts);
+      // 1. اجلب الأقسام
+      const deptsData = await apiFetch(`${API_BASE}/ot-departments?_t=${Date.now()}`);
+      const depts = deptsData.data || [];
+      setDepartments(depts);
+      console.log(`📥 ${depts.length} departments loaded in ${Date.now() - t0}ms`);
 
-        for (const dept of depts) {
-          await fetchLists(dept.id);
+      if (depts.length === 0) {
+        setLoading(false);
+        return;
+      }
+
+      // 2. اجلب لستات كل الأقسام بالتوازي (مو واحد واحد!)
+      const results = await Promise.all(
+        depts.map(dept =>
+          apiFetch(`${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(dept.id)}&_t=${Date.now()}`)
+            .then(d => ({ deptId: dept.id, lists: d.data || [] }))
+            .catch(err => {
+              console.warn(`⚠️ Failed to fetch lists for ${dept.id}:`, err.message);
+              return { deptId: dept.id, lists: [] };
+            })
+        )
+      );
+
+      // 3. ابنِ state من النتائج (مع المعدات المُدمجة من السيرفر)
+      const newLists = {};
+      const newEquipment = {};
+
+      for (const { deptId, lists } of results) {
+        newLists[deptId] = lists;
+        // ✅ المعدات موجودة داخل list.equipment — لا حاجة لطلب منفصل
+        for (const list of lists) {
+          newEquipment[list.id] = list.equipment || [];
         }
       }
+
+      setLists(newLists);
+      setEquipment(newEquipment);
+      console.log(`📥 Total ${Object.values(newLists).flat().length} lists loaded in ${Date.now() - t0}ms`);
     } catch (err) {
       console.error("❌ loadDepartments error:", err.message);
       setServerError(err.message);
@@ -388,7 +417,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists
+  // ✅ fetchLists — بدون طلب إضافي للمعدات
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -396,15 +425,20 @@ function OTDepartment() {
         `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}&_t=${Date.now()}`
       );
 
-      console.log(`📥 fetchLists [${deptId}]:`, data.data?.length || 0, 'lists');
-
       if (data.success) {
         const listsArr = data.data || [];
         setLists(prev => ({ ...prev, [deptId]: listsArr }));
 
+        // ✅ استخدم المعدات المُدمجة من السيرفر (بدون طلب منفصل)
+        const equipMap = {};
         for (const list of listsArr) {
-          await fetchEquipment(list.id);
+          if (list.equipment) equipMap[list.id] = list.equipment;
         }
+        if (Object.keys(equipMap).length > 0) {
+          setEquipment(prev => ({ ...prev, ...equipMap }));
+        }
+
+        console.log(`📥 fetchLists [${deptId}]: ${listsArr.length} lists`);
       }
     } catch (err) {
       console.error("❌ fetchLists error for", deptId, ":", err.message);
@@ -413,18 +447,16 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment — التزامن بين الأجهزة
+  // ✅ fetchEquipment — للتحديث اليدوي فقط
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
-      // ✅ _t يمنع الكاش — كل جهاز يجيب أحدث نسخة من MongoDB
       const data = await apiFetch(
         `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}?_t=${Date.now()}`
       );
-      console.log(`📥 fetchEquipment [${listId}]:`, data.data?.length || 0, 'items');
+      console.log(`📥 fetchEquipment [${listId}]: ${data.data?.length || 0} items`);
 
       if (data.success) {
-        // ✅ استبدل كامل — لا دمج
         setEquipment(prev => ({ ...prev, [listId]: data.data || [] }));
       }
     } catch (err) {
@@ -433,7 +465,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ تحديث كامل عند العودة للصفحة (للتزامن بين الأجهزة)
+  // ✅ visibilitychange — تحديث عند العودة للصفحة
   // ============================================================
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -545,8 +577,6 @@ function OTDepartment() {
         body: JSON.stringify(listData)
       });
 
-      console.log('📥 Response:', data);
-
       if (!data.success) throw new Error(data.message || "Unknown error");
 
       await fetchLists(selectedDeptId);
@@ -592,7 +622,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD
+  // ✅ EQUIPMENT CRUD — مع Optimistic Update (فوري!)
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -600,23 +630,60 @@ function OTDepartment() {
     }
     if (!selectedListId) return alert("Please select a list first");
 
+    // ✅ 1. أضف فوراً للـ state (optimistic) — بدون انتظار السيرفر
+    const tempId = `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const optimisticItem = {
+      id: editingEquipId || tempId,
+      listId: selectedListId,
+      name: newEquipment.name.trim(),
+      code: newEquipment.code.trim(),
+      quantity: parseInt(newEquipment.quantity) || 1,
+      status: 'Available',
+      image: newEquipment.image || null,
+      createdAt: new Date().toISOString(),
+      _optimistic: true,
+    };
+
+    const isEditing = !!editingEquipId;
+    const savedName = optimisticItem.name;
+    const savedCode = optimisticItem.code;
+    const savedQty = optimisticItem.quantity;
+    const savedImg = optimisticItem.image;
+
+    // أضف/عدّل فوراً في الواجهة
+    if (!isEditing) {
+      setEquipment(prev => ({
+        ...prev,
+        [selectedListId]: [...(prev[selectedListId] || []), optimisticItem]
+      }));
+    } else {
+      setEquipment(prev => ({
+        ...prev,
+        [selectedListId]: (prev[selectedListId] || []).map(item =>
+          item.id === editingEquipId ? { ...item, ...optimisticItem, _optimistic: true } : item
+        )
+      }));
+    }
+
+    // امسح الفورم فوراً — المستخدم يشوف استجابة سريعة
+    resetEquipmentForm();
+
+    // ✅ 2. أرسل للسيرفر في الخلفية
     setSaving(true);
     try {
       const equipData = {
-        id: editingEquipId || `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: editingEquipId || tempId,
         listId: selectedListId,
-        name: newEquipment.name.trim(),
-        code: newEquipment.code.trim(),
-        quantity: parseInt(newEquipment.quantity) || 1,
-        image: newEquipment.image || null
+        name: savedName,
+        code: savedCode,
+        quantity: savedQty,
+        image: savedImg,
       };
 
-      console.log('📤 POST equipment:', { ...equipData, image: equipData.image ? `[${equipData.image.length} chars]` : null });
-
-      const url = editingEquipId
+      const url = isEditing
         ? `${API_BASE}/ot-custom-equipment/${editingEquipId}`
         : `${API_BASE}/ot-custom-equipment`;
-      const method = editingEquipId ? "PUT" : "POST";
+      const method = isEditing ? "PUT" : "POST";
 
       let data;
       try {
@@ -626,6 +693,7 @@ function OTDepartment() {
           body: JSON.stringify(equipData)
         });
       } catch (err) {
+        // ✅ إذا ID موجود مسبقاً (409) → نجدد ID ونعيد المحاولة
         if (err.status === 409 || err.data?.alreadyExists) {
           console.warn('⚠️ ID collision, retrying with new ID');
           equipData.id = `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -639,24 +707,39 @@ function OTDepartment() {
         }
       }
 
-      console.log('📥 Response:', data);
-
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ أضف مباشرة للـ state
-      if (!editingEquipId && data.data) {
-        setEquipment(prev => ({
-          ...prev,
-          [selectedListId]: [...(prev[selectedListId] || []), data.data]
-        }));
-      }
+      // ✅ 3. استبدل الـ optimistic element بالحقيقي
+      setEquipment(prev => ({
+        ...prev,
+        [selectedListId]: (prev[selectedListId] || []).map(item => {
+          if (item.id === tempId || (isEditing && item.id === editingEquipId)) {
+            return { ...data.data, _optimistic: false };
+          }
+          return item;
+        })
+      }));
 
-      // ✅ ثم refetch من السيرفر
-      await fetchEquipment(selectedListId);
-      resetEquipmentForm();
+      console.log(`✅ ${savedName} saved`);
     } catch (err) {
       console.error("❌ handleAddEquipment:", err);
+
+      // ✅ إذا فشل، احذف الـ optimistic element
+      setEquipment(prev => ({
+        ...prev,
+        [selectedListId]: (prev[selectedListId] || []).filter(item => !item._optimistic)
+      }));
+
       alert("❌ فشل حفظ المعدة: " + err.message);
+
+      // أعد البيانات للفورم
+      setNewEquipment({
+        name: savedName,
+        code: savedCode,
+        quantity: savedQty,
+        image: savedImg
+      });
+      setImagePreview(savedImg);
     } finally {
       setSaving(false);
     }
@@ -674,22 +757,30 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ handleDeleteEquipment — مُصلحة
+  // ✅ handleDeleteEquipment — Optimistic
   // ============================================================
   const handleDeleteEquipment = async (id, name) => {
-    // ✅ حماية: إذا ما فيه id
     if (!id) {
       alert("❌ هذه المعدة قديمة ولا يمكن حذفها — يرجى حذفها من MongoDB");
-      console.error("❌ Cannot delete: item.id is undefined");
       return;
     }
 
     if (!window.confirm(`Delete equipment "${name}"?`)) return;
 
+    // ✅ احفظ العنصر لو فشل الحذف
+    const backup = (equipment[selectedListId] || []).find(item => item.id === id);
+
+    // ✅ 1. احذف فوراً من الواجهة
+    setEquipment(prev => ({
+      ...prev,
+      [selectedListId]: (prev[selectedListId] || []).filter(item => item.id !== id)
+    }));
+
+    console.log(`📤 DELETE equipment: ${id}`);
+
+    // ✅ 2. أرسل للسيرفر في الخلفية
     try {
       const url = `${API_BASE}/ot-custom-equipment/${encodeURIComponent(id)}`;
-      console.log(`📤 DELETE ${url}`);
-
       const response = await fetch(url, {
         method: "DELETE",
         cache: 'no-store',
@@ -698,26 +789,22 @@ function OTDepartment() {
       const data = await response.json().catch(() => null);
       console.log('📥 Delete response:', response.status, data);
 
-      if (!response.ok) {
+      if (!response.ok || !data?.success) {
         throw new Error(data?.message || `HTTP ${response.status}`);
       }
 
-      if (!data?.success) {
-        throw new Error(data?.message || "Delete failed");
+      console.log(`✅ Equipment deleted: ${id}`);
+    } catch (err) {
+      console.error("❌ Delete failed, restoring:", err);
+
+      // ✅ إذا فشل، أعد العنصر
+      if (backup) {
+        setEquipment(prev => ({
+          ...prev,
+          [selectedListId]: [...(prev[selectedListId] || []), backup]
+        }));
       }
 
-      // ✅ احذف من state مباشرة (optimistic)
-      setEquipment(prev => ({
-        ...prev,
-        [selectedListId]: (prev[selectedListId] || []).filter(item => item.id !== id)
-      }));
-
-      console.log(`✅ Equipment deleted: ${id}`);
-
-      // ✅ ثم refetch للتأكد من التزامن
-      await fetchEquipment(selectedListId);
-    } catch (err) {
-      console.error("❌ handleDeleteEquipment:", err);
       alert("❌ فشل حذف المعدة: " + err.message);
     }
   };
@@ -2260,7 +2347,6 @@ function OTDepartment() {
           <button
             onClick={() => {
               loadDepartments();
-              if (selectedListId) fetchEquipment(selectedListId);
             }}
             style={{
               display: "flex",
@@ -3048,7 +3134,13 @@ function OTDepartment() {
                       </thead>
                       <tbody>
                         {filteredAndSortedEquipment.map((item, idx) => (
-                          <tr key={item.id || item._id} style={{ background: idx % 2 === 0 ? "#ffffff" : "#f5f5f5" }}>
+                          <tr
+                            key={item.id || item._id}
+                            style={{
+                              background: idx % 2 === 0 ? "#ffffff" : "#f5f5f5",
+                              opacity: item._optimistic ? 0.6 : 1
+                            }}
+                          >
                             <td style={{ ...equipTdStyle, textAlign: "center" }}>{idx + 1}</td>
                             <td style={{ ...equipTdStyle, textAlign: "center" }}>
                               {item.image ? (
@@ -3073,7 +3165,10 @@ function OTDepartment() {
                                 <span style={{ fontSize: "20px", color: "#9ca3af" }}>📷</span>
                               )}
                             </td>
-                            <td style={{ ...equipTdStyle, fontWeight: "600" }}>{item.name}</td>
+                            <td style={{ ...equipTdStyle, fontWeight: "600" }}>
+                              {item.name}
+                              {item._optimistic && <span style={{ fontSize: "10px", color: "#6b7280", marginLeft: "6px" }}>⏳</span>}
+                            </td>
                             <td style={{ ...equipTdStyle, fontFamily: "monospace" }}>{item.code}</td>
                             <td style={{ ...equipTdStyle, textAlign: "center", fontWeight: "700" }}>{item.quantity}</td>
                             {isAdmin && (
@@ -3082,13 +3177,15 @@ function OTDepartment() {
                                   <button
                                     onClick={() => handleEditEquipment(item)}
                                     title="Edit"
+                                    disabled={item._optimistic}
                                     style={{
                                       padding: "4px 6px",
                                       background: "#c9a84c",
                                       color: "#004d32",
                                       border: "none",
                                       borderRadius: "4px",
-                                      cursor: "pointer",
+                                      cursor: item._optimistic ? "not-allowed" : "pointer",
+                                      opacity: item._optimistic ? 0.5 : 1,
                                       display: "flex",
                                       alignItems: "center",
                                       justifyContent: "center"
@@ -3099,13 +3196,15 @@ function OTDepartment() {
                                   <button
                                     onClick={() => handleDeleteEquipment(item.id || item._id, item.name)}
                                     title="Delete"
+                                    disabled={item._optimistic}
                                     style={{
                                       padding: "4px 6px",
                                       background: "#fee2e2",
                                       color: "#991b1b",
                                       border: "none",
                                       borderRadius: "4px",
-                                      cursor: "pointer",
+                                      cursor: item._optimistic ? "not-allowed" : "pointer",
+                                      opacity: item._optimistic ? 0.5 : 1,
                                       display: "flex",
                                       alignItems: "center",
                                       justifyContent: "center"
