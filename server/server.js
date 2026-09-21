@@ -41,21 +41,16 @@ const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
 
 console.log('🌐 Allowed CORS origins:', allowedOrigins);
 
-// ✅ دالة للتحقق من IP محلي (لأجهزة الشبكة المحلية مثل التلفون)
+// ✅ دالة للتحقق من IP محلي
 function isLocalNetworkOrigin(origin) {
   if (!origin) return false;
   try {
     const url = new URL(origin);
     const host = url.hostname;
-
-    // localhost / 127.0.0.1
     if (host === 'localhost' || host === '127.0.0.1') return true;
-
-    // IPv4 private ranges
     if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
     if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
     if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-
     return false;
   } catch {
     return false;
@@ -67,13 +62,10 @@ app.use(cors({
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     if (origin.endsWith('.onrender.com')) return callback(null, true);
-
-    // ✅ اسمح بأي IP محلي في الشبكة
     if (isLocalNetworkOrigin(origin)) {
       console.log(`✅ CORS allowed local network origin: ${origin}`);
       return callback(null, true);
     }
-
     console.warn(`⚠️ CORS blocked origin: ${origin}`);
     return callback(new Error(`CORS blocked: ${origin}`));
   },
@@ -560,7 +552,6 @@ app.put("/api/ot-departments/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Department not found" });
     }
 
-    // ✅ إرجاع المستند المُحدَّث
     const updatedDoc = await otDepartmentsCollection.findOne({ id });
 
     console.log(`✅ Department updated: ${id}`);
@@ -980,9 +971,8 @@ app.get("/api/dept-equipment/list/:listId", async (req, res) => {
   try {
     const { listId } = req.params;
     const items = await deptEquipmentCollection
-      .find({ listId })
+      .find({ listId }, { allowDiskUse: true })
       .sort({ createdAt: 1 })
-      .allowDiskUse(true)
       .toArray();
     res.json({ success: true, data: items });
   } catch (err) {
@@ -994,9 +984,8 @@ app.get("/api/dept-equipment/:deptCode/:listId", async (req, res) => {
   try {
     const { deptCode, listId } = req.params;
     const items = await deptEquipmentCollection
-      .find({ deptCode, listId })
+      .find({ deptCode, listId }, { allowDiskUse: true })
       .sort({ createdAt: 1 })
-      .allowDiskUse(true)
       .toArray();
     res.json({ success: true, data: items });
   } catch (err) {
@@ -1065,10 +1054,9 @@ app.get('/api/checklist/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
     const checklist = await checklistsCollection
-      .find({ listId })
+      .find({ listId }, { allowDiskUse: true })
       .sort({ submittedAt: -1 })
       .limit(1)
-      .allowDiskUse(true)
       .toArray();
     const result = checklist.length > 0 ? checklist[0] : null;
     res.json({ success: true, data: result });
@@ -1159,10 +1147,9 @@ app.post('/api/checklist/save', async (req, res) => {
 app.get('/api/checklists', async (req, res) => {
   try {
     const checklists = await checklistsCollection
-      .find({ submitted: true })
+      .find({ submitted: true }, { allowDiskUse: true })
       .sort({ submittedAt: -1 })
       .limit(500)
-      .allowDiskUse(true)
       .toArray();
 
     for (let checklist of checklists) {
@@ -1187,7 +1174,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES — مُحسّنة بـ aggregation (أسرع 10-20x)
+// ✅ OT CUSTOM LISTS ROUTES — مع إصلاح allowDiskUse
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
@@ -1198,7 +1185,7 @@ app.get('/api/ot-custom-lists', async (req, res) => {
 
     const t0 = Date.now();
 
-    // ✅ استعلام واحد يجيب اللستات + المعدات (بدل N+1)
+    // ✅ allowDiskUse يُمرر كخيار داخل aggregate()
     const lists = await otCustomListsCollection
       .aggregate([
         { $match: match },
@@ -1215,8 +1202,7 @@ app.get('/api/ot-custom-lists', async (req, res) => {
             as: 'equipment'
           }
         }
-      ])
-      .allowDiskUse(true)
+      ], { allowDiskUse: true })
       .toArray();
 
     console.log(`✅ Found ${lists.length} custom lists (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
@@ -1305,7 +1291,6 @@ app.put('/api/ot-custom-lists/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: "List not found" });
     }
 
-    // ✅ إرجاع المستند المُحدَّث
     const updatedDoc = await otCustomListsCollection.findOne({ id });
 
     console.log(`✅ Custom list updated: ${id}`);
@@ -1349,9 +1334,8 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
     console.log(`📡 GET /api/ot-custom-equipment/${listId}`);
 
     const equipment = await otCustomEquipmentCollection
-      .find({ listId })
+      .find({ listId }, { allowDiskUse: true })
       .sort({ _id: 1 })
-      .allowDiskUse(true)
       .limit(1000)
       .toArray();
 
@@ -1403,7 +1387,7 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
   }
 });
 
-// ✅ PUT — يُرجع البيانات المُحدَّثة (الإصلاح الرئيسي)
+// ✅ PUT — يُرجع البيانات المُحدَّثة
 app.put('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1431,7 +1415,6 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: "Equipment not found" });
     }
 
-    // ✅ جلب المستند المُحدَّث وإرجاعه للواجهة
     const updatedDoc = await otCustomEquipmentCollection.findOne({ id });
 
     console.log(`✅ Custom equipment updated: ${name} (id=${id})`);
@@ -1447,7 +1430,6 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
   }
 });
 
-// ✅ DELETE route مُصلح — يدعم id و _id
 app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1457,11 +1439,9 @@ app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid equipment ID" });
     }
 
-    // ✅ حاول بـ id أولاً
     let result = await otCustomEquipmentCollection.deleteOne({ id });
     console.log(`   deleteOne({id: '${id}'}) → deletedCount=${result.deletedCount}`);
 
-    // ✅ إذا فشل، جرّب بـ _id (لو كان ObjectId صالح)
     if (result.deletedCount === 0) {
       try {
         if (ObjectId.isValid(id)) {
@@ -1609,9 +1589,8 @@ app.get("/api/ot/equipment/:setId", async (req, res) => {
   try {
     const { setId } = req.params;
     const equipment = await deptEquipmentCollection
-      .find({ listId: setId })
+      .find({ listId: setId }, { allowDiskUse: true })
       .sort({ createdAt: 1 })
-      .allowDiskUse(true)
       .toArray();
     res.json({ success: true, data: equipment });
   } catch (err) {
@@ -1817,7 +1796,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`👑 Admin: staff_no=host3487539, password=123456`);
   console.log(`📦 OT Departments:  /api/ot-departments`);
-  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (OPTIMIZED)`);
+  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (FIXED allowDiskUse)`);
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
   console.log(`✅ Health Check:    /api/health`);
   console.log(`🔍 Debug Info:      /api/debug/info`);

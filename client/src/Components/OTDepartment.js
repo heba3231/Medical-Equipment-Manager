@@ -390,7 +390,7 @@ function OTDepartment() {
         return;
       }
 
-      // 2. اجلب لستات كل الأقسام بالتوازي (مو واحد واحد!)
+      // 2. اجلب لستات كل الأقسام بالتوازي
       const results = await Promise.all(
         depts.map(dept =>
           apiFetch(`${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(dept.id)}&_t=${Date.now()}`)
@@ -402,13 +402,12 @@ function OTDepartment() {
         )
       );
 
-      // 3. ابنِ state من النتائج (مع المعدات المُدمجة من السيرفر)
+      // 3. ابنِ state من النتائج
       const newLists = {};
       const newEquipment = {};
 
       for (const { deptId, lists } of results) {
         newLists[deptId] = lists;
-        // ✅ المعدات موجودة داخل list.equipment — لا حاجة لطلب منفصل
         for (const list of lists) {
           newEquipment[list.id] = list.equipment || [];
         }
@@ -438,7 +437,6 @@ function OTDepartment() {
         const listsArr = data.data || [];
         setLists(prev => ({ ...prev, [deptId]: listsArr }));
 
-        // ✅ استخدم المعدات المُدمجة من السيرفر (بدون طلب منفصل)
         const equipMap = {};
         for (const list of listsArr) {
           if (list.equipment) equipMap[list.id] = list.equipment;
@@ -474,7 +472,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ POLLING — مزامنة تلقائية بين الأجهزة (كل 5 ثوانٍ)
+  // ✅✅✅ POLLING — آمن (لا يمسح البيانات عند فشل جزئي)
   // ============================================================
   useEffect(() => {
     let isRefreshing = false;
@@ -484,7 +482,7 @@ function OTDepartment() {
       if (document.visibilityState !== 'visible') return;
       // تجاهل إذا في وسط تحديث سابق
       if (isRefreshing) return;
-      // تجاهل إذا المستخدم في وضع الفحص (لا نريد إزعاجه)
+      // تجاهل إذا المستخدم في وضع الفحص
       if (checkModeRef.current) return;
 
       isRefreshing = true;
@@ -496,62 +494,61 @@ function OTDepartment() {
         );
         const depts = deptsData.data || [];
 
+        // ✅ لا تمسح الأقسام إذا رجعت فاضية فجأة (خطأ شبكة مؤقت)
         if (depts.length === 0) {
-          setDepartments(depts);
-          setLists({});
-          setEquipment({});
+          console.warn('⚠️ Poll returned empty departments — skipping update');
           return;
         }
 
-        // 2. اجلب اللستات + المعدات لكل الأقسام بالتوازي
+        // 2. اجلب اللستات بالتوازي — مع علامة ok للنجاح
         const results = await Promise.all(
           depts.map(dept =>
             apiFetch(
               `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(dept.id)}&_t=${Date.now()}`
             )
-              .then(d => ({ deptId: dept.id, lists: d.data || [] }))
-              .catch(() => ({ deptId: dept.id, lists: [] }))
+              .then(d => ({ deptId: dept.id, lists: d.data || [], ok: true }))
+              .catch(err => {
+                console.warn(`⚠️ Poll fetch failed for ${dept.id}:`, err.message);
+                return { deptId: dept.id, lists: null, ok: false };
+              })
           )
         );
 
-        const newLists = {};
-        const newEquipment = {};
-
-        for (const { deptId, lists } of results) {
-          newLists[deptId] = lists;
-          for (const list of lists) {
-            newEquipment[list.id] = list.equipment || [];
-          }
-        }
-
-        // 3. حدّث الحالة — مع الحفاظ على العناصر optimistic (لو موجودة)
+        // 3. حدّث الأقسام
         setDepartments(depts);
-        setLists(newLists);
 
-        setEquipment(prev => {
-          const merged = {};
-          // دمج كل listId من السيرفر
-          for (const listId in newEquipment) {
-            const serverItems = newEquipment[listId];
-            const serverIds = new Set(serverItems.map(i => i.id));
-            // احتفظ بالعناصر optimistic التي لم يصلها السيرفر بعد
-            const optimisticItems = (prev[listId] || []).filter(
-              i => i._optimistic && !serverIds.has(i.id)
-            );
-            merged[listId] = [...serverItems, ...optimisticItems];
+        // 4. حدّث اللستات — فقط للأقسام التي نجح جلبها (احتفظ بالقديمة عند الفشل)
+        setLists(prev => {
+          const next = { ...prev };
+          for (const { deptId, lists, ok } of results) {
+            if (ok && lists !== null) {
+              next[deptId] = lists;
+            }
+            // إذا فشل، احتفظ بالقيمة القديمة (لا تمسح)
           }
-          // احتفظ بأي listId غير موجود في السيرفر (لاست أضيفت محلياً)
-          for (const listId in prev) {
-            if (!merged[listId]) {
-              merged[listId] = prev[listId].filter(i => i._optimistic);
+          return next;
+        });
+
+        // 5. حدّث المعدات — بنفس المنطق + الحفاظ على العناصر optimistic
+        setEquipment(prev => {
+          const merged = { ...prev };
+          for (const { lists, ok } of results) {
+            if (!ok || lists === null) continue;
+            for (const list of lists) {
+              const serverItems = list.equipment || [];
+              const serverIds = new Set(serverItems.map(i => i.id));
+              // احتفظ بالعناصر التي لم يصلها السيرفر بعد
+              const optimisticItems = (prev[list.id] || []).filter(
+                i => i._optimistic && !serverIds.has(i.id)
+              );
+              merged[list.id] = [...serverItems, ...optimisticItems];
             }
           }
           return merged;
         });
 
-        console.log('🔄 Polled sync — data refreshed from server');
+        console.log('🔄 Polled sync completed');
       } catch (err) {
-        // فشل صامت — لا نريد إزعاج المستخدم
         console.warn('⚠️ Poll refresh failed:', err.message);
       } finally {
         isRefreshing = false;
@@ -577,7 +574,7 @@ function OTDepartment() {
       document.removeEventListener('visibilitychange', handleFocus);
       window.removeEventListener('focus', handleFocus);
     };
-  }, []); // ← مرة واحدة فقط — لا يعاد تشغيله
+  }, []); // ← مرة واحدة فقط
 
   // ============================================================
   // ✅ DEPARTMENT CRUD
@@ -720,7 +717,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD — مع Optimistic Update (فوري!)
+  // ✅ EQUIPMENT CRUD — مع Optimistic Update
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -728,7 +725,7 @@ function OTDepartment() {
     }
     if (!selectedListId) return alert("Please select a list first");
 
-    // ✅ 1. أضف فوراً للـ state (optimistic) — بدون انتظار السيرفر
+    // ✅ 1. أضف فوراً للـ state (optimistic)
     const tempId = `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const optimisticItem = {
       id: editingEquipId || tempId,
@@ -749,7 +746,6 @@ function OTDepartment() {
     const savedImg = optimisticItem.image;
     const savedListId = selectedListId;
 
-    // أضف/عدّل فوراً في الواجهة
     if (!isEditing) {
       setEquipment(prev => ({
         ...prev,
@@ -764,10 +760,9 @@ function OTDepartment() {
       }));
     }
 
-    // امسح الفورم فوراً — المستخدم يشوف استجابة سريعة
     resetEquipmentForm();
 
-    // ✅ 2. أرسل للسيرفر في الخلفية
+    // ✅ 2. أرسل للسيرفر
     setSaving(true);
     try {
       const equipData = {
@@ -792,7 +787,6 @@ function OTDepartment() {
           body: JSON.stringify(equipData)
         });
       } catch (err) {
-        // ✅ إذا ID موجود مسبقاً (409) → نجدد ID ونعيد المحاولة
         if (err.status === 409 || err.data?.alreadyExists) {
           console.warn('⚠️ ID collision, retrying with new ID');
           equipData.id = `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -808,15 +802,14 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ 3. استبدل الـ optimistic element بالحقيقي
-      // ✅ مع Fallback defensive — لا تختفي المعدّة حتى لو لم يُرجع السيرفر data
+      // ✅ 3. استبدل الـ optimistic element — مع Fallback defensive
       setEquipment(prev => ({
         ...prev,
         [savedListId]: (prev[savedListId] || []).map(item => {
           const matches = item.id === tempId || (isEditing && item.id === editingEquipId);
           if (!matches) return item;
 
-          // ✅ استخدم data.data إن وُجد، وإلا استخدم optimisticItem كـ fallback
+          // ✅ استخدم data.data إن وُجد، وإلا optimisticItem كـ fallback
           const finalData = (data.data && data.data.id)
             ? data.data
             : { ...optimisticItem };
@@ -834,7 +827,6 @@ function OTDepartment() {
     } catch (err) {
       console.error("❌ handleAddEquipment:", err);
 
-      // ✅ إذا فشل، احذف الـ optimistic element
       setEquipment(prev => ({
         ...prev,
         [savedListId]: (prev[savedListId] || []).filter(item => !item._optimistic)
@@ -842,7 +834,6 @@ function OTDepartment() {
 
       alert("❌ فشل حفظ المعدة: " + err.message);
 
-      // أعد البيانات للفورم
       setNewEquipment({
         name: savedName,
         code: savedCode,
@@ -866,9 +857,6 @@ function OTDepartment() {
     setImagePreview(item.image || null);
   };
 
-  // ============================================================
-  // ✅ handleDeleteEquipment — Optimistic
-  // ============================================================
   const handleDeleteEquipment = async (id, name) => {
     if (!id) {
       alert("❌ هذه المعدة قديمة ولا يمكن حذفها — يرجى حذفها من MongoDB");
@@ -878,10 +866,8 @@ function OTDepartment() {
     if (!window.confirm(`Delete equipment "${name}"?`)) return;
 
     const currentListId = selectedListId;
-    // ✅ احفظ العنصر لو فشل الحذف
     const backup = (equipment[currentListId] || []).find(item => item.id === id);
 
-    // ✅ 1. احذف فوراً من الواجهة
     setEquipment(prev => ({
       ...prev,
       [currentListId]: (prev[currentListId] || []).filter(item => item.id !== id)
@@ -889,7 +875,6 @@ function OTDepartment() {
 
     console.log(`📤 DELETE equipment: ${id}`);
 
-    // ✅ 2. أرسل للسيرفر في الخلفية
     try {
       const url = `${API_BASE}/ot-custom-equipment/${encodeURIComponent(id)}`;
       const response = await fetch(url, {
@@ -908,7 +893,6 @@ function OTDepartment() {
     } catch (err) {
       console.error("❌ Delete failed, restoring:", err);
 
-      // ✅ إذا فشل، أعد العنصر
       if (backup) {
         setEquipment(prev => ({
           ...prev,
@@ -927,7 +911,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ IMAGE HANDLING — مع ضغط
+  // ✅ IMAGE HANDLING
   // ============================================================
   const handleImageChange = async (e) => {
     const file = e.target.files[0];
