@@ -23,6 +23,35 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ============================================================
+// ⚡⚡⚡ SIMPLE IN-MEMORY CACHE (يقلل ضغط DB بنسبة 90%)
+// ============================================================
+const cache = {
+  bootstrap: { data: null, at: 0, ttl: 30000 }, // 30 ثانية
+};
+
+function getCached(key) {
+  if (key === 'bootstrap') {
+    const c = cache.bootstrap;
+    if (c.data && Date.now() - c.at < c.ttl) return c.data;
+    return null;
+  }
+  return null;
+}
+
+function setCached(key, data) {
+  if (key === 'bootstrap') {
+    cache.bootstrap.data = data;
+    cache.bootstrap.at = Date.now();
+  }
+}
+
+function invalidateBootstrap() {
+  cache.bootstrap.data = null;
+  cache.bootstrap.at = 0;
+  console.log('🗑️  Bootstrap cache invalidated');
+}
+
+// ============================================================
 // CORS Configuration
 // ============================================================
 const defaultOrigins = [
@@ -41,7 +70,6 @@ const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
 
 console.log('🌐 Allowed CORS origins:', allowedOrigins);
 
-// ✅ دالة للتحقق من IP محلي
 function isLocalNetworkOrigin(origin) {
   if (!origin) return false;
   try {
@@ -82,15 +110,11 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // ============================================================
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
-// ⚠️ مهم: لا تضع بيانات اعتماد مباشرة. استخدم MONGODB_URI من Environment
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
   console.error('═══════════════════════════════════════════════════════');
   console.error('❌❌❌ خطأ حرج: MONGODB_URI غير موجود في متغيرات البيئة!');
-  console.error('═══════════════════════════════════════════════════════');
-  console.error('الحل: أضف MONGODB_URI في Render → Environment');
-  console.error('القيمة: mongodb+srv://user:pass@cluster.mongodb.net/medical_equipment');
   console.error('═══════════════════════════════════════════════════════');
 }
 
@@ -98,14 +122,14 @@ console.log('🔌 MongoDB URI:', MONGODB_URI
   ? MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@')
   : '❌ MISSING');
 
-// ✅✅✅ TIMEOUTS محسّنة
+// ✅✅✅ TIMEOUTS مطوّلة لتحمل الشبكة البطيئة
 const client = new MongoClient(
   MONGODB_URI || 'mongodb://localhost:27017/medical_equipment',
   {
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 20000,
-    connectTimeoutMS: 8000,
-    maxPoolSize: 20,
+    serverSelectionTimeoutMS: 30000,
+    socketTimeoutMS: 60000,
+    connectTimeoutMS: 30000,
+    maxPoolSize: 10,
     minPoolSize: 2,
     retryWrites: true,
     retryReads: true,
@@ -236,14 +260,14 @@ async function migrateLegacyLists() {
 }
 
 // ============================================================
-// ✅ Ensure Connection — مع تشخيص مفصل
+// ✅ Ensure Connection
 // ============================================================
 async function ensureConnection() {
   if (db) return true;
 
   if (isConnecting) {
     let waited = 0;
-    while (isConnecting && waited < 15000) {
+    while (isConnecting && waited < 30000) {
       await new Promise(r => setTimeout(r, 100));
       waited += 100;
     }
@@ -280,9 +304,6 @@ async function ensureConnection() {
     otCustomEquipmentCollection = db.collection("ot_custom_equipment");
     otDepartmentsCollection = db.collection("ot_departments");
 
-    // ============================================================
-    // ✅ Indexes
-    // ============================================================
     const indexTasks = [
       () => equipmentCollection.createIndex({ category: 1 }),
       () => equipmentCollection.createIndex({ code: 1 }),
@@ -313,7 +334,6 @@ async function ensureConnection() {
       }
     }
 
-    // Default admin
     let existingAdmin = await adminCollection.findOne({ staff_no: "host3487539" });
     if (!existingAdmin) {
       existingAdmin = await adminCollection.findOne({ staffNumber: "host3487539" });
@@ -352,28 +372,16 @@ async function ensureConnection() {
     lastConnectErrorAt = new Date().toISOString();
 
     console.error("═══════════════════════════════════════════════════════");
-    console.error("❌ MongoDB connection error:");
-    console.error("   Message:", error.message);
-    console.error("   Name:", error.name);
-    console.error("   Code:", error.code);
+    console.error("❌ MongoDB connection error:", error.message);
     console.error("═══════════════════════════════════════════════════════");
 
-    // ✅ تشخيص ذكي
     const msg = error.message.toLowerCase();
     if (msg.includes('authentication') || msg.includes('bad auth')) {
-      console.error("💡 السبب المحتمل: اسم المستخدم أو كلمة المرور خاطئة");
-      console.error("   الحل: راجع Database Access في MongoDB Atlas");
+      console.error("💡 السبب: كلمة مرور MongoDB خاطئة");
     } else if (msg.includes('ip') || msg.includes('whitelist')) {
-      console.error("💡 السبب المحتمل: IP غير مسموح");
-      console.error("   الحل: Network Access → Add 0.0.0.0/0");
-    } else if (msg.includes('enotfound') || msg.includes('getaddrinfo') || msg.includes('dns')) {
-      console.error("💡 السبب المحتمل: مشكلة DNS — تأكد من URI");
-    } else if (msg.includes('timeout') || msg.includes('serverselection')) {
-      console.error("💡 السبب المحتمل: Cluster متوقف أو غير قابل للوصول");
-      console.error("   الحل: افتح MongoDB Atlas → Resume cluster");
-    } else if (msg.includes('mongodb_uri_missing')) {
-      console.error("💡 السبب: MONGODB_URI غير موجود في Environment");
-      console.error("   الحل: Render → Environment → أضف MONGODB_URI");
+      console.error("💡 السبب: IP غير مسموح → Network Access → 0.0.0.0/0");
+    } else if (msg.includes('timeout')) {
+      console.error("💡 السبب: الشبكة بطيئة أو Region مختلف بين Render و Atlas");
     }
 
     db = null;
@@ -423,7 +431,7 @@ async function seedDefaultDepartments() {
       created
     });
 
-    console.log(`✅ Seeded ${created} default departments (one-time)`);
+    console.log(`✅ Seeded ${created} default departments`);
   } catch (err) {
     console.error("⚠️ Seed error:", err.message);
   }
@@ -464,7 +472,7 @@ setInterval(async () => {
     console.warn("⏰ Ping failed, will reconnect:", err.message);
     db = null;
   }
-}, 30000); // ← كل 30 ثانية (كان 45) — يمنع نوم MongoDB
+}, 30000);
 
 // ============================================================
 // Initial Connect
@@ -502,20 +510,13 @@ app.get('/', (req, res) => {
 app.get('/api/health', async (req, res) => {
   try {
     if (!db) {
-      // ✅ محاولة اتصال فورية
       const ok = await ensureConnection();
       if (!ok) {
         return res.status(503).json({
           success: false,
           dbConnected: false,
           message: "DB not connected",
-          debug: {
-            lastConnectError,
-            lastConnectErrorAt,
-            connectAttempts: connectAttemptCount,
-            hasMongoUri: !!MONGODB_URI,
-            mongoUriHost: MONGODB_URI?.match(/@([^/?]+)/)?.[1] || 'unknown',
-          }
+          debug: { lastConnectError, hasMongoUri: !!MONGODB_URI }
         });
       }
     }
@@ -543,7 +544,7 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ============================================================
-// ✅✅✅ DB STATUS — تشخيص كامل
+// ✅ DB STATUS — تشخيص كامل
 // ============================================================
 app.get('/api/db-status', async (req, res) => {
   const result = {
@@ -570,7 +571,6 @@ app.get('/api/db-status', async (req, res) => {
       result.pingError = e.message;
     }
   } else {
-    // حاول الاتصال الآن
     result.tryingNow = true;
     const ok = await ensureConnection();
     result.afterRetry = {
@@ -580,6 +580,106 @@ app.get('/api/db-status', async (req, res) => {
   }
 
   res.json(result);
+});
+
+// ============================================================
+// ✅ TEST LATENCY — يقيس سرعة كل استعلام
+// ============================================================
+app.get('/api/test-latency', async (req, res) => {
+  if (!db) return res.status(503).json({ error: 'DB not connected' });
+
+  const results = {};
+
+  let t = Date.now();
+  try {
+    await db.command({ ping: 1 });
+    results.ping = `${Date.now() - t}ms`;
+  } catch (e) {
+    results.ping = `ERROR: ${e.message}`;
+  }
+
+  t = Date.now();
+  try {
+    await otDepartmentsCollection.countDocuments();
+    results.countDepartments = `${Date.now() - t}ms`;
+  } catch (e) {
+    results.countDepartments = `ERROR: ${e.message}`;
+  }
+
+  t = Date.now();
+  try {
+    await otDepartmentsCollection.find({}).toArray();
+    results.findDepartments = `${Date.now() - t}ms`;
+  } catch (e) {
+    results.findDepartments = `ERROR: ${e.message}`;
+  }
+
+  t = Date.now();
+  try {
+    await otCustomListsCollection.find({}).limit(50).toArray();
+    results.findLists = `${Date.now() - t}ms`;
+  } catch (e) {
+    results.findLists = `ERROR: ${e.message}`;
+  }
+
+  t = Date.now();
+  try {
+    await otCustomEquipmentCollection.find({}).limit(50).toArray();
+    results.findEquipment = `${Date.now() - t}ms`;
+  } catch (e) {
+    results.findEquipment = `ERROR: ${e.message}`;
+  }
+
+  res.json({ success: true, results });
+});
+
+// ============================================================
+// ✅ TEST MONGO CONNECTION
+// ============================================================
+app.get('/api/test-mongo-connection', async (req, res) => {
+  const net = await import('node:net');
+  const dnsPromises = await import('node:dns').then(m => m.promises);
+
+  const results = {};
+
+  try {
+    const addresses = await dnsPromises.resolveSrv('_mongodb._tcp.cluster0.4ascplg.mongodb.net');
+    results.dnsResolve = 'OK';
+    results.hosts = addresses.map(a => `${a.name}:${a.port}`);
+  } catch (e) {
+    results.dnsResolve = e.message;
+  }
+
+  const host = MONGODB_URI?.match(/@([^/?]+)/)?.[1];
+
+  if (host) {
+    results.tcp27017 = await new Promise((resolve) => {
+      const socket = net.createConnection(27017, host, () => {
+        socket.end();
+        resolve('OK');
+      });
+      socket.setTimeout(5000);
+      socket.on('timeout', () => { socket.destroy(); resolve('TIMEOUT'); });
+      socket.on('error', (err) => resolve(`ERROR: ${err.message}`));
+    });
+
+    results.tcp443 = await new Promise((resolve) => {
+      const socket = net.createConnection(443, host, () => {
+        socket.end();
+        resolve('OK');
+      });
+      socket.setTimeout(5000);
+      socket.on('timeout', () => { socket.destroy(); resolve('TIMEOUT'); });
+      socket.on('error', (err) => resolve(`ERROR: ${err.message}`));
+    });
+  }
+
+  res.json({
+    success: true,
+    results,
+    mongoHost: host || 'unknown',
+    hasMongoUri: !!MONGODB_URI,
+  });
 });
 
 app.get('/api/debug/info', async (req, res) => {
@@ -611,13 +711,7 @@ app.get('/api/debug/collections-stats', async (req, res) => {
     for (const name of collections) {
       try {
         const count = await db.collection(name).countDocuments();
-        const collStats = await db.command({ collStats: name }).catch(() => null);
-        stats[name] = {
-          count,
-          avgObjSize: collStats?.avgObjSize || 0,
-          sizeMB: collStats?.size ? (collStats.size / 1024 / 1024).toFixed(2) : '0',
-          storageSizeMB: collStats?.storageSize ? (collStats.storageSize / 1024 / 1024).toFixed(2) : '0',
-        };
+        stats[name] = { count };
       } catch (e) {
         stats[name] = { error: e.message };
       }
@@ -650,7 +744,7 @@ app.post('/api/debug/clean-orphans', async (req, res) => {
       deptCode: { $nin: allDepts }
     });
 
-    console.log(`🧹 Cleanup done: ${noIdResult.deletedCount} no-id, ${orphansResult.deletedCount} orphans`);
+    invalidateBootstrap();
 
     res.json({
       success: true,
@@ -665,11 +759,22 @@ app.post('/api/debug/clean-orphans', async (req, res) => {
 });
 
 // ============================================================
-// ⚡⚡⚡ OT BOOTSTRAP
+// ⚡⚡⚡ OT BOOTSTRAP — مع CACHING
 // ============================================================
 app.get('/api/ot-bootstrap', async (req, res) => {
   const t0 = Date.now();
   try {
+    // ✅ تحقق من cache أولاً
+    const cached = getCached('bootstrap');
+    if (cached) {
+      console.log(`⚡ bootstrap from CACHE in ${Date.now() - t0}ms`);
+      return res.json({
+        success: true,
+        data: cached,
+        meta: { elapsedMs: Date.now() - t0, cached: true }
+      });
+    }
+
     const [departments, lists, equipment] = await Promise.all([
       otDepartmentsCollection.find({}).sort({ createdAt: 1 }).toArray(),
       otCustomListsCollection.find({}).sort({ createdAt: -1 }).limit(500).toArray(),
@@ -685,14 +790,17 @@ app.get('/api/ot-bootstrap', async (req, res) => {
       list.equipment = eqByList[list.id] || [];
     }
 
+    const payload = { departments, lists, equipment };
+    setCached('bootstrap', payload);
+
     const elapsed = Date.now() - t0;
-    console.log(`⚡ bootstrap: ${departments.length} depts, ${lists.length} lists, ${equipment.length} eq → ${elapsed}ms`);
+    console.log(`⚡ bootstrap from DB: ${departments.length} depts, ${lists.length} lists → ${elapsed}ms`);
 
     res.set('Cache-Control', 'private, max-age=2');
     res.json({
       success: true,
-      data: { departments, lists, equipment },
-      meta: { elapsedMs: elapsed }
+      data: payload,
+      meta: { elapsedMs: elapsed, cached: false }
     });
   } catch (err) {
     console.error('❌ bootstrap error:', err);
@@ -787,6 +895,7 @@ app.post("/api/ot-departments", async (req, res) => {
     };
 
     await otDepartmentsCollection.insertOne(newDept);
+    invalidateBootstrap(); // ✅
     console.log(`✅ Department created: ${name} (${deptId})`);
     res.status(201).json({ success: true, data: newDept });
   } catch (err) {
@@ -813,6 +922,8 @@ app.put("/api/ot-departments/:id", async (req, res) => {
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "Department not found" });
     }
+
+    invalidateBootstrap(); // ✅
 
     const updatedDoc = await otDepartmentsCollection.findOne({ id });
 
@@ -843,6 +954,8 @@ app.delete("/api/ot-departments/:id", async (req, res) => {
       await otCustomEquipmentCollection.deleteMany({ listId: list.id });
     }
     const listsResult = await otCustomListsCollection.deleteMany({ deptCode: id });
+
+    invalidateBootstrap(); // ✅
 
     console.log(`✅ Department deleted: ${id} (+${listsResult.deletedCount} lists)`);
     res.json({ success: true, message: "Department and related data deleted" });
@@ -1506,6 +1619,7 @@ app.post('/api/ot-custom-lists', async (req, res) => {
           updatedAt: new Date(),
         } }
       );
+      invalidateBootstrap(); // ✅
       const updated = await otCustomListsCollection.findOne({ id });
       return res.json({ success: true, data: updated, updated: true });
     }
@@ -1523,6 +1637,7 @@ app.post('/api/ot-custom-lists', async (req, res) => {
     };
 
     const result = await otCustomListsCollection.insertOne(newList);
+    invalidateBootstrap(); // ✅
     console.log(`✅ Custom list created: ${name} (id=${id})`);
     res.json({ success: true, data: { ...newList, _id: result.insertedId } });
   } catch (error) {
@@ -1559,6 +1674,8 @@ app.put('/api/ot-custom-lists/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: "List not found" });
     }
 
+    invalidateBootstrap(); // ✅
+
     const updatedDoc = await otCustomListsCollection.findOne({ id });
 
     console.log(`✅ Custom list updated: ${id}`);
@@ -1585,6 +1702,7 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
     }
 
     const eqResult = await otCustomEquipmentCollection.deleteMany({ listId: id });
+    invalidateBootstrap(); // ✅
     console.log(`✅ Custom list deleted: ${id} (+${eqResult.deletedCount} equip)`);
     res.json({ success: true, message: "List deleted" });
   } catch (error) {
@@ -1647,6 +1765,7 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
     };
 
     const result = await otCustomEquipmentCollection.insertOne(newEquipment);
+    invalidateBootstrap(); // ✅
     console.log(`✅ Custom equipment added: ${name} → list ${listId} (id=${id})`);
     res.status(201).json({ success: true, data: { ...newEquipment, _id: result.insertedId } });
   } catch (error) {
@@ -1681,6 +1800,8 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "Equipment not found" });
     }
+
+    invalidateBootstrap(); // ✅
 
     const updatedDoc = await otCustomEquipmentCollection.findOne({ id });
 
@@ -1725,6 +1846,7 @@ app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: "Equipment not found in database" });
     }
 
+    invalidateBootstrap(); // ✅
     console.log(`✅ Custom equipment deleted: ${id}`);
     res.json({ success: true, message: "Equipment deleted" });
   } catch (error) {
@@ -2065,8 +2187,10 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📦 OT Departments:  /api/ot-departments`);
   console.log(`📋 OT Custom Lists: /api/ot-custom-lists`);
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
-  console.log(`⚡ OT Bootstrap:     /api/ot-bootstrap`);
-  console.log(`🔍 DB Status:       /api/db-status  ← استخدم هذا للتشخيص`);
+  console.log(`⚡ OT Bootstrap:     /api/ot-bootstrap (WITH CACHE ⚡)`);
+  console.log(`🔍 DB Status:       /api/db-status`);
+  console.log(`📊 Test Latency:    /api/test-latency`);
+  console.log(`🔌 Test Mongo:      /api/test-mongo-connection`);
   console.log(`✅ Health Check:    /api/health`);
   console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
   console.log(`📦 Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);

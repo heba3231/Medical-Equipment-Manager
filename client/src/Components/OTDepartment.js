@@ -63,33 +63,49 @@ function compressImage(file, maxDimension = 500, quality = 0.7) {
 }
 
 // ============================================================
-// ✅ API Helper
+// ✅ API Helper — مع timeout أطول
 // ============================================================
 async function apiFetch(url, options = {}) {
-  const response = await fetch(url, {
-    cache: 'no-store',
-    ...options,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 40000); // 40 ثانية
 
-  let data = null;
   try {
-    data = await response.json();
-  } catch {
-    // not JSON
-  }
+    const response = await fetch(url, {
+      cache: 'no-store',
+      signal: controller.signal,
+      ...options,
+    });
 
-  if (!response.ok) {
-    const err = new Error(data?.message || `HTTP ${response.status} ${response.statusText}`);
-    err.status = response.status;
-    err.data = data;
-    throw err;
-  }
+    clearTimeout(timeoutId);
 
-  if (data && data.success === false) {
-    throw new Error(data.message || 'Request failed');
-  }
+    let data = null;
+    try {
+      data = await response.json();
+    } catch {
+      // not JSON
+    }
 
-  return data;
+    if (!response.ok) {
+      const err = new Error(data?.message || `HTTP ${response.status} ${response.statusText}`);
+      err.status = response.status;
+      err.data = data;
+      throw err;
+    }
+
+    if (data && data.success === false) {
+      throw new Error(data.message || 'Request failed');
+    }
+
+    return data;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      const err = new Error('انتهت مهلة الطلب — الشبكة بطيئة');
+      err.status = 408;
+      throw err;
+    }
+    throw error;
+  }
 }
 
 function OTDepartment() {
@@ -145,7 +161,6 @@ function OTDepartment() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [expiryDate, setExpiryDate] = useState(null);
 
-  // ✅ Refs لحفظ القيم الحالية دون إعادة تشغيل Polling
   const selectedDeptIdRef = useRef(selectedDeptId);
   const selectedListIdRef = useRef(selectedListId);
   const checkModeRef = useRef(checkMode);
@@ -381,7 +396,7 @@ function OTDepartment() {
 
       const t0 = Date.now();
 
-      // ✅ 0. إذا فشل bootstrap سابقاً، تحقق من حالة DB
+      // ✅ 0. تحقق من حالة DB (اختياري، لا يعطل)
       try {
         const status = await apiFetch(`${API_BASE}/db-status`);
         if (status && status.dbConnected === false) {
@@ -394,7 +409,8 @@ function OTDepartment() {
 
       // ⚡ 1. جرّب bootstrap
       try {
-        const { data } = await apiFetch(`${API_BASE}/ot-bootstrap`);
+        const bootStart = Date.now();
+        const { data, meta } = await apiFetch(`${API_BASE}/ot-bootstrap`);
         const { departments: depts = [], lists: listsArr = [] } = data || {};
 
         const listsByDept = {};
@@ -412,13 +428,13 @@ function OTDepartment() {
         setDepartments(depts);
         setLists(listsByDept);
         setEquipment(equipByList);
-        console.log(`⚡ bootstrap loaded: ${depts.length} depts, ${listsArr.length} lists in ${Date.now() - t0}ms`);
+
+        console.log(`⚡ bootstrap loaded: ${depts.length} depts, ${listsArr.length} lists in ${bootStart - t0}ms (cache: ${meta?.cached ? 'HIT' : 'MISS'})`);
         return;
       } catch (bootErr) {
         if (bootErr.status === 404) {
           console.warn('⚠️ /ot-bootstrap غير موجود — نستخدم الطريقة القديمة');
         } else if (bootErr.status === 503) {
-          // السيرفر يشتغل بس DB لا
           try {
             const status = await apiFetch(`${API_BASE}/db-status`);
             setDbDebug(status);
@@ -430,6 +446,7 @@ function OTDepartment() {
       }
 
       // 🔄 2. Fallback
+      console.log('🔄 Using fallback loading...');
       const deptsData = await apiFetch(`${API_BASE}/ot-departments`);
       const depts = deptsData.data || [];
       setDepartments(depts);
@@ -486,7 +503,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists
+  // ✅ fetchLists — بدون cache busting
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -514,7 +531,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment
+  // ✅ fetchEquipment — للتحديث اليدوي
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
@@ -532,7 +549,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ Polling — كل 20 ثانية على القسم المحدد فقط
+  // ✅ Polling — كل 30 ثانية على القسم المحدد فقط
   // ============================================================
   useEffect(() => {
     let isRefreshing = false;
@@ -555,7 +572,7 @@ function OTDepartment() {
         setLists(prev => {
           const currentCount = (prev[deptId] || []).length;
           if (listsArr.length === 0 && currentCount > 0) {
-            console.warn('⚠️ Poll returned empty — skipping');
+            console.warn('⚠️ Poll returned empty — skipping to protect state');
             return prev;
           }
           return { ...prev, [deptId]: listsArr };
@@ -582,7 +599,8 @@ function OTDepartment() {
       }
     };
 
-    const pollInterval = setInterval(refresh, 20000);
+    // ✅ Polling كل 30 ثانية
+    const pollInterval = setInterval(refresh, 30000);
 
     const handleFocus = () => {
       if (document.visibilityState === 'visible') {
@@ -742,7 +760,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // EQUIPMENT CRUD
+  // EQUIPMENT CRUD — Optimistic
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -2408,7 +2426,7 @@ function OTDepartment() {
     );
   }
 
-  // ✅ شاشة خطأ تفصيلية مع تشخيص DB
+  // ✅ شاشة خطأ تفصيلية
   if (serverError && departments.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", maxWidth: "700px", margin: "0 auto" }}>
@@ -2435,13 +2453,13 @@ function OTDepartment() {
             <div><strong>hasMongoUri:</strong> {String(dbDebug.hasMongoUri)}</div>
             <div><strong>mongoUriHost:</strong> {dbDebug.mongoUriHost || '—'}</div>
             <div><strong>lastConnectError:</strong> {dbDebug.lastConnectError || '—'}</div>
-            <div><strong>connectAttempts:</strong> {dbDebug.connectAttempts || 0}</div>
+            <div><strong>pingOk:</strong> {String(dbDebug.pingOk)}</div>
             <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px dashed #fca5a5", color: "#7f1d1d" }}>
               {!dbDebug.hasMongoUri && '💡 أضف MONGODB_URI في Render Environment'}
-              {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('auth') && '💡 كلمة مرور MongoDB خاطئة — راجع Database Access'}
-              {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('whitelist') && '💡 IP غير مسموح — Network Access → أضف 0.0.0.0/0'}
-              {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('timeout') && '💡 Cluster متوقف — افتح MongoDB Atlas → Resume'}
-              {dbDebug.hasMongoUri && !dbDebug.lastConnectError && '💡 قد يحتاج السيرفر وقتاً للاتصال — انتظر 10 ثوان وحاول مرة أخرى'}
+              {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('auth') && '💡 كلمة مرور MongoDB خاطئة'}
+              {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('whitelist') && '💡 IP غير مسموح — Network Access → 0.0.0.0/0'}
+              {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('timeout') && '💡 شبكة بطيئة أو Region مختلف'}
+              {dbDebug.hasMongoUri && dbDebug.dbConnected && '💡 الاتصال يعمل لكن بطيء — انتظر أو أعد المحاولة'}
             </div>
           </div>
         )}
@@ -2459,7 +2477,15 @@ function OTDepartment() {
             rel="noopener noreferrer"
             style={{ padding: "10px 24px", background: "#374151", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", textDecoration: "none", display: "inline-block" }}
           >
-            🔍 فتح تشخيص DB
+            🔍 تشخيص DB
+          </a>
+          <a
+            href={`${API_BASE}/test-latency`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ padding: "10px 24px", background: "#7c3aed", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", textDecoration: "none", display: "inline-block" }}
+          >
+            ⚡ اختبار السرعة
           </a>
         </div>
       </div>
