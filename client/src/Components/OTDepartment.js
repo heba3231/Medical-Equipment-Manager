@@ -67,7 +67,7 @@ function compressImage(file, maxDimension = 500, quality = 0.7) {
 // ============================================================
 async function apiFetch(url, options = {}) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 40000); // 40 ثانية
+  const timeoutId = setTimeout(() => controller.abort(), 40000);
 
   try {
     const response = await fetch(url, {
@@ -386,7 +386,7 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — bootstrap + fallback آمن + db-status check
+  // ✅ loadDepartments — bootstrap + fallback آمن
   // ============================================================
   const loadDepartments = async () => {
     try {
@@ -396,7 +396,7 @@ function OTDepartment() {
 
       const t0 = Date.now();
 
-      // ✅ 0. تحقق من حالة DB (اختياري، لا يعطل)
+      // ✅ 0. تحقق من حالة DB (اختياري)
       try {
         const status = await apiFetch(`${API_BASE}/db-status`);
         if (status && status.dbConnected === false) {
@@ -404,7 +404,7 @@ function OTDepartment() {
           console.warn('⚠️ DB not connected:', status);
         }
       } catch (e) {
-        // نتجاهل — قد يكون السيرفر قديم
+        // نتجاهل
       }
 
       // ⚡ 1. جرّب bootstrap
@@ -429,7 +429,7 @@ function OTDepartment() {
         setLists(listsByDept);
         setEquipment(equipByList);
 
-        console.log(`⚡ bootstrap loaded: ${depts.length} depts, ${listsArr.length} lists in ${bootStart - t0}ms (cache: ${meta?.cached ? 'HIT' : 'MISS'})`);
+        console.log(`⚡ bootstrap loaded: ${depts.length} depts, ${listsArr.length} lists in ${bootStart - t0}ms (cache: ${meta?.cached || 'unknown'})`);
         return;
       } catch (bootErr) {
         if (bootErr.status === 404) {
@@ -503,7 +503,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists — بدون cache busting
+  // ✅ fetchLists
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -531,7 +531,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment — للتحديث اليدوي
+  // ✅ fetchEquipment
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
@@ -599,7 +599,6 @@ function OTDepartment() {
       }
     };
 
-    // ✅ Polling كل 30 ثانية
     const pollInterval = setInterval(refresh, 30000);
 
     const handleFocus = () => {
@@ -2459,7 +2458,7 @@ function OTDepartment() {
               {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('auth') && '💡 كلمة مرور MongoDB خاطئة'}
               {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('whitelist') && '💡 IP غير مسموح — Network Access → 0.0.0.0/0'}
               {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('timeout') && '💡 شبكة بطيئة أو Region مختلف'}
-              {dbDebug.hasMongoUri && dbDebug.dbConnected && '💡 الاتصال يعمل لكن بطيء — انتظر أو أعد المحاولة'}
+              {dbDebug.hasMongoUri && dbDebug.dbConnected && '💡 الاتصال يعمل لكن بطيء — أعد المحاولة'}
             </div>
           </div>
         )}

@@ -23,16 +23,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ============================================================
-// ⚡⚡⚡ SIMPLE IN-MEMORY CACHE (يقلل ضغط DB بنسبة 90%)
+// ⚡ CACHE with STALE-WHILE-REVALIDATE
 // ============================================================
 const cache = {
-  bootstrap: { data: null, at: 0, ttl: 30000 }, // 30 ثانية
+  bootstrap: {
+    data: null,        // آخر نتيجة ناجحة (تبقى للأبد)
+    at: 0,
+    ttl: 60000,        // 60 ثانية — يعتبر "طازجاً"
+    staleTtl: 3600000  // ساعة — يعتبر "قديم لكن يمكن استخدامه"
+  },
 };
 
 function getCached(key) {
   if (key === 'bootstrap') {
     const c = cache.bootstrap;
-    if (c.data && Date.now() - c.at < c.ttl) return c.data;
+    if (!c.data) return null;
+
+    const age = Date.now() - c.at;
+
+    if (age < c.ttl) {
+      return { data: c.data, stale: false, age };
+    }
+    if (age < c.staleTtl) {
+      return { data: c.data, stale: true, age };
+    }
     return null;
   }
   return null;
@@ -46,9 +60,11 @@ function setCached(key, data) {
 }
 
 function invalidateBootstrap() {
-  cache.bootstrap.data = null;
-  cache.bootstrap.at = 0;
-  console.log('🗑️  Bootstrap cache invalidated');
+  // ✅ لا نحذف البيانات — فقط نعلمها أنها تحتاج تحديث
+  if (cache.bootstrap.data) {
+    cache.bootstrap.at = 0;
+    console.log('🗑️  Bootstrap cache marked stale');
+  }
 }
 
 // ============================================================
@@ -122,7 +138,7 @@ console.log('🔌 MongoDB URI:', MONGODB_URI
   ? MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@')
   : '❌ MISSING');
 
-// ✅✅✅ TIMEOUTS مطوّلة لتحمل الشبكة البطيئة
+// ✅ TIMEOUTS مطوّلة لتحمل الشبكة البطيئة
 const client = new MongoClient(
   MONGODB_URI || 'mongodb://localhost:27017/medical_equipment',
   {
@@ -161,7 +177,7 @@ let otCustomEquipmentCollection;
 let otDepartmentsCollection;
 
 // ============================================================
-// ✅ Legacy Migration
+// Legacy Migration
 // ============================================================
 async function migrateLegacyLists() {
   try {
@@ -260,7 +276,7 @@ async function migrateLegacyLists() {
 }
 
 // ============================================================
-// ✅ Ensure Connection
+// Ensure Connection
 // ============================================================
 async function ensureConnection() {
   if (db) return true;
@@ -304,6 +320,7 @@ async function ensureConnection() {
     otCustomEquipmentCollection = db.collection("ot_custom_equipment");
     otDepartmentsCollection = db.collection("ot_departments");
 
+    // Indexes
     const indexTasks = [
       () => equipmentCollection.createIndex({ category: 1 }),
       () => equipmentCollection.createIndex({ code: 1 }),
@@ -334,6 +351,7 @@ async function ensureConnection() {
       }
     }
 
+    // Default admin
     let existingAdmin = await adminCollection.findOne({ staff_no: "host3487539" });
     if (!existingAdmin) {
       existingAdmin = await adminCollection.findOne({ staffNumber: "host3487539" });
@@ -381,7 +399,7 @@ async function ensureConnection() {
     } else if (msg.includes('ip') || msg.includes('whitelist')) {
       console.error("💡 السبب: IP غير مسموح → Network Access → 0.0.0.0/0");
     } else if (msg.includes('timeout')) {
-      console.error("💡 السبب: الشبكة بطيئة أو Region مختلف بين Render و Atlas");
+      console.error("💡 السبب: الشبكة بطيئة أو Region مختلف");
     }
 
     db = null;
@@ -544,7 +562,7 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ============================================================
-// ✅ DB STATUS — تشخيص كامل
+// DB STATUS — تشخيص كامل
 // ============================================================
 app.get('/api/db-status', async (req, res) => {
   const result = {
@@ -583,7 +601,7 @@ app.get('/api/db-status', async (req, res) => {
 });
 
 // ============================================================
-// ✅ TEST LATENCY — يقيس سرعة كل استعلام
+// TEST LATENCY — يقيس سرعة كل استعلام
 // ============================================================
 app.get('/api/test-latency', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'DB not connected' });
@@ -634,7 +652,7 @@ app.get('/api/test-latency', async (req, res) => {
 });
 
 // ============================================================
-// ✅ TEST MONGO CONNECTION
+// TEST MONGO CONNECTION
 // ============================================================
 app.get('/api/test-mongo-connection', async (req, res) => {
   const net = await import('node:net');
@@ -759,27 +777,35 @@ app.post('/api/debug/clean-orphans', async (req, res) => {
 });
 
 // ============================================================
-// ⚡⚡⚡ OT BOOTSTRAP — مع CACHING
+// ⚡⚡⚡ OT BOOTSTRAP — مع Cache + Stale-While-Revalidate
 // ============================================================
 app.get('/api/ot-bootstrap', async (req, res) => {
   const t0 = Date.now();
-  try {
-    // ✅ تحقق من cache أولاً
-    const cached = getCached('bootstrap');
-    if (cached) {
-      console.log(`⚡ bootstrap from CACHE in ${Date.now() - t0}ms`);
-      return res.json({
-        success: true,
-        data: cached,
-        meta: { elapsedMs: Date.now() - t0, cached: true }
-      });
-    }
+  const cached = getCached('bootstrap');
 
-    const [departments, lists, equipment] = await Promise.all([
+  // ✅ إذا كانت طازجة → أرجعها فوراً
+  if (cached && !cached.stale) {
+    console.log(`⚡ bootstrap from FRESH CACHE in ${Date.now() - t0}ms`);
+    return res.json({
+      success: true,
+      data: cached.data,
+      meta: { elapsedMs: Date.now() - t0, cached: 'fresh', age: cached.age }
+    });
+  }
+
+  // ⚠️ إذا كانت قديمة → جرّب تحديثها، لكن إذا فشل أرجع القديمة
+  try {
+    // ✅ اجلب القوائم أولاً (آخر 100)
+    const [departments, lists] = await Promise.all([
       otDepartmentsCollection.find({}).sort({ createdAt: 1 }).toArray(),
-      otCustomListsCollection.find({}).sort({ createdAt: -1 }).limit(500).toArray(),
-      otCustomEquipmentCollection.find({}).sort({ _id: 1 }).limit(10000).toArray(),
+      otCustomListsCollection.find({}).sort({ createdAt: -1 }).limit(100).toArray(),
     ]);
+
+    // ✅ ثم اجلب معدات هذه القوائم فقط
+    const listIds = lists.map(l => l.id).filter(Boolean);
+    const equipment = listIds.length > 0
+      ? await otCustomEquipmentCollection.find({ listId: { $in: listIds } }).toArray()
+      : [];
 
     const eqByList = {};
     for (const eq of equipment) {
@@ -794,16 +820,31 @@ app.get('/api/ot-bootstrap', async (req, res) => {
     setCached('bootstrap', payload);
 
     const elapsed = Date.now() - t0;
-    console.log(`⚡ bootstrap from DB: ${departments.length} depts, ${lists.length} lists → ${elapsed}ms`);
+    console.log(`⚡ bootstrap: ${departments.length} depts, ${lists.length} lists, ${equipment.length} eq → ${elapsed}ms`);
 
-    res.set('Cache-Control', 'private, max-age=2');
     res.json({
       success: true,
       data: payload,
       meta: { elapsedMs: elapsed, cached: false }
     });
   } catch (err) {
-    console.error('❌ bootstrap error:', err);
+    console.error('❌ bootstrap DB error:', err.message);
+
+    // ✅ إذا عندنا نسخة قديمة — أرجعها بدل الفشل
+    if (cached) {
+      console.log(`⚠️ Serving STALE cache (age: ${cached.age}ms) due to DB error`);
+      return res.json({
+        success: true,
+        data: cached.data,
+        meta: {
+          elapsedMs: Date.now() - t0,
+          cached: 'stale',
+          age: cached.age,
+          dbError: err.message
+        }
+      });
+    }
+
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -895,7 +936,7 @@ app.post("/api/ot-departments", async (req, res) => {
     };
 
     await otDepartmentsCollection.insertOne(newDept);
-    invalidateBootstrap(); // ✅
+    invalidateBootstrap();
     console.log(`✅ Department created: ${name} (${deptId})`);
     res.status(201).json({ success: true, data: newDept });
   } catch (err) {
@@ -923,7 +964,7 @@ app.put("/api/ot-departments/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Department not found" });
     }
 
-    invalidateBootstrap(); // ✅
+    invalidateBootstrap();
 
     const updatedDoc = await otDepartmentsCollection.findOne({ id });
 
@@ -955,7 +996,7 @@ app.delete("/api/ot-departments/:id", async (req, res) => {
     }
     const listsResult = await otCustomListsCollection.deleteMany({ deptCode: id });
 
-    invalidateBootstrap(); // ✅
+    invalidateBootstrap();
 
     console.log(`✅ Department deleted: ${id} (+${listsResult.deletedCount} lists)`);
     res.json({ success: true, message: "Department and related data deleted" });
@@ -1619,7 +1660,7 @@ app.post('/api/ot-custom-lists', async (req, res) => {
           updatedAt: new Date(),
         } }
       );
-      invalidateBootstrap(); // ✅
+      invalidateBootstrap();
       const updated = await otCustomListsCollection.findOne({ id });
       return res.json({ success: true, data: updated, updated: true });
     }
@@ -1637,7 +1678,7 @@ app.post('/api/ot-custom-lists', async (req, res) => {
     };
 
     const result = await otCustomListsCollection.insertOne(newList);
-    invalidateBootstrap(); // ✅
+    invalidateBootstrap();
     console.log(`✅ Custom list created: ${name} (id=${id})`);
     res.json({ success: true, data: { ...newList, _id: result.insertedId } });
   } catch (error) {
@@ -1674,7 +1715,7 @@ app.put('/api/ot-custom-lists/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: "List not found" });
     }
 
-    invalidateBootstrap(); // ✅
+    invalidateBootstrap();
 
     const updatedDoc = await otCustomListsCollection.findOne({ id });
 
@@ -1702,7 +1743,7 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
     }
 
     const eqResult = await otCustomEquipmentCollection.deleteMany({ listId: id });
-    invalidateBootstrap(); // ✅
+    invalidateBootstrap();
     console.log(`✅ Custom list deleted: ${id} (+${eqResult.deletedCount} equip)`);
     res.json({ success: true, message: "List deleted" });
   } catch (error) {
@@ -1765,7 +1806,7 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
     };
 
     const result = await otCustomEquipmentCollection.insertOne(newEquipment);
-    invalidateBootstrap(); // ✅
+    invalidateBootstrap();
     console.log(`✅ Custom equipment added: ${name} → list ${listId} (id=${id})`);
     res.status(201).json({ success: true, data: { ...newEquipment, _id: result.insertedId } });
   } catch (error) {
@@ -1801,7 +1842,7 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: "Equipment not found" });
     }
 
-    invalidateBootstrap(); // ✅
+    invalidateBootstrap();
 
     const updatedDoc = await otCustomEquipmentCollection.findOne({ id });
 
@@ -1846,7 +1887,7 @@ app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: "Equipment not found in database" });
     }
 
-    invalidateBootstrap(); // ✅
+    invalidateBootstrap();
     console.log(`✅ Custom equipment deleted: ${id}`);
     res.json({ success: true, message: "Equipment deleted" });
   } catch (error) {
@@ -2187,7 +2228,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📦 OT Departments:  /api/ot-departments`);
   console.log(`📋 OT Custom Lists: /api/ot-custom-lists`);
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
-  console.log(`⚡ OT Bootstrap:     /api/ot-bootstrap (WITH CACHE ⚡)`);
+  console.log(`⚡ OT Bootstrap:     /api/ot-bootstrap (STALE-CACHE ⚡)`);
   console.log(`🔍 DB Status:       /api/db-status`);
   console.log(`📊 Test Latency:    /api/test-latency`);
   console.log(`🔌 Test Mongo:      /api/test-mongo-connection`);
