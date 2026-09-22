@@ -63,14 +63,11 @@ function compressImage(file, maxDimension = 500, quality = 0.7) {
 }
 
 // ============================================================
-// ✅ API Helper — GET يستخدم cache، والـ mutations no-store
+// ✅ API Helper
 // ============================================================
 async function apiFetch(url, options = {}) {
-  const method = (options.method || 'GET').toUpperCase();
-  const isGet = method === 'GET';
-
   const response = await fetch(url, {
-    cache: isGet ? 'default' : 'no-store',
+    cache: 'no-store',
     ...options,
   });
 
@@ -373,7 +370,7 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — طلب واحد عبر /ot-bootstrap (بدل 7 طلبات)
+  // ✅ loadDepartments — تحميل متوازي (أسرع 10-20 مرة)
   // ============================================================
   const loadDepartments = async () => {
     try {
@@ -382,30 +379,43 @@ function OTDepartment() {
 
       const t0 = Date.now();
 
-      const { data } = await apiFetch(`${API_BASE}/ot-bootstrap`);
-      const { departments: depts = [], lists: listsArr = [] } = data || {};
-
-      // تجميع القوائم حسب القسم
-      const listsByDept = {};
-      const equipByList = {};
-
-      for (const list of listsArr) {
-        const dId = list.deptCode || "General";
-        if (!listsByDept[dId]) listsByDept[dId] = [];
-        listsByDept[dId].push(list);
-        equipByList[list.id] = list.equipment || [];
-      }
-
-      // املأ الأقسام الفارغة (لكي لا تكون undefined)
-      for (const d of depts) {
-        if (!listsByDept[d.id]) listsByDept[d.id] = [];
-      }
-
+      // 1. اجلب الأقسام
+      const deptsData = await apiFetch(`${API_BASE}/ot-departments?_t=${Date.now()}`);
+      const depts = deptsData.data || [];
       setDepartments(depts);
-      setLists(listsByDept);
-      setEquipment(equipByList);
+      console.log(`📥 ${depts.length} departments loaded in ${Date.now() - t0}ms`);
 
-      console.log(`⚡ bootstrap loaded: ${depts.length} depts, ${listsArr.length} lists in ${Date.now() - t0}ms`);
+      if (depts.length === 0) {
+        setLoading(false);
+        return;
+      }
+
+      // 2. اجلب لستات كل الأقسام بالتوازي
+      const results = await Promise.all(
+        depts.map(dept =>
+          apiFetch(`${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(dept.id)}&_t=${Date.now()}`)
+            .then(d => ({ deptId: dept.id, lists: d.data || [] }))
+            .catch(err => {
+              console.warn(`⚠️ Failed to fetch lists for ${dept.id}:`, err.message);
+              return { deptId: dept.id, lists: [] };
+            })
+        )
+      );
+
+      // 3. ابنِ state من النتائج
+      const newLists = {};
+      const newEquipment = {};
+
+      for (const { deptId, lists } of results) {
+        newLists[deptId] = lists;
+        for (const list of lists) {
+          newEquipment[list.id] = list.equipment || [];
+        }
+      }
+
+      setLists(newLists);
+      setEquipment(newEquipment);
+      console.log(`📥 Total ${Object.values(newLists).flat().length} lists loaded in ${Date.now() - t0}ms`);
     } catch (err) {
       console.error("❌ loadDepartments error:", err.message);
       setServerError(err.message);
@@ -415,12 +425,12 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists — بدون cache busting
+  // ✅ fetchLists — بدون طلب إضافي للمعدات
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
       const data = await apiFetch(
-        `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}`
+        `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}&_t=${Date.now()}`
       );
 
       if (data.success) {
@@ -449,7 +459,7 @@ function OTDepartment() {
   const fetchEquipment = async (listId) => {
     try {
       const data = await apiFetch(
-        `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}`
+        `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}?_t=${Date.now()}`
       );
       console.log(`📥 fetchEquipment [${listId}]: ${data.data?.length || 0} items`);
 
@@ -462,12 +472,12 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ POLLING — 30 ثانية + القسم المحدد فقط
+  // ✅✅✅ POLLING — آمن (لا يمسح البيانات عند فشل جزئي)
   // ============================================================
   useEffect(() => {
     let isRefreshing = false;
 
-    const refreshCurrent = async () => {
+    const refreshAll = async () => {
       // تجاهل إذا التبويب مخفي
       if (document.visibilityState !== 'visible') return;
       // تجاهل إذا في وسط تحديث سابق
@@ -475,36 +485,69 @@ function OTDepartment() {
       // تجاهل إذا المستخدم في وضع الفحص
       if (checkModeRef.current) return;
 
-      const deptId = selectedDeptIdRef.current;
-      // ✅ لا تجلب شيء إذا ما فيه قسم محدد
-      if (!deptId) return;
-
       isRefreshing = true;
 
       try {
-        const data = await apiFetch(
-          `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}`
+        // 1. اجلب الأقسام
+        const deptsData = await apiFetch(
+          `${API_BASE}/ot-departments?_t=${Date.now()}`
         );
-        const listsArr = data.data || [];
+        const depts = deptsData.data || [];
 
-        // حدّث اللستات
-        setLists(prev => ({ ...prev, [deptId]: listsArr }));
+        // ✅ لا تمسح الأقسام إذا رجعت فاضية فجأة (خطأ شبكة مؤقت)
+        if (depts.length === 0) {
+          console.warn('⚠️ Poll returned empty departments — skipping update');
+          return;
+        }
 
-        // حدّث المعدات — مع الحفاظ على العناصر optimistic
+        // 2. اجلب اللستات بالتوازي — مع علامة ok للنجاح
+        const results = await Promise.all(
+          depts.map(dept =>
+            apiFetch(
+              `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(dept.id)}&_t=${Date.now()}`
+            )
+              .then(d => ({ deptId: dept.id, lists: d.data || [], ok: true }))
+              .catch(err => {
+                console.warn(`⚠️ Poll fetch failed for ${dept.id}:`, err.message);
+                return { deptId: dept.id, lists: null, ok: false };
+              })
+          )
+        );
+
+        // 3. حدّث الأقسام
+        setDepartments(depts);
+
+        // 4. حدّث اللستات — فقط للأقسام التي نجح جلبها (احتفظ بالقديمة عند الفشل)
+        setLists(prev => {
+          const next = { ...prev };
+          for (const { deptId, lists, ok } of results) {
+            if (ok && lists !== null) {
+              next[deptId] = lists;
+            }
+            // إذا فشل، احتفظ بالقيمة القديمة (لا تمسح)
+          }
+          return next;
+        });
+
+        // 5. حدّث المعدات — بنفس المنطق + الحفاظ على العناصر optimistic
         setEquipment(prev => {
           const merged = { ...prev };
-          for (const list of listsArr) {
-            const serverItems = list.equipment || [];
-            const serverIds = new Set(serverItems.map(i => i.id));
-            const optimisticItems = (prev[list.id] || []).filter(
-              i => i._optimistic && !serverIds.has(i.id)
-            );
-            merged[list.id] = [...serverItems, ...optimisticItems];
+          for (const { lists, ok } of results) {
+            if (!ok || lists === null) continue;
+            for (const list of lists) {
+              const serverItems = list.equipment || [];
+              const serverIds = new Set(serverItems.map(i => i.id));
+              // احتفظ بالعناصر التي لم يصلها السيرفر بعد
+              const optimisticItems = (prev[list.id] || []).filter(
+                i => i._optimistic && !serverIds.has(i.id)
+              );
+              merged[list.id] = [...serverItems, ...optimisticItems];
+            }
           }
           return merged;
         });
 
-        console.log('🔄 Polled sync completed for dept:', deptId);
+        console.log('🔄 Polled sync completed');
       } catch (err) {
         console.warn('⚠️ Poll refresh failed:', err.message);
       } finally {
@@ -512,14 +555,14 @@ function OTDepartment() {
       }
     };
 
-    // ✅ Polling كل 30 ثانية (بدل 5)
-    const pollInterval = setInterval(refreshCurrent, 30000);
+    // ✅ Polling كل 5 ثوانٍ
+    const pollInterval = setInterval(refreshAll, 5000);
 
     // ✅ تحديث فوري عند رجوع التبويب أو focus النافذة
     const handleFocus = () => {
       if (document.visibilityState === 'visible') {
         console.log('🔄 Page focused — refreshing...');
-        refreshCurrent();
+        refreshAll();
       }
     };
 
@@ -702,7 +745,6 @@ function OTDepartment() {
     const savedQty = optimisticItem.quantity;
     const savedImg = optimisticItem.image;
     const savedListId = selectedListId;
-    const savedEditingId = editingEquipId;
 
     if (!isEditing) {
       setEquipment(prev => ({
@@ -713,7 +755,7 @@ function OTDepartment() {
       setEquipment(prev => ({
         ...prev,
         [savedListId]: (prev[savedListId] || []).map(item =>
-          item.id === savedEditingId ? { ...item, ...optimisticItem, _optimistic: true } : item
+          item.id === editingEquipId ? { ...item, ...optimisticItem, _optimistic: true } : item
         )
       }));
     }
@@ -724,7 +766,7 @@ function OTDepartment() {
     setSaving(true);
     try {
       const equipData = {
-        id: savedEditingId || tempId,
+        id: editingEquipId || tempId,
         listId: savedListId,
         name: savedName,
         code: savedCode,
@@ -733,7 +775,7 @@ function OTDepartment() {
       };
 
       const url = isEditing
-        ? `${API_BASE}/ot-custom-equipment/${savedEditingId}`
+        ? `${API_BASE}/ot-custom-equipment/${editingEquipId}`
         : `${API_BASE}/ot-custom-equipment`;
       const method = isEditing ? "PUT" : "POST";
 
@@ -760,13 +802,14 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ 3. استبدل الـ optimistic element
+      // ✅ 3. استبدل الـ optimistic element — مع Fallback defensive
       setEquipment(prev => ({
         ...prev,
         [savedListId]: (prev[savedListId] || []).map(item => {
-          const matches = item.id === tempId || (isEditing && item.id === savedEditingId);
+          const matches = item.id === tempId || (isEditing && item.id === editingEquipId);
           if (!matches) return item;
 
+          // ✅ استخدم data.data إن وُجد، وإلا optimisticItem كـ fallback
           const finalData = (data.data && data.data.id)
             ? data.data
             : { ...optimisticItem };
@@ -3402,3 +3445,4 @@ function OTDepartment() {
 }
 
 export default OTDepartment;
+
