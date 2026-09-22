@@ -109,6 +109,7 @@ function OTDepartment() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState(null);
+  const [dbDebug, setDbDebug] = useState(null);
 
   const [newDept, setNewDept] = useState({ name: "", description: "" });
   const [editingDeptId, setEditingDeptId] = useState(null);
@@ -370,15 +371,28 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅✅✅ loadDepartments — bootstrap أولاً + fallback آمن
+  // ✅ loadDepartments — bootstrap + fallback آمن + db-status check
   // ============================================================
   const loadDepartments = async () => {
     try {
       setLoading(true);
       setServerError(null);
+      setDbDebug(null);
+
       const t0 = Date.now();
 
-      // ⚡ 1. جرّب bootstrap (طلب واحد يجيب كل شيء)
+      // ✅ 0. إذا فشل bootstrap سابقاً، تحقق من حالة DB
+      try {
+        const status = await apiFetch(`${API_BASE}/db-status`);
+        if (status && status.dbConnected === false) {
+          setDbDebug(status);
+          console.warn('⚠️ DB not connected:', status);
+        }
+      } catch (e) {
+        // نتجاهل — قد يكون السيرفر قديم
+      }
+
+      // ⚡ 1. جرّب bootstrap
       try {
         const { data } = await apiFetch(`${API_BASE}/ot-bootstrap`);
         const { departments: depts = [], lists: listsArr = [] } = data || {};
@@ -402,13 +416,20 @@ function OTDepartment() {
         return;
       } catch (bootErr) {
         if (bootErr.status === 404) {
-          console.warn('⚠️ /ot-bootstrap غير موجود (سيرفر قديم) — نستخدم الطريقة القديمة');
+          console.warn('⚠️ /ot-bootstrap غير موجود — نستخدم الطريقة القديمة');
+        } else if (bootErr.status === 503) {
+          // السيرفر يشتغل بس DB لا
+          try {
+            const status = await apiFetch(`${API_BASE}/db-status`);
+            setDbDebug(status);
+          } catch {}
+          throw new Error('قاعدة البيانات غير متصلة — راجع /api/db-status');
         } else {
           console.warn('⚠️ bootstrap فشل:', bootErr.message, '— نستخدم الطريقة القديمة');
         }
       }
 
-      // 🔄 2. Fallback: الطريقة القديمة مع حماية من الفشل الجزئي
+      // 🔄 2. Fallback
       const deptsData = await apiFetch(`${API_BASE}/ot-departments`);
       const depts = deptsData.data || [];
       setDepartments(depts);
@@ -419,17 +440,19 @@ function OTDepartment() {
       }
 
       const results = await Promise.all(
-        depts.map(dept =>
-          apiFetch(`${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(dept.id)}`)
-            .then(d => ({ deptId: dept.id, lists: d.data || [], ok: true }))
-            .catch(err => {
-              console.warn(`⚠️ فشل جلب قوائم ${dept.id}:`, err.message);
-              return { deptId: dept.id, lists: null, ok: false };
-            })
-        )
+        depts.map(async (dept) => {
+          try {
+            const d = await apiFetch(
+              `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(dept.id)}`
+            );
+            return { deptId: dept.id, lists: d.data || [], ok: true };
+          } catch (err) {
+            console.warn(`⚠️ فشل جلب ${dept.id}:`, err.message);
+            return { deptId: dept.id, lists: null, ok: false };
+          }
+        })
       );
 
-      // ✅ لا تمسح القوائم عند فشل جزئي — احتفظ بالقديمة
       setLists(prev => {
         const next = { ...prev };
         for (const { deptId, lists: listsData, ok } of results) {
@@ -438,7 +461,6 @@ function OTDepartment() {
           } else if (!next[deptId]) {
             next[deptId] = [];
           }
-          // إذا فشل ولا توجد قيمة قديمة → أنشئ مصفوفة فاضية
         }
         return next;
       });
@@ -464,7 +486,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists — بدون cache busting
+  // ✅ fetchLists
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -488,12 +510,11 @@ function OTDepartment() {
       }
     } catch (err) {
       console.error("❌ fetchLists error for", deptId, ":", err.message);
-      setLists(prev => ({ ...prev, [deptId]: prev[deptId] || [] }));
     }
   };
 
   // ============================================================
-  // ✅ fetchEquipment — للتحديث اليدوي فقط
+  // ✅ fetchEquipment
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
@@ -511,42 +532,35 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ POLLING — 15 ثانية + القسم المحدد فقط + حماية من المسح
+  // ✅ Polling — كل 20 ثانية على القسم المحدد فقط
   // ============================================================
   useEffect(() => {
     let isRefreshing = false;
 
     const refresh = async () => {
-      // تجاهل إذا التبويب مخفي
       if (document.visibilityState !== 'visible') return;
-      // تجاهل إذا في وسط تحديث سابق
       if (isRefreshing) return;
-      // تجاهل إذا المستخدم في وضع الفحص
       if (checkModeRef.current) return;
 
       const deptId = selectedDeptIdRef.current;
-      // ✅ لا تجلب شيء إذا ما فيه قسم محدد
       if (!deptId) return;
 
       isRefreshing = true;
-
       try {
         const data = await apiFetch(
           `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}`
         );
         const listsArr = data.data || [];
 
-        // ✅ حماية: لا تمسح القوائم إذا رجعت فاضية فجأة
         setLists(prev => {
           const currentCount = (prev[deptId] || []).length;
           if (listsArr.length === 0 && currentCount > 0) {
-            console.warn('⚠️ Poll returned empty — skipping to protect state');
+            console.warn('⚠️ Poll returned empty — skipping');
             return prev;
           }
           return { ...prev, [deptId]: listsArr };
         });
 
-        // ✅ تحديث المعدات مع الحفاظ على العناصر optimistic
         setEquipment(prev => {
           const merged = { ...prev };
           for (const list of listsArr) {
@@ -562,19 +576,17 @@ function OTDepartment() {
 
         console.log('🔄 Polled sync for dept:', deptId);
       } catch (err) {
-        console.warn('⚠️ Poll refresh failed:', err.message);
+        console.warn('⚠️ Poll failed:', err.message);
       } finally {
         isRefreshing = false;
       }
     };
 
-    // ✅ Polling كل 15 ثانية
-    const pollInterval = setInterval(refresh, 15000);
+    const pollInterval = setInterval(refresh, 20000);
 
-    // ✅ تحديث فوري عند رجوع التبويب أو focus النافذة
     const handleFocus = () => {
       if (document.visibilityState === 'visible') {
-        console.log('🔄 Page focused — refreshing...');
+        console.log('🔄 Focus — refreshing...');
         refresh();
       }
     };
@@ -587,10 +599,10 @@ function OTDepartment() {
       document.removeEventListener('visibilitychange', handleFocus);
       window.removeEventListener('focus', handleFocus);
     };
-  }, []); // ← مرة واحدة فقط
+  }, []);
 
   // ============================================================
-  // ✅ DEPARTMENT CRUD
+  // DEPARTMENT CRUD
   // ============================================================
   const handleAddDept = async () => {
     if (!newDept.name.trim()) return alert("Please enter department name");
@@ -655,7 +667,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ LIST CRUD
+  // LIST CRUD
   // ============================================================
   const handleAddList = async () => {
     if (!newList.name.trim()) return alert("Please enter list name");
@@ -730,7 +742,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD — مع Optimistic Update
+  // EQUIPMENT CRUD
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -738,7 +750,6 @@ function OTDepartment() {
     }
     if (!selectedListId) return alert("Please select a list first");
 
-    // ✅ 1. أضف فوراً للـ state (optimistic)
     const tempId = `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const optimisticItem = {
       id: editingEquipId || tempId,
@@ -776,7 +787,6 @@ function OTDepartment() {
 
     resetEquipmentForm();
 
-    // ✅ 2. أرسل للسيرفر
     setSaving(true);
     try {
       const equipData = {
@@ -802,7 +812,7 @@ function OTDepartment() {
         });
       } catch (err) {
         if (err.status === 409 || err.data?.alreadyExists) {
-          console.warn('⚠️ ID collision, retrying with new ID');
+          console.warn('⚠️ ID collision, retrying');
           equipData.id = `eq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           data = await apiFetch(`${API_BASE}/ot-custom-equipment`, {
             method: 'POST',
@@ -816,7 +826,6 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ 3. استبدل الـ optimistic element
       setEquipment(prev => ({
         ...prev,
         [savedListId]: (prev[savedListId] || []).map(item => {
@@ -924,7 +933,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ IMAGE HANDLING
+  // IMAGE HANDLING
   // ============================================================
   const handleImageChange = async (e) => {
     const file = e.target.files[0];
@@ -2399,21 +2408,60 @@ function OTDepartment() {
     );
   }
 
+  // ✅ شاشة خطأ تفصيلية مع تشخيص DB
   if (serverError && departments.length === 0) {
     return (
-      <div style={{ textAlign: "center", padding: "60px 20px", maxWidth: "600px", margin: "0 auto" }}>
+      <div style={{ textAlign: "center", padding: "60px 20px", maxWidth: "700px", margin: "0 auto" }}>
         <div style={{ fontSize: "48px", marginBottom: "20px" }}>⚠️</div>
         <h2 style={{ color: "#dc2626", marginBottom: "10px" }}>تعذّر الاتصال بالسيرفر</h2>
         <p style={{ color: "#6b7280", marginBottom: "8px" }}>{serverError}</p>
         <p style={{ color: "#9ca3af", fontSize: "12px", marginBottom: "20px", wordBreak: "break-all" }}>
           API: {API_BASE}
         </p>
-        <button
-          onClick={loadDepartments}
-          style={{ padding: "10px 24px", background: "#006341", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}
-        >
-          🔄 إعادة المحاولة
-        </button>
+
+        {dbDebug && (
+          <div style={{
+            textAlign: "left",
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: "12px",
+            padding: "16px",
+            marginBottom: "20px",
+            fontSize: "12px",
+            fontFamily: "monospace"
+          }}>
+            <div style={{ fontWeight: "700", color: "#991b1b", marginBottom: "8px" }}>🔍 تشخيص قاعدة البيانات:</div>
+            <div><strong>dbConnected:</strong> {String(dbDebug.dbConnected)}</div>
+            <div><strong>hasMongoUri:</strong> {String(dbDebug.hasMongoUri)}</div>
+            <div><strong>mongoUriHost:</strong> {dbDebug.mongoUriHost || '—'}</div>
+            <div><strong>lastConnectError:</strong> {dbDebug.lastConnectError || '—'}</div>
+            <div><strong>connectAttempts:</strong> {dbDebug.connectAttempts || 0}</div>
+            <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px dashed #fca5a5", color: "#7f1d1d" }}>
+              {!dbDebug.hasMongoUri && '💡 أضف MONGODB_URI في Render Environment'}
+              {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('auth') && '💡 كلمة مرور MongoDB خاطئة — راجع Database Access'}
+              {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('whitelist') && '💡 IP غير مسموح — Network Access → أضف 0.0.0.0/0'}
+              {dbDebug.hasMongoUri && dbDebug.lastConnectError?.toLowerCase().includes('timeout') && '💡 Cluster متوقف — افتح MongoDB Atlas → Resume'}
+              {dbDebug.hasMongoUri && !dbDebug.lastConnectError && '💡 قد يحتاج السيرفر وقتاً للاتصال — انتظر 10 ثوان وحاول مرة أخرى'}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={loadDepartments}
+            style={{ padding: "10px 24px", background: "#006341", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}
+          >
+            🔄 إعادة المحاولة
+          </button>
+          <a
+            href={`${API_BASE}/db-status`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ padding: "10px 24px", background: "#374151", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", textDecoration: "none", display: "inline-block" }}
+          >
+            🔍 فتح تشخيص DB
+          </a>
+        </div>
       </div>
     );
   }

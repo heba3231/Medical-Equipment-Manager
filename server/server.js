@@ -82,21 +82,36 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // ============================================================
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
+// ⚠️ مهم: لا تضع بيانات اعتماد مباشرة. استخدم MONGODB_URI من Environment
+const MONGODB_URI = process.env.MONGODB_URI;
 
-console.log('🔌 MongoDB URI:', MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'));
+if (!MONGODB_URI) {
+  console.error('═══════════════════════════════════════════════════════');
+  console.error('❌❌❌ خطأ حرج: MONGODB_URI غير موجود في متغيرات البيئة!');
+  console.error('═══════════════════════════════════════════════════════');
+  console.error('الحل: أضف MONGODB_URI في Render → Environment');
+  console.error('القيمة: mongodb+srv://user:pass@cluster.mongodb.net/medical_equipment');
+  console.error('═══════════════════════════════════════════════════════');
+}
 
-// ✅✅✅ TIMEOUTS محسّنة (كانت 15s → الآن 5s للأخطاء السريعة)
-const client = new MongoClient(MONGODB_URI, {
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 20000,
-  connectTimeoutMS: 8000,
-  maxPoolSize: 20,
-  minPoolSize: 2,
-  retryWrites: true,
-  retryReads: true,
-  heartbeatFrequencyMS: 10000,
-});
+console.log('🔌 MongoDB URI:', MONGODB_URI
+  ? MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@')
+  : '❌ MISSING');
+
+// ✅✅✅ TIMEOUTS محسّنة
+const client = new MongoClient(
+  MONGODB_URI || 'mongodb://localhost:27017/medical_equipment',
+  {
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 20000,
+    connectTimeoutMS: 8000,
+    maxPoolSize: 20,
+    minPoolSize: 2,
+    retryWrites: true,
+    retryReads: true,
+    heartbeatFrequencyMS: 10000,
+  }
+);
 
 // ============================================================
 // Connection State
@@ -104,6 +119,10 @@ const client = new MongoClient(MONGODB_URI, {
 let db = null;
 let isConnecting = false;
 let lastConnectAttempt = 0;
+let lastConnectError = null;
+let lastConnectErrorAt = null;
+let lastConnectSuccessAt = null;
+let connectAttemptCount = 0;
 
 let equipmentCollection;
 let staffCollection;
@@ -118,7 +137,7 @@ let otCustomEquipmentCollection;
 let otDepartmentsCollection;
 
 // ============================================================
-// ✅ Legacy Migration: dept_lists → ot_custom_lists
+// ✅ Legacy Migration
 // ============================================================
 async function migrateLegacyLists() {
   try {
@@ -211,16 +230,13 @@ async function migrateLegacyLists() {
     });
 
     console.log(`✅ Legacy migration complete: ${listsCopied} lists, ${equipmentCopied} equipment copied`);
-    if (listsSkipped > 0 || equipmentSkipped > 0) {
-      console.log(`ℹ️ Skipped (already existed): ${listsSkipped} lists, ${equipmentSkipped} equipment`);
-    }
   } catch (err) {
     console.error("⚠️ Legacy migration error:", err.message);
   }
 }
 
 // ============================================================
-// Ensure Connection
+// ✅ Ensure Connection — مع تشخيص مفصل
 // ============================================================
 async function ensureConnection() {
   if (db) return true;
@@ -239,10 +255,16 @@ async function ensureConnection() {
     await new Promise(r => setTimeout(r, 1000));
   }
   lastConnectAttempt = Date.now();
+  connectAttemptCount++;
 
   isConnecting = true;
   try {
-    console.log('🔌 Connecting to MongoDB...');
+    console.log(`🔌 [${connectAttemptCount}] Connecting to MongoDB...`);
+
+    if (!MONGODB_URI) {
+      throw new Error('MONGODB_URI_MISSING: متغير البيئة MONGODB_URI غير موجود');
+    }
+
     await client.connect();
     db = client.db("medical_equipment");
 
@@ -319,10 +341,41 @@ async function ensureConnection() {
     await seedDefaultDepartments();
     await migrateLegacyLists();
 
-    console.log("✅ MongoDB connected successfully");
+    lastConnectSuccessAt = new Date().toISOString();
+    lastConnectError = null;
+    lastConnectErrorAt = null;
+
+    console.log("✅✅✅ MongoDB connected successfully");
     return true;
   } catch (error) {
-    console.error("❌ MongoDB connection error:", error.message);
+    lastConnectError = error.message;
+    lastConnectErrorAt = new Date().toISOString();
+
+    console.error("═══════════════════════════════════════════════════════");
+    console.error("❌ MongoDB connection error:");
+    console.error("   Message:", error.message);
+    console.error("   Name:", error.name);
+    console.error("   Code:", error.code);
+    console.error("═══════════════════════════════════════════════════════");
+
+    // ✅ تشخيص ذكي
+    const msg = error.message.toLowerCase();
+    if (msg.includes('authentication') || msg.includes('bad auth')) {
+      console.error("💡 السبب المحتمل: اسم المستخدم أو كلمة المرور خاطئة");
+      console.error("   الحل: راجع Database Access في MongoDB Atlas");
+    } else if (msg.includes('ip') || msg.includes('whitelist')) {
+      console.error("💡 السبب المحتمل: IP غير مسموح");
+      console.error("   الحل: Network Access → Add 0.0.0.0/0");
+    } else if (msg.includes('enotfound') || msg.includes('getaddrinfo') || msg.includes('dns')) {
+      console.error("💡 السبب المحتمل: مشكلة DNS — تأكد من URI");
+    } else if (msg.includes('timeout') || msg.includes('serverselection')) {
+      console.error("💡 السبب المحتمل: Cluster متوقف أو غير قابل للوصول");
+      console.error("   الحل: افتح MongoDB Atlas → Resume cluster");
+    } else if (msg.includes('mongodb_uri_missing')) {
+      console.error("💡 السبب: MONGODB_URI غير موجود في Environment");
+      console.error("   الحل: Render → Environment → أضف MONGODB_URI");
+    }
+
     db = null;
     return false;
   } finally {
@@ -331,7 +384,7 @@ async function ensureConnection() {
 }
 
 // ============================================================
-// Seed Default OT Departments (once)
+// Seed Default OT Departments
 // ============================================================
 async function seedDefaultDepartments() {
   try {
@@ -387,6 +440,11 @@ app.use('/api', async (req, res, next) => {
     return res.status(503).json({
       success: false,
       message: "قاعدة البيانات غير متاحة مؤقتاً، الرجاء المحاولة مرة أخرى.",
+      debug: {
+        lastConnectError,
+        lastConnectErrorAt,
+        connectAttempts: connectAttemptCount,
+      }
     });
   }
   next();
@@ -406,12 +464,18 @@ setInterval(async () => {
     console.warn("⏰ Ping failed, will reconnect:", err.message);
     db = null;
   }
-}, 45000);
+}, 30000); // ← كل 30 ثانية (كان 45) — يمنع نوم MongoDB
 
 // ============================================================
 // Initial Connect
 // ============================================================
-ensureConnection();
+ensureConnection().then(ok => {
+  if (ok) {
+    console.log("🎉 Initial connection successful");
+  } else {
+    console.warn("⚠️ Initial connection failed — will retry on first request");
+  }
+});
 
 // ============================================================
 // AI Search Routes
@@ -438,11 +502,22 @@ app.get('/', (req, res) => {
 app.get('/api/health', async (req, res) => {
   try {
     if (!db) {
-      return res.status(503).json({
-        success: false,
-        dbConnected: false,
-        message: "DB not connected",
-      });
+      // ✅ محاولة اتصال فورية
+      const ok = await ensureConnection();
+      if (!ok) {
+        return res.status(503).json({
+          success: false,
+          dbConnected: false,
+          message: "DB not connected",
+          debug: {
+            lastConnectError,
+            lastConnectErrorAt,
+            connectAttempts: connectAttemptCount,
+            hasMongoUri: !!MONGODB_URI,
+            mongoUriHost: MONGODB_URI?.match(/@([^/?]+)/)?.[1] || 'unknown',
+          }
+        });
+      }
     }
     await db.command({ ping: 1 });
     const [listsCount, equipmentCount, departmentsCount, checklistsCount] = await Promise.all([
@@ -468,58 +543,43 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ============================================================
-// ⚡⚡⚡ OT BOOTSTRAP — طلب واحد يجيب كل شيء (بدل 7 طلبات)
+// ✅✅✅ DB STATUS — تشخيص كامل
 // ============================================================
-app.get('/api/ot-bootstrap', async (req, res) => {
-  const t0 = Date.now();
-  try {
-    // ✅ 3 استعلامات متوازية — بدل 1 + N
-    const [departments, lists, equipment] = await Promise.all([
-      otDepartmentsCollection
-        .find({})
-        .sort({ createdAt: 1 })
-        .toArray(),
+app.get('/api/db-status', async (req, res) => {
+  const result = {
+    success: true,
+    dbConnected: !!db,
+    hasMongoUri: !!MONGODB_URI,
+    mongoUriHost: MONGODB_URI?.match(/@([^/?]+)/)?.[1] || null,
+    mongoUriDatabase: MONGODB_URI?.match(/\/([^/?]+)(\?|$)/)?.[1] || null,
+    connectAttempts: connectAttemptCount,
+    lastConnectError,
+    lastConnectErrorAt,
+    lastConnectSuccessAt,
+    timestamp: new Date().toISOString(),
+  };
 
-      otCustomListsCollection
-        .find({})
-        .sort({ createdAt: -1 })
-        .limit(500)
-        .toArray(),
-
-      otCustomEquipmentCollection
-        .find({})
-        .sort({ _id: 1 })
-        .limit(10000)
-        .toArray(),
-    ]);
-
-    // تجميع المعدات حسب listId (in-memory)
-    const eqByList = {};
-    for (const eq of equipment) {
-      if (!eqByList[eq.listId]) eqByList[eq.listId] = [];
-      eqByList[eq.listId].push(eq);
+  if (db) {
+    try {
+      await db.command({ ping: 1 });
+      const collections = await db.listCollections().toArray();
+      result.availableCollections = collections.map(c => c.name);
+      result.pingOk = true;
+    } catch (e) {
+      result.pingOk = false;
+      result.pingError = e.message;
     }
-
-    // دمج المعدات داخل كل قائمة
-    for (const list of lists) {
-      list.equipment = eqByList[list.id] || [];
-    }
-
-    const elapsed = Date.now() - t0;
-    console.log(`⚡ bootstrap: ${departments.length} depts, ${lists.length} lists, ${equipment.length} eq → ${elapsed}ms`);
-
-    // Cache لمدة 2 ثانية فقط
-    res.set('Cache-Control', 'private, max-age=2');
-
-    res.json({
-      success: true,
-      data: { departments, lists, equipment },
-      meta: { elapsedMs: elapsed }
-    });
-  } catch (err) {
-    console.error('❌ bootstrap error:', err);
-    res.status(500).json({ success: false, message: err.message });
+  } else {
+    // حاول الاتصال الآن
+    result.tryingNow = true;
+    const ok = await ensureConnection();
+    result.afterRetry = {
+      connected: !!db,
+      lastError: lastConnectError,
+    };
   }
+
+  res.json(result);
 });
 
 app.get('/api/debug/info', async (req, res) => {
@@ -527,7 +587,7 @@ app.get('/api/debug/info', async (req, res) => {
     success: true,
     service: "backend",
     mongodbDatabase: "medical_equipment",
-    mongoUriHost: MONGODB_URI.match(/@([^/?]+)/)?.[1] || 'unknown',
+    mongoUriHost: MONGODB_URI?.match(/@([^/?]+)/)?.[1] || 'unknown',
     allowedOrigins,
     nodeEnv: process.env.NODE_ENV || 'development',
     renderServiceName: process.env.RENDER_SERVICE_NAME || null,
@@ -568,7 +628,6 @@ app.get('/api/debug/collections-stats', async (req, res) => {
   }
 });
 
-// ✅ تنظيف الأدوات اليتيمة والقديمة
 app.post('/api/debug/clean-orphans', async (req, res) => {
   try {
     console.log('🧹 Starting orphan cleanup...');
@@ -606,7 +665,43 @@ app.post('/api/debug/clean-orphans', async (req, res) => {
 });
 
 // ============================================================
-// CUSTOM DEPARTMENTS (in-memory legacy)
+// ⚡⚡⚡ OT BOOTSTRAP
+// ============================================================
+app.get('/api/ot-bootstrap', async (req, res) => {
+  const t0 = Date.now();
+  try {
+    const [departments, lists, equipment] = await Promise.all([
+      otDepartmentsCollection.find({}).sort({ createdAt: 1 }).toArray(),
+      otCustomListsCollection.find({}).sort({ createdAt: -1 }).limit(500).toArray(),
+      otCustomEquipmentCollection.find({}).sort({ _id: 1 }).limit(10000).toArray(),
+    ]);
+
+    const eqByList = {};
+    for (const eq of equipment) {
+      if (!eqByList[eq.listId]) eqByList[eq.listId] = [];
+      eqByList[eq.listId].push(eq);
+    }
+    for (const list of lists) {
+      list.equipment = eqByList[list.id] || [];
+    }
+
+    const elapsed = Date.now() - t0;
+    console.log(`⚡ bootstrap: ${departments.length} depts, ${lists.length} lists, ${equipment.length} eq → ${elapsed}ms`);
+
+    res.set('Cache-Control', 'private, max-age=2');
+    res.json({
+      success: true,
+      data: { departments, lists, equipment },
+      meta: { elapsedMs: elapsed }
+    });
+  } catch (err) {
+    console.error('❌ bootstrap error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============================================================
+// CUSTOM DEPARTMENTS (legacy)
 // ============================================================
 let customDepartments = [];
 
@@ -1341,7 +1436,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES — بدون aggregation
+// OT CUSTOM LISTS ROUTES
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
@@ -1352,7 +1447,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
 
     const t0 = Date.now();
 
-    // 1. جلب اللستات
     const lists = await otCustomListsCollection
       .find(match)
       .sort({ createdAt: -1 })
@@ -1364,21 +1458,18 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       return res.json({ success: true, data: [] });
     }
 
-    // 2. جلب كل المعدات المرتبطة بهذه اللستات — استعلام واحد
     const listIds = lists.map(l => l.id).filter(Boolean);
     const allEquipment = await otCustomEquipmentCollection
       .find({ listId: { $in: listIds } })
       .sort({ _id: 1 })
       .toArray();
 
-    // 3. تجميع المعدات حسب listId
     const equipmentByList = {};
     for (const eq of allEquipment) {
       if (!equipmentByList[eq.listId]) equipmentByList[eq.listId] = [];
       equipmentByList[eq.listId].push(eq);
     }
 
-    // 4. دمج المعدات داخل كل لستة
     for (const list of lists) {
       list.equipment = equipmentByList[list.id] || [];
     }
@@ -1972,16 +2063,13 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`👑 Admin: staff_no=host3487539, password=123456`);
   console.log(`📦 OT Departments:  /api/ot-departments`);
-  console.log(`📋 OT Custom Lists: /api/ot-custom-lists (two-query, no aggregation)`);
+  console.log(`📋 OT Custom Lists: /api/ot-custom-lists`);
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
-  console.log(`⚡ OT Bootstrap:     /api/ot-bootstrap (single-request, FAST)`);
-  console.log(`🔄 Legacy Migration: dept_lists → ot_custom_lists (auto on startup)`);
+  console.log(`⚡ OT Bootstrap:     /api/ot-bootstrap`);
+  console.log(`🔍 DB Status:       /api/db-status  ← استخدم هذا للتشخيص`);
   console.log(`✅ Health Check:    /api/health`);
-  console.log(`🔍 Debug Info:      /api/debug/info`);
-  console.log(`📊 Collections:     /api/debug/collections-stats`);
-  console.log(`🧹 Cleanup:         POST /api/debug/clean-orphans`);
   console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
-  console.log(`🏠 Local network:   ALLOWED (192.168.x.x, 10.x.x.x, 172.16-31.x.x)`);
   console.log(`📦 Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
+  console.log(`🔌 MongoDB URI set: ${MONGODB_URI ? 'YES ✅' : 'NO ❌'}`);
   console.log('═══════════════════════════════════════════════════════');
 });
