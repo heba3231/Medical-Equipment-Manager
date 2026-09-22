@@ -86,12 +86,13 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluste
 
 console.log('🔌 MongoDB URI:', MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'));
 
+// ✅✅✅ TIMEOUTS مُحسَّنة (كانت 15s → الآن 5s للأخطاء السريعة)
 const client = new MongoClient(MONGODB_URI, {
-  serverSelectionTimeoutMS: 15000,
-  socketTimeoutMS: 60000,
-  connectTimeoutMS: 15000,
-  maxPoolSize: 10,
-  minPoolSize: 1,
+  serverSelectionTimeoutMS: 5000,   // ← من 15 إلى 5
+  socketTimeoutMS: 20000,           // ← من 60 إلى 20
+  connectTimeoutMS: 8000,           // ← من 15 إلى 8
+  maxPoolSize: 20,                  // ← من 10 إلى 20
+  minPoolSize: 2,                   // ← من 1 إلى 2
   retryWrites: true,
   retryReads: true,
   heartbeatFrequencyMS: 10000,
@@ -131,20 +132,17 @@ async function migrateLegacyLists() {
 
     console.log("🔄 Starting legacy migration: dept_lists → ot_custom_lists");
 
-    // 1. جلب كل البيانات القديمة
     const oldLists = await deptListsCollection.find({}).toArray();
     const oldEquipment = await deptEquipmentCollection.find({}).toArray();
 
     console.log(`📦 Found ${oldLists.length} old lists, ${oldEquipment.length} old equipment items`);
 
-    // 2. خريطة: _id القديم → id الجديد
     const idMap = {};
     let listsCopied = 0;
     let listsSkipped = 0;
     let equipmentCopied = 0;
     let equipmentSkipped = 0;
 
-    // 3. نسخ اللستات
     for (const oldList of oldLists) {
       const oldIdStr = oldList._id.toString();
       const newId = `list_legacy_${oldIdStr}`;
@@ -172,12 +170,10 @@ async function migrateLegacyLists() {
       listsCopied++;
     }
 
-    // 4. نسخ المعدات
     for (const oldEq of oldEquipment) {
       const oldEqIdStr = oldEq._id.toString();
       const oldListIdStr = String(oldEq.listId || "");
 
-      // تجاهل المعدات التي لا تنتمي إلى dept_lists
       const newListId = idMap[oldListIdStr];
       if (!newListId) continue;
 
@@ -203,7 +199,6 @@ async function migrateLegacyLists() {
       equipmentCopied++;
     }
 
-    // 5. سجّل أن الترحيل تم
     await settingsColl.insertOne({
       key: "legacy_migration_v1",
       at: new Date(),
@@ -282,6 +277,7 @@ async function ensureConnection() {
       () => otCustomListsCollection.createIndex({ roomId: 1 }),
       () => otCustomListsCollection.createIndex({ id: 1 }),
       () => otCustomListsCollection.createIndex({ deptCode: 1, createdAt: -1 }),
+      () => otCustomListsCollection.createIndex({ createdAt: -1 }), // ✅ جديد للـ bootstrap
       () => otCustomEquipmentCollection.createIndex({ listId: 1 }),
       () => otCustomEquipmentCollection.createIndex({ id: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
@@ -550,6 +546,61 @@ app.post('/api/debug/clean-orphans', async (req, res) => {
     });
   } catch (err) {
     console.error('❌ Cleanup error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============================================================
+// ✅✅✅ BOOTSTRAP — طلب واحد يجيب كل شيء (بدل 7 طلبات)
+// ============================================================
+app.get('/api/ot-bootstrap', async (req, res) => {
+  const t0 = Date.now();
+  try {
+    // جلب متوازي لكل شيء
+    const [departments, lists, equipment] = await Promise.all([
+      otDepartmentsCollection
+        .find({})
+        .sort({ createdAt: 1 })
+        .toArray(),
+
+      otCustomListsCollection
+        .find({})
+        .sort({ createdAt: -1 })
+        .limit(500)
+        .toArray(),
+
+      otCustomEquipmentCollection
+        .find({})
+        .sort({ _id: 1 })
+        .limit(10000)
+        .toArray(),
+    ]);
+
+    // تجميع المعدات حسب listId (in-memory، سريع جداً)
+    const eqByList = {};
+    for (const eq of equipment) {
+      if (!eqByList[eq.listId]) eqByList[eq.listId] = [];
+      eqByList[eq.listId].push(eq);
+    }
+
+    // دمج المعدات داخل كل قائمة
+    for (const list of lists) {
+      list.equipment = eqByList[list.id] || [];
+    }
+
+    const elapsed = Date.now() - t0;
+    console.log(`⚡ bootstrap: ${departments.length} depts, ${lists.length} lists, ${equipment.length} eq → ${elapsed}ms`);
+
+    // ✅ Cache لمدة 2 ثانية فقط (يمنع تكرار الطلبات الفورية)
+    res.set('Cache-Control', 'private, max-age=2');
+
+    res.json({
+      success: true,
+      data: { departments, lists, equipment },
+      meta: { elapsedMs: elapsed }
+    });
+  } catch (err) {
+    console.error('❌ bootstrap error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -1290,7 +1341,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES — بدون aggregation (يعمل مع أي حجم بيانات)
+// ✅ OT CUSTOM LISTS ROUTES — بدون aggregation
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   try {
@@ -1923,6 +1974,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📦 OT Departments:  /api/ot-departments`);
   console.log(`📋 OT Custom Lists: /api/ot-custom-lists (two-query, no aggregation)`);
   console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
+  console.log(`⚡ OT Bootstrap:     /api/ot-bootstrap (single-request, FAST)`);
   console.log(`🔄 Legacy Migration: dept_lists → ot_custom_lists (auto on startup)`);
   console.log(`✅ Health Check:    /api/health`);
   console.log(`🔍 Debug Info:      /api/debug/info`);
