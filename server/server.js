@@ -41,7 +41,6 @@ const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
 
 console.log(' Allowed CORS origins:', allowedOrigins);
 
-//  دالة للتحقق من IP محلي
 function isLocalNetworkOrigin(origin) {
   if (!origin) return false;
   try {
@@ -86,10 +85,11 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluste
 
 console.log(' MongoDB URI:', MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'));
 
+// ✅ إعدادات محسّنة — فشل سريع بدل انتظار طويل
 const client = new MongoClient(MONGODB_URI, {
-  serverSelectionTimeoutMS: 15000,
-  socketTimeoutMS: 60000,
-  connectTimeoutMS: 15000,
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 15000,
+  connectTimeoutMS: 10000,
   maxPoolSize: 10,
   minPoolSize: 1,
   retryWrites: true,
@@ -117,51 +117,56 @@ let otCustomEquipmentCollection;
 let otDepartmentsCollection;
 
 // ============================================================
+// ⏱️ Safe Timeout Helper
+// ============================================================
+async function withTimeout(promise, ms = 8000, label = "MongoDB query") {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ============================================================
 //  Legacy Migration: dept_lists → ot_custom_lists
 // ============================================================
 async function migrateLegacyLists() {
   try {
     const settingsColl = db.collection("settings");
     const flag = await settingsColl.findOne({ key: "legacy_migration_v1" });
-
     if (flag) {
       console.log(" Legacy migration already done, skipping");
       return;
     }
-
     console.log(" Starting legacy migration: dept_lists → ot_custom_lists");
 
     const oldLists = await deptListsCollection.find({}).toArray();
     const oldEquipment = await deptEquipmentCollection.find({}).toArray();
-
     console.log(` Found ${oldLists.length} old lists, ${oldEquipment.length} old equipment items`);
 
     const idMap = {};
-    let listsCopied = 0;
-    let listsSkipped = 0;
-    let equipmentCopied = 0;
-    let equipmentSkipped = 0;
+    let listsCopied = 0, listsSkipped = 0, equipmentCopied = 0, equipmentSkipped = 0;
 
     for (const oldList of oldLists) {
       const oldIdStr = oldList._id.toString();
       const newId = `list_legacy_${oldIdStr}`;
-
       idMap[oldIdStr] = newId;
 
       const existing = await otCustomListsCollection.findOne({ id: newId });
-      if (existing) {
-        listsSkipped++;
-        continue;
-      }
+      if (existing) { listsSkipped++; continue; }
 
       await otCustomListsCollection.insertOne({
         id: newId,
         name: oldList.name || "Untitled List",
         description: oldList.description || "",
         deptCode: oldList.deptCode || "General",
-        roomId: null,
-        image: null,
-        equipment: [],
+        roomId: null, image: null, equipment: [],
         createdBy: "Legacy Migration",
         createdAt: oldList.createdAt || new Date(),
         _migratedFrom: oldIdStr,
@@ -172,21 +177,15 @@ async function migrateLegacyLists() {
     for (const oldEq of oldEquipment) {
       const oldEqIdStr = oldEq._id.toString();
       const oldListIdStr = String(oldEq.listId || "");
-
       const newListId = idMap[oldListIdStr];
       if (!newListId) continue;
 
       const newEqId = `eq_legacy_${oldEqIdStr}`;
-
       const existing = await otCustomEquipmentCollection.findOne({ id: newEqId });
-      if (existing) {
-        equipmentSkipped++;
-        continue;
-      }
+      if (existing) { equipmentSkipped++; continue; }
 
       await otCustomEquipmentCollection.insertOne({
-        id: newEqId,
-        listId: newListId,
+        id: newEqId, listId: newListId,
         name: oldEq.name || "Unknown",
         code: oldEq.code || "",
         quantity: parseInt(oldEq.quantity) || 1,
@@ -201,18 +200,10 @@ async function migrateLegacyLists() {
     await settingsColl.insertOne({
       key: "legacy_migration_v1",
       at: new Date(),
-      listsCopied,
-      listsSkipped,
-      equipmentCopied,
-      equipmentSkipped,
-      totalOldLists: oldLists.length,
-      totalOldEquipment: oldEquipment.length,
+      listsCopied, listsSkipped, equipmentCopied, equipmentSkipped,
+      totalOldLists: oldLists.length, totalOldEquipment: oldEquipment.length,
     });
-
     console.log(` Legacy migration complete: ${listsCopied} lists, ${equipmentCopied} equipment copied`);
-    if (listsSkipped > 0 || equipmentSkipped > 0) {
-      console.log(` Skipped (already existed): ${listsSkipped} lists, ${equipmentSkipped} equipment`);
-    }
   } catch (err) {
     console.error(" Legacy migration error:", err.message);
   }
@@ -257,9 +248,6 @@ async function ensureConnection() {
     otCustomEquipmentCollection = db.collection("ot_custom_equipment");
     otDepartmentsCollection = db.collection("ot_departments");
 
-    // ============================================================
-    //  Indexes
-    // ============================================================
     const indexTasks = [
       () => equipmentCollection.createIndex({ category: 1 }),
       () => equipmentCollection.createIndex({ code: 1 }),
@@ -289,7 +277,6 @@ async function ensureConnection() {
       }
     }
 
-    // Default admin
     let existingAdmin = await adminCollection.findOne({ staff_no: "host3487539" });
     if (!existingAdmin) {
       existingAdmin = await adminCollection.findOne({ staffNumber: "host3487539" });
@@ -354,20 +341,15 @@ async function seedDefaultDepartments() {
       const existing = await otDepartmentsCollection.findOne({ id: dept.id });
       if (!existing) {
         await otDepartmentsCollection.insertOne({
-          ...dept,
-          isDefault: true,
-          createdAt: new Date()
+          ...dept, isDefault: true, createdAt: new Date()
         });
         created++;
       }
     }
 
     await settingsColl.insertOne({
-      key: "departments_seeded_v1",
-      at: new Date(),
-      created
+      key: "departments_seeded_v1", at: new Date(), created
     });
-
     console.log(` Seeded ${created} default departments (one-time)`);
   } catch (err) {
     console.error(" Seed error:", err.message);
@@ -379,7 +361,6 @@ async function seedDefaultDepartments() {
 // ============================================================
 app.use('/api', async (req, res, next) => {
   if (req.method === 'OPTIONS') return next();
-
   const ok = await ensureConnection();
   if (!ok) {
     return res.status(503).json({
@@ -437,9 +418,7 @@ app.get('/api/health', async (req, res) => {
   try {
     if (!db) {
       return res.status(503).json({
-        success: false,
-        dbConnected: false,
-        message: "DB not connected",
+        success: false, dbConnected: false, message: "DB not connected",
       });
     }
     await db.command({ ping: 1 });
@@ -450,8 +429,7 @@ app.get('/api/health', async (req, res) => {
       checklistsCollection.countDocuments(),
     ]);
     res.json({
-      success: true,
-      dbConnected: true,
+      success: true, dbConnected: true,
       timestamp: new Date().toISOString(),
       counts: {
         otCustomLists: listsCount,
@@ -482,13 +460,8 @@ app.get('/api/debug/info', async (req, res) => {
 app.get('/api/debug/collections-stats', async (req, res) => {
   try {
     const collections = [
-      'ot_custom_lists',
-      'ot_custom_equipment',
-      'ot_departments',
-      'checklists',
-      'dept_lists',
-      'dept_equipment',
-      'settings'
+      'ot_custom_lists', 'ot_custom_equipment', 'ot_departments',
+      'checklists', 'dept_lists', 'dept_equipment', 'settings'
     ];
     const stats = {};
     for (const name of collections) {
@@ -511,31 +484,21 @@ app.get('/api/debug/collections-stats', async (req, res) => {
   }
 });
 
-//  تنظيف الأدوات اليتيمة والقديمة
 app.post('/api/debug/clean-orphans', async (req, res) => {
   try {
     console.log(' Starting orphan cleanup...');
-
     const noIdResult = await otCustomEquipmentCollection.deleteMany({
-      $or: [
-        { id: { $exists: false } },
-        { id: null },
-        { id: "" }
-      ]
+      $or: [{ id: { $exists: false } }, { id: null }, { id: "" }]
     });
-
     const allLists = await otCustomListsCollection.distinct('id');
     const orphansResult = await otCustomEquipmentCollection.deleteMany({
       listId: { $nin: allLists }
     });
-
     const allDepts = await otDepartmentsCollection.distinct('id');
     const orphanListsResult = await otCustomListsCollection.deleteMany({
       deptCode: { $nin: allDepts }
     });
-
     console.log(` Cleanup done: ${noIdResult.deletedCount} no-id, ${orphansResult.deletedCount} orphans`);
-
     res.json({
       success: true,
       deletedNoId: noIdResult.deletedCount,
@@ -549,51 +512,94 @@ app.post('/api/debug/clean-orphans', async (req, res) => {
 });
 
 // ============================================================
-// 🚑 DIAGNOSTIC: كل اللستات بدون فلترة (للتشخيص فقط)
+// 🚑 DIAGNOSTIC: كل اللستات بدون فلترة (SAFE VERSION)
 // ============================================================
 app.get('/api/ot-custom-lists-all', async (req, res) => {
+  const startedAt = Date.now();
   try {
-    const lists = await otCustomListsCollection
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
+    console.log("==============================================");
+    console.log("🚑 GET /api/ot-custom-lists-all");
+
+    console.log("1️⃣ Fetching all lists...");
+    const lists = await withTimeout(
+      otCustomListsCollection
+        .find({})
+        .limit(500)
+        .maxTimeMS(5000)
+        .toArray(),
+      8000,
+      "Fetching all custom lists"
+    );
+    console.log(`1️⃣ Lists: ${lists.length} (${Date.now() - startedAt}ms)`);
 
     const listIds = lists.map(l => l.id).filter(Boolean);
-    const allEquip = listIds.length
-      ? await otCustomEquipmentCollection.find({ listId: { $in: listIds } }).toArray()
-      : [];
+
+    console.log("2️⃣ Fetching equipment...");
+    let allEquip = [];
+    if (listIds.length > 0) {
+      try {
+        allEquip = await withTimeout(
+          otCustomEquipmentCollection
+            .find({ listId: { $in: listIds } })
+            .limit(5000)
+            .maxTimeMS(5000)
+            .toArray(),
+          8000,
+          "Fetching all custom equipment"
+        );
+        console.log(`2️⃣ Equipment: ${allEquip.length} (${Date.now() - startedAt}ms)`);
+      } catch (equipmentError) {
+        console.error("⚠️ Equipment query failed:", equipmentError.message);
+        allEquip = [];
+      }
+    }
+
+    console.log("3️⃣ Fetching departments...");
+    const depts = await withTimeout(
+      otDepartmentsCollection.find({}).maxTimeMS(5000).toArray(),
+      8000,
+      "Fetching OT departments"
+    );
+    console.log(`3️⃣ Departments: ${depts.length} (${Date.now() - startedAt}ms)`);
 
     const eqByList = {};
     for (const eq of allEquip) {
       if (!eqByList[eq.listId]) eqByList[eq.listId] = [];
       eqByList[eq.listId].push(eq);
     }
-    for (const l of lists) l.equipment = eqByList[l.id] || [];
 
-    const depts = await otDepartmentsCollection.find({}).toArray();
-    const deptIds = new Set(depts.map(d => d.id));
+    const deptIds = new Set(depts.map(d => d.id).filter(Boolean));
+    const orphanLists = lists.filter(list => !deptIds.has(list.deptCode));
+    const validLists = lists.filter(list => deptIds.has(list.deptCode));
 
-    const orphanLists = lists.filter(l => !deptIds.has(l.deptCode));
-    const validLists  = lists.filter(l =>  deptIds.has(l.deptCode));
+    console.log(`✅ Diagnostic completed in ${Date.now() - startedAt}ms`);
+    console.log("==============================================");
 
-    res.json({
+    return res.json({
       success: true,
       totalLists: lists.length,
       validListsCount: validLists.length,
       orphanListsCount: orphanLists.length,
       totalDepartments: depts.length,
+      totalEquipment: allEquip.length,
       availableDeptIds: depts.map(d => ({ id: d.id, name: d.name })),
       orphanLists: orphanLists.map(l => ({
         id: l.id,
         name: l.name,
         deptCode: l.deptCode,
         createdAt: l.createdAt,
-        equipmentCount: (eqByList[l.id] || []).length,
+        equipmentCount: (eqByList[l.id] || []).length
       })),
+      debug: { listIds, timeMs: Date.now() - startedAt }
     });
-  } catch (err) {
-    console.error('❌ /api/ot-custom-lists-all error:', err);
-    res.status(500).json({ success: false, message: err.message });
+  } catch (error) {
+    console.error("❌ /api/ot-custom-lists-all ERROR:", error);
+    console.log("==============================================");
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      debug: { timeMs: Date.now() - startedAt }
+    });
   }
 });
 
@@ -603,14 +609,12 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
 app.post('/api/ot-fix-orphan-lists', async (req, res) => {
   try {
     const { targetDeptCode, dryRun = false } = req.body;
-
     if (!targetDeptCode) {
       return res.status(400).json({
         success: false,
-        message: "targetDeptCode مطلوب (مثلاً: dept_women أو أي id موجود)",
+        message: "targetDeptCode مطلوب",
       });
     }
-
     const targetDept = await otDepartmentsCollection.findOne({ id: targetDeptCode });
     if (!targetDept) {
       const depts = await otDepartmentsCollection.find({}).toArray();
@@ -623,22 +627,16 @@ app.post('/api/ot-fix-orphan-lists', async (req, res) => {
 
     const depts = await otDepartmentsCollection.find({}).toArray();
     const deptIds = depts.map(d => d.id);
-
     const orphans = await otCustomListsCollection
       .find({ deptCode: { $nin: deptIds } })
       .toArray();
 
     if (dryRun) {
       return res.json({
-        success: true,
-        dryRun: true,
+        success: true, dryRun: true,
         wouldFix: orphans.length,
         targetDept: { id: targetDept.id, name: targetDept.name },
-        orphans: orphans.map(l => ({
-          id: l.id,
-          name: l.name,
-          oldDeptCode: l.deptCode,
-        })),
+        orphans: orphans.map(l => ({ id: l.id, name: l.name, oldDeptCode: l.deptCode })),
       });
     }
 
@@ -646,9 +644,7 @@ app.post('/api/ot-fix-orphan-lists', async (req, res) => {
       { deptCode: { $nin: deptIds } },
       { $set: { deptCode: targetDeptCode, updatedAt: new Date() } }
     );
-
     console.log(`🔧 Fixed ${result.modifiedCount} orphan lists → ${targetDeptCode}`);
-
     res.json({
       success: true,
       fixed: result.modifiedCount,
@@ -661,40 +657,29 @@ app.post('/api/ot-fix-orphan-lists', async (req, res) => {
 });
 
 // ============================================================
-// 🚑 FIX: نقل لستة واحدة إلى قسم معين (لو أردت ربطاً يدوياً دقيقاً)
+// 🚑 FIX: نقل لستة واحدة إلى قسم معين
 // ============================================================
 app.post('/api/ot-move-list-to-dept', async (req, res) => {
   try {
     const { listId, targetDeptCode } = req.body;
-
     if (!listId || !targetDeptCode) {
       return res.status(400).json({
-        success: false,
-        message: "listId و targetDeptCode مطلوبان",
+        success: false, message: "listId و targetDeptCode مطلوبان",
       });
     }
-
     const targetDept = await otDepartmentsCollection.findOne({ id: targetDeptCode });
     if (!targetDept) {
-      return res.status(404).json({
-        success: false,
-        message: `القسم ${targetDeptCode} غير موجود`,
-      });
+      return res.status(404).json({ success: false, message: `القسم ${targetDeptCode} غير موجود` });
     }
-
     const result = await otCustomListsCollection.updateOne(
       { id: listId },
       { $set: { deptCode: targetDeptCode, updatedAt: new Date() } }
     );
-
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "اللستة غير موجودة" });
     }
-
     res.json({
-      success: true,
-      moved: result.modifiedCount,
-      listId,
+      success: true, moved: result.modifiedCount, listId,
       targetDept: { id: targetDept.id, name: targetDept.name },
     });
   } catch (err) {
@@ -754,10 +739,11 @@ app.delete("/api/custom-departments/:id", (req, res) => {
 // ============================================================
 app.get("/api/ot-departments", async (req, res) => {
   try {
-    const depts = await otDepartmentsCollection
-      .find({})
-      .sort({ createdAt: 1 })
-      .toArray();
+    const depts = await withTimeout(
+      otDepartmentsCollection.find({}).sort({ createdAt: 1 }).maxTimeMS(5000).toArray(),
+      8000,
+      "Fetching departments"
+    );
     res.json({ success: true, data: depts });
   } catch (err) {
     console.error(" Error fetching departments:", err);
@@ -769,18 +755,14 @@ app.post("/api/ot-departments", async (req, res) => {
   try {
     const { id, name, description } = req.body;
     console.log(` POST /api/ot-departments`, { id, name });
-
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: "name is required" });
     }
-
     const deptId = id || `dept_${Date.now()}`;
-
     const existing = await otDepartmentsCollection.findOne({ id: deptId });
     if (existing) {
       return res.status(400).json({ success: false, message: "Department already exists" });
     }
-
     const newDept = {
       id: deptId,
       name: name.trim(),
@@ -788,7 +770,6 @@ app.post("/api/ot-departments", async (req, res) => {
       isDefault: false,
       createdAt: new Date()
     };
-
     await otDepartmentsCollection.insertOne(newDept);
     console.log(` Department created: ${name} (${deptId})`);
     res.status(201).json({ success: true, data: newDept });
@@ -803,7 +784,6 @@ app.put("/api/ot-departments/:id", async (req, res) => {
     const { id } = req.params;
     const { name, description } = req.body;
     console.log(` PUT /api/ot-departments/${id}`);
-
     const result = await otDepartmentsCollection.updateOne(
       { id },
       { $set: {
@@ -812,19 +792,12 @@ app.put("/api/ot-departments/:id", async (req, res) => {
         updatedAt: new Date()
       } }
     );
-
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "Department not found" });
     }
-
     const updatedDoc = await otDepartmentsCollection.findOne({ id });
-
     console.log(` Department updated: ${id}`);
-    res.json({
-      success: true,
-      message: "Department updated",
-      data: updatedDoc
-    });
+    res.json({ success: true, message: "Department updated", data: updatedDoc });
   } catch (err) {
     console.error(" Error updating department:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -835,18 +808,15 @@ app.delete("/api/ot-departments/:id", async (req, res) => {
   try {
     const { id } = req.params;
     console.log(` DELETE /api/ot-departments/${id}`);
-
     const result = await otDepartmentsCollection.deleteOne({ id });
     if (result.deletedCount === 0) {
       return res.status(404).json({ success: false, message: "Department not found" });
     }
-
     const lists = await otCustomListsCollection.find({ deptCode: id }).toArray();
     for (const list of lists) {
       await otCustomEquipmentCollection.deleteMany({ listId: list.id });
     }
     const listsResult = await otCustomListsCollection.deleteMany({ deptCode: id });
-
     console.log(` Department deleted: ${id} (+${listsResult.deletedCount} lists)`);
     res.json({ success: true, message: "Department and related data deleted" });
   } catch (err) {
@@ -870,24 +840,17 @@ app.post("/api/staff/register", async (req, res) => {
     }
     const hashedPassword = await bcrypt.hash(password, 10);
     const newStaff = {
-      name, staffNumber,
-      password: hashedPassword,
+      name, staffNumber, password: hashedPassword,
       department: department || "General",
-      phone: phone || "",
-      role: "staff",
-      isActive: true,
-      lastLogin: null,
-      createdAt: new Date()
+      phone: phone || "", role: "staff", isActive: true,
+      lastLogin: null, createdAt: new Date()
     };
     const result = await staffCollection.insertOne(newStaff);
     res.status(201).json({
-      success: true,
-      message: "Registration successful",
+      success: true, message: "Registration successful",
       user: {
-        id: result.insertedId,
-        name: newStaff.name,
-        staffNumber: newStaff.staffNumber,
-        role: newStaff.role,
+        id: result.insertedId, name: newStaff.name,
+        staffNumber: newStaff.staffNumber, role: newStaff.role,
         department: newStaff.department
       }
     });
@@ -900,32 +863,20 @@ app.post("/api/staff/login", async (req, res) => {
   try {
     const { staffNumber, password } = req.body;
     const user = await staffCollection.findOne({ staffNumber });
-    if (!user) {
-      return res.status(401).json({ message: "Invalid staff number or password" });
-    }
-    if (!user.isActive) {
-      return res.status(401).json({ message: "Account is deactivated" });
-    }
+    if (!user) return res.status(401).json({ message: "Invalid staff number or password" });
+    if (!user.isActive) return res.status(401).json({ message: "Account is deactivated" });
     const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: "Invalid staff number or password" });
-    }
+    if (!isPasswordValid) return res.status(401).json({ message: "Invalid staff number or password" });
     await staffCollection.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } });
     const token = jwt.sign(
       { id: user._id, staffNumber: user.staffNumber, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "7d" }
+      JWT_SECRET, { expiresIn: "7d" }
     );
     res.json({
-      success: true,
-      message: "Login successful",
-      token,
+      success: true, message: "Login successful", token,
       user: {
-        id: user._id,
-        name: user.name,
-        staffNumber: user.staffNumber,
-        role: user.role,
-        department: user.department
+        id: user._id, name: user.name, staffNumber: user.staffNumber,
+        role: user.role, department: user.department
       }
     });
   } catch (error) {
@@ -989,10 +940,8 @@ app.post('/api/admin/login', async (req, res) => {
   try {
     const admin = await adminCollection.findOne({
       $or: [
-        { staff_no: staff_no },
-        { staffNumber: staff_no },
-        { staffNo: staff_no },
-        { employeeId: staff_no }
+        { staff_no: staff_no }, { staffNumber: staff_no },
+        { staffNo: staff_no }, { employeeId: staff_no }
       ]
     });
 
@@ -1011,8 +960,7 @@ app.post('/api/admin/login', async (req, res) => {
       if (isPasswordValid) {
         const hashedPassword = await bcrypt.hash(password, 10);
         await adminCollection.updateOne(
-          { _id: admin._id },
-          { $set: { password: hashedPassword } }
+          { _id: admin._id }, { $set: { password: hashedPassword } }
         );
         console.log(" Password upgraded to hashed");
       }
@@ -1023,31 +971,23 @@ app.post('/api/admin/login', async (req, res) => {
     }
 
     await adminCollection.updateOne(
-      { _id: admin._id },
-      { $set: { lastLogin: new Date() } }
+      { _id: admin._id }, { $set: { lastLogin: new Date() } }
     );
 
     const adminStaffNo = admin.staff_no || admin.staffNumber || admin.staffNo || staff_no;
     const token = jwt.sign(
       {
-        id: admin._id,
-        staff_no: adminStaffNo,
-        role: admin.role || "admin",
-        name: name || admin.name
+        id: admin._id, staff_no: adminStaffNo,
+        role: admin.role || "admin", name: name || admin.name
       },
-      JWT_SECRET,
-      { expiresIn: "1d" }
+      JWT_SECRET, { expiresIn: "1d" }
     );
 
     res.json({
-      success: true,
-      message: " Login successful",
-      token,
+      success: true, message: " Login successful", token,
       admin: {
-        id: admin._id,
-        name: name || admin.name,
-        staff_no: adminStaffNo,
-        role: admin.role || "admin",
+        id: admin._id, name: name || admin.name,
+        staff_no: adminStaffNo, role: admin.role || "admin",
         email: admin.email || "",
         department: admin.department || "Administration"
       }
@@ -1074,18 +1014,14 @@ app.get('/api/admin/profile', verifyAdminToken, async (req, res) => {
   try {
     const admin = await adminCollection.findOne({ _id: new ObjectId(req.admin.id) });
     if (!admin) return res.status(404).json({ success: false, message: "Admin not found" });
-
     res.json({
       success: true,
       admin: {
-        id: admin._id,
-        name: admin.name,
+        id: admin._id, name: admin.name,
         staff_no: admin.staff_no || admin.staffNumber,
-        role: admin.role,
-        email: admin.email,
+        role: admin.role, email: admin.email,
         department: admin.department,
-        isActive: admin.isActive,
-        lastLogin: admin.lastLogin
+        isActive: admin.isActive, lastLogin: admin.lastLogin
       }
     });
   } catch (err) {
@@ -1096,10 +1032,7 @@ app.get('/api/admin/profile', verifyAdminToken, async (req, res) => {
 app.get('/api/admin/all', verifyAdminToken, async (req, res) => {
   try {
     const admins = await adminCollection.find({}).toArray();
-    const safeAdmins = admins.map(a => {
-      const { password, ...rest } = a;
-      return rest;
-    });
+    const safeAdmins = admins.map(a => { const { password, ...rest } = a; return rest; });
     res.json({ success: true, data: safeAdmins });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -1148,8 +1081,7 @@ app.put("/api/equipment/:id", async (req, res) => {
   try {
     const updatedData = { ...req.body, updatedAt: new Date() };
     const result = await equipmentCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: updatedData }
+      { _id: new ObjectId(req.params.id) }, { $set: updatedData }
     );
     if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
     res.json({ success: true, message: "Equipment updated" });
@@ -1174,10 +1106,7 @@ app.delete("/api/equipment/:id", async (req, res) => {
 app.get("/api/dept-lists/:deptCode", async (req, res) => {
   try {
     const { deptCode } = req.params;
-    const lists = await deptListsCollection
-      .find({ deptCode })
-      .sort({ createdAt: 1 })
-      .toArray();
+    const lists = await deptListsCollection.find({ deptCode }).sort({ createdAt: 1 }).toArray();
     res.json({ success: true, data: lists });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -1191,8 +1120,7 @@ app.post("/api/dept-lists", async (req, res) => {
       return res.status(400).json({ success: false, message: "deptCode and name are required" });
     }
     const newList = {
-      deptCode,
-      name: name.trim(),
+      deptCode, name: name.trim(),
       description: description?.trim() || "",
       createdAt: new Date()
     };
@@ -1235,10 +1163,7 @@ app.delete("/api/dept-lists/:id", async (req, res) => {
 app.get("/api/dept-equipment/list/:listId", async (req, res) => {
   try {
     const { listId } = req.params;
-    const items = await deptEquipmentCollection
-      .find({ listId })
-      .sort({ createdAt: 1 })
-      .toArray();
+    const items = await deptEquipmentCollection.find({ listId }).sort({ createdAt: 1 }).toArray();
     res.json({ success: true, data: items });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -1249,9 +1174,7 @@ app.get("/api/dept-equipment/:deptCode/:listId", async (req, res) => {
   try {
     const { deptCode, listId } = req.params;
     const items = await deptEquipmentCollection
-      .find({ deptCode, listId })
-      .sort({ createdAt: 1 })
-      .toArray();
+      .find({ deptCode, listId }).sort({ createdAt: 1 }).toArray();
     res.json({ success: true, data: items });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -1268,10 +1191,8 @@ app.post("/api/dept-equipment", async (req, res) => {
       deptCode, listId, name, code,
       quantity: parseInt(quantity) || 0,
       status: status || "Available",
-      notes: notes || "",
-      image: image || null,
-      createdAt: new Date(),
-      createdBy: "admin"
+      notes: notes || "", image: image || null,
+      createdAt: new Date(), createdBy: "admin"
     };
     const result = await deptEquipmentCollection.insertOne(newItem);
     res.status(201).json({ success: true, message: "Equipment added", data: { ...newItem, _id: result.insertedId } });
@@ -1287,13 +1208,11 @@ app.put("/api/dept-equipment/:id", async (req, res) => {
       name, code,
       quantity: parseInt(quantity) || 0,
       status: status || "Available",
-      notes: notes || "",
-      image: image || null,
+      notes: notes || "", image: image || null,
       updatedAt: new Date()
     };
     const result = await deptEquipmentCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: updatedData }
+      { _id: new ObjectId(req.params.id) }, { $set: updatedData }
     );
     if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
     res.json({ success: true, message: "Equipment updated" });
@@ -1319,10 +1238,7 @@ app.get('/api/checklist/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
     const checklist = await checklistsCollection
-      .find({ listId })
-      .sort({ submittedAt: -1 })
-      .limit(1)
-      .toArray();
+      .find({ listId }).sort({ submittedAt: -1 }).limit(1).toArray();
     const result = checklist.length > 0 ? checklist[0] : null;
     res.json({ success: true, data: result });
   } catch (error) {
@@ -1346,18 +1262,13 @@ app.post('/api/checklist/save', async (req, res) => {
     }
 
     let totalItems = equipmentList.length;
-    let checkedCount = 0;
-    let missingCount = 0;
-    let damagedCount = 0;
+    let checkedCount = 0, missingCount = 0, damagedCount = 0;
 
-    const finalAvailable = {};
-    const finalDamaged = {};
-    const finalMissing = {};
+    const finalAvailable = {}, finalDamaged = {}, finalMissing = {};
 
     equipmentList.forEach(item => {
       const itemId = item.id || item._id.toString();
       const totalQty = item.quantity || 0;
-
       let avail = 0, damaged = 0, missing = 0;
 
       if (availableQuantities && availableQuantities[itemId] !== undefined) {
@@ -1367,9 +1278,8 @@ app.post('/api/checklist/save', async (req, res) => {
       } else {
         const isChecked = (checkedItems && checkedItems[itemId]) || false;
         const isDamaged = (damagedItems && damagedItems[itemId]) || false;
-        if (isChecked) {
-          avail = totalQty;
-        } else {
+        if (isChecked) avail = totalQty;
+        else {
           damaged = isDamaged ? totalQty : 0;
           missing = isDamaged ? 0 : totalQty;
         }
@@ -1412,26 +1322,18 @@ app.post('/api/checklist/save', async (req, res) => {
 app.get('/api/checklists', async (req, res) => {
   try {
     const checklists = await checklistsCollection
-      .find({ submitted: true })
-      .sort({ submittedAt: -1 })
-      .limit(500)
-      .toArray();
+      .find({ submitted: true }).sort({ submittedAt: -1 }).limit(500).toArray();
 
     for (let checklist of checklists) {
       const equipmentItems = await deptEquipmentCollection
-        .find({ listId: checklist.listId })
-        .limit(200)
-        .toArray();
+        .find({ listId: checklist.listId }).limit(200).toArray();
       if (equipmentItems.length === 0) {
         checklist.equipmentDetails = await otCustomEquipmentCollection
-          .find({ listId: checklist.listId })
-          .limit(200)
-          .toArray();
+          .find({ listId: checklist.listId }).limit(200).toArray();
       } else {
         checklist.equipmentDetails = equipmentItems;
       }
     }
-
     res.json({ success: true, data: checklists });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1439,72 +1341,118 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-//  OT CUSTOM LISTS ROUTES — بدون aggregation (يعمل مع أي حجم بيانات)
+// ✅ OT CUSTOM LISTS ROUTES — SAFE VERSION
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
+  const startedAt = Date.now();
+
   try {
     const { roomId, deptCode } = req.query;
     const match = {};
     if (roomId) match.roomId = roomId;
     if (deptCode) match.deptCode = deptCode;
 
-    const t0 = Date.now();
+    console.log("==============================================");
+    console.log("GET /api/ot-custom-lists");
+    console.log("Query:", match);
 
-    // 1. جلب اللستات
-    const lists = await otCustomListsCollection
-      .find(match)
-      .sort({ createdAt: -1 })
-      .limit(500)
-      .toArray();
+    // STEP 1: Get Lists only
+    console.log("1️⃣ Fetching lists...");
+    const lists = await withTimeout(
+      otCustomListsCollection
+        .find(match)
+        .sort({ createdAt: -1 })
+        .limit(500)
+        .maxTimeMS(5000)
+        .toArray(),
+      8000,
+      "Fetching custom lists"
+    );
+    console.log(`1️⃣ Lists fetched: ${lists.length} (${Date.now() - startedAt}ms)`);
 
     if (lists.length === 0) {
-      console.log(` Found 0 custom lists (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
-      return res.json({ success: true, data: [] });
+      return res.json({
+        success: true, data: [],
+        debug: { lists: 0, equipment: 0, timeMs: Date.now() - startedAt }
+      });
     }
 
-    // 2. جلب كل المعدات المرتبطة بهذه اللستات — استعلام واحد
-    const listIds = lists.map(l => l.id).filter(Boolean);
-    const allEquipment = await otCustomEquipmentCollection
-      .find({ listId: { $in: listIds } })
-      .sort({ _id: 1 })
-      .toArray();
+    // STEP 2: Get equipment IDs
+    const listIds = lists.map(list => list.id).filter(Boolean);
+    console.log("2️⃣ List IDs:", listIds);
 
-    // 3. تجميع المعدات حسب listId
+    // STEP 3: Get equipment (with safe fallback)
+    console.log("3️⃣ Fetching equipment...");
+    let allEquipment = [];
+    if (listIds.length > 0) {
+      try {
+        allEquipment = await withTimeout(
+          otCustomEquipmentCollection
+            .find({ listId: { $in: listIds } })
+            .limit(5000)
+            .maxTimeMS(5000)
+            .toArray(),
+          8000,
+          "Fetching custom equipment"
+        );
+        console.log(`3️⃣ Equipment fetched: ${allEquipment.length} (${Date.now() - startedAt}ms)`);
+      } catch (equipmentError) {
+        console.error("⚠️ Equipment query failed:", equipmentError.message);
+        // ✅ مهم: لا نفشل تحميل الـ Lists بسبب equipment
+        allEquipment = [];
+      }
+    }
+
+    // STEP 4: Group equipment by listId
     const equipmentByList = {};
-    for (const eq of allEquipment) {
-      if (!equipmentByList[eq.listId]) equipmentByList[eq.listId] = [];
-      equipmentByList[eq.listId].push(eq);
+    for (const equipment of allEquipment) {
+      if (!equipmentByList[equipment.listId]) {
+        equipmentByList[equipment.listId] = [];
+      }
+      equipmentByList[equipment.listId].push(equipment);
     }
 
-    // 4. دمج المعدات داخل كل لستة
+    // STEP 5: Attach equipment to lists
     for (const list of lists) {
       list.equipment = equipmentByList[list.id] || [];
     }
 
-    console.log(` Found ${lists.length} custom lists + ${allEquipment.length} equipment items (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
-    res.json({ success: true, data: lists });
+    console.log(`✅ Completed /api/ot-custom-lists in ${Date.now() - startedAt}ms`);
+    console.log("==============================================");
+
+    return res.json({
+      success: true,
+      data: lists,
+      debug: {
+        lists: lists.length,
+        equipment: allEquipment.length,
+        timeMs: Date.now() - startedAt
+      }
+    });
   } catch (error) {
-    console.error(' Error fetching custom lists:', error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error("❌ /api/ot-custom-lists ERROR:", error);
+    console.log("==============================================");
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      debug: { timeMs: Date.now() - startedAt }
+    });
   }
 });
 
 app.post('/api/ot-custom-lists', async (req, res) => {
   try {
     const { id, name, description, deptCode, roomId, createdBy, image } = req.body;
-
     console.log(` POST /api/ot-custom-lists`, { id, name, deptCode });
 
     if (!id || !name) {
       return res.status(400).json({ success: false, message: "id and name are required" });
     }
 
-    // 🛡️ حماية: تأكد أن deptCode موجود فعلاً في ot_departments
     if (deptCode) {
       const deptExists = await otDepartmentsCollection.findOne({ id: deptCode });
       if (!deptExists) {
         console.warn(`⚠️ POST list with non-existent deptCode: ${deptCode}`);
-        // نسمح بالحفظ لكن نسجّل تحذير (لا نرفض حتى لا نكسر التطبيق)
       }
     }
 
@@ -1527,8 +1475,7 @@ app.post('/api/ot-custom-lists', async (req, res) => {
     }
 
     const newList = {
-      id,
-      name: name.trim(),
+      id, name: name.trim(),
       description: description?.trim() || "",
       deptCode: deptCode || "General",
       roomId: roomId || null,
@@ -1551,7 +1498,6 @@ app.put('/api/ot-custom-lists/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, deptCode, roomId, image } = req.body;
-
     console.log(` PUT /api/ot-custom-lists/${id}`);
 
     const updatedList = {
@@ -1561,28 +1507,19 @@ app.put('/api/ot-custom-lists/:id', async (req, res) => {
       roomId: roomId || null,
       updatedAt: new Date()
     };
-
-    if (image !== undefined) {
-      updatedList.image = image;
-    }
+    if (image !== undefined) updatedList.image = image;
 
     const result = await otCustomListsCollection.updateOne(
-      { id },
-      { $set: updatedList }
+      { id }, { $set: updatedList }
     );
-
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "List not found" });
     }
-
     const updatedDoc = await otCustomListsCollection.findOne({ id });
-
     console.log(` Custom list updated: ${id}`);
     res.json({
-      success: true,
-      message: "List updated",
-      data: updatedDoc,
-      modifiedCount: result.modifiedCount
+      success: true, message: "List updated",
+      data: updatedDoc, modifiedCount: result.modifiedCount
     });
   } catch (error) {
     console.error(' Error updating custom list:', error);
@@ -1594,12 +1531,10 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
   try {
     const { id } = req.params;
     console.log(` DELETE /api/ot-custom-lists/${id}`);
-
     const result = await otCustomListsCollection.deleteOne({ id });
     if (result.deletedCount === 0) {
       return res.status(404).json({ success: false, message: "List not found" });
     }
-
     const eqResult = await otCustomEquipmentCollection.deleteMany({ listId: id });
     console.log(` Custom list deleted: ${id} (+${eqResult.deletedCount} equip)`);
     res.json({ success: true, message: "List deleted" });
@@ -1616,13 +1551,16 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
     console.log(` GET /api/ot-custom-equipment/${listId}`);
-
-    const equipment = await otCustomEquipmentCollection
-      .find({ listId })
-      .sort({ _id: 1 })
-      .limit(1000)
-      .toArray();
-
+    const equipment = await withTimeout(
+      otCustomEquipmentCollection
+        .find({ listId })
+        .sort({ _id: 1 })
+        .limit(1000)
+        .maxTimeMS(5000)
+        .toArray(),
+      8000,
+      "Fetching custom equipment"
+    );
     console.log(` Found ${equipment.length} items for list ${listId}`);
     res.json({ success: true, data: equipment });
   } catch (error) {
@@ -1634,7 +1572,6 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
 app.post('/api/ot-custom-equipment', async (req, res) => {
   try {
     const { id, listId, name, code, quantity, status, image } = req.body;
-
     console.log(` POST /api/ot-custom-equipment`, { id, listId, name });
 
     if (!id || !listId || !name || !code) {
@@ -1645,17 +1582,14 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
     if (existing) {
       console.warn(` Equipment ID collision: ${id}`);
       return res.status(409).json({
-        success: false,
-        alreadyExists: true,
+        success: false, alreadyExists: true,
         message: "Equipment ID already exists. Please retry.",
       });
     }
 
     const newEquipment = {
-      id,
-      listId,
-      name: name.trim(),
-      code: code.trim(),
+      id, listId,
+      name: name.trim(), code: code.trim(),
       quantity: parseInt(quantity) || 1,
       status: status || "Available",
       image: image || null,
@@ -1675,7 +1609,6 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, code, quantity, status, image } = req.body;
-
     if (!id) {
       return res.status(400).json({ success: false, message: "Equipment ID is required" });
     }
@@ -1690,22 +1623,16 @@ app.put('/api/ot-custom-equipment/:id', async (req, res) => {
     };
 
     const result = await otCustomEquipmentCollection.updateOne(
-      { id },
-      { $set: updatedEquipment }
+      { id }, { $set: updatedEquipment }
     );
-
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "Equipment not found" });
     }
-
     const updatedDoc = await otCustomEquipmentCollection.findOne({ id });
-
     console.log(` Custom equipment updated: ${name} (id=${id})`);
     res.json({
-      success: true,
-      message: "Equipment updated",
-      data: updatedDoc,
-      modifiedCount: result.modifiedCount
+      success: true, message: "Equipment updated",
+      data: updatedDoc, modifiedCount: result.modifiedCount
     });
   } catch (error) {
     console.error(' Error updating custom equipment:', error);
@@ -1740,7 +1667,6 @@ app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
       console.warn(` Equipment not found for deletion: ${id}`);
       return res.status(404).json({ success: false, message: "Equipment not found in database" });
     }
-
     console.log(` Custom equipment deleted: ${id}`);
     res.json({ success: true, message: "Equipment deleted" });
   } catch (error) {
@@ -1798,13 +1724,11 @@ app.delete("/api/ot/surgeries/:id", async (req, res) => {
     const id = req.params.id;
     const result = await otSurgeriesCollection.deleteOne({ _id: new ObjectId(id) });
     if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Surgery not found" });
-
     const sets = await otSetsCollection.find({ surgeryId: id }).toArray();
     for (const set of sets) {
       await deptEquipmentCollection.deleteMany({ listId: set._id.toString() });
     }
     await otSetsCollection.deleteMany({ surgeryId: id });
-
     res.json({ success: true, message: "Surgery and related data deleted" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -1828,8 +1752,7 @@ app.post("/api/ot/sets", async (req, res) => {
       return res.status(400).json({ success: false, message: "surgeryId and name are required" });
     }
     const newSet = {
-      surgeryId,
-      name: name.trim(),
+      surgeryId, name: name.trim(),
       description: description?.trim() || "",
       createdAt: new Date()
     };
@@ -1859,9 +1782,7 @@ app.delete("/api/ot/sets/:id", async (req, res) => {
     const id = req.params.id;
     const result = await otSetsCollection.deleteOne({ _id: new ObjectId(id) });
     if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Set not found" });
-
     await deptEquipmentCollection.deleteMany({ listId: id });
-
     res.json({ success: true, message: "Set and equipment deleted" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -1872,9 +1793,7 @@ app.get("/api/ot/equipment/:setId", async (req, res) => {
   try {
     const { setId } = req.params;
     const equipment = await deptEquipmentCollection
-      .find({ listId: setId })
-      .sort({ createdAt: 1 })
-      .toArray();
+      .find({ listId: setId }).sort({ createdAt: 1 }).toArray();
     res.json({ success: true, data: equipment });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -1887,23 +1806,18 @@ app.post("/api/ot/equipment", async (req, res) => {
     if (!setId || !name || !code) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
-
     const setInfo = await otSetsCollection.findOne({ _id: new ObjectId(setId) });
     const surgeryInfo = setInfo ? await otSurgeriesCollection.findOne({ _id: new ObjectId(setInfo.surgeryId) }) : null;
 
     const newEquipment = {
-      deptCode: "OT",
-      listId: setId,
-      name: name.trim(),
-      code: code.trim(),
+      deptCode: "OT", listId: setId,
+      name: name.trim(), code: code.trim(),
       quantity: parseInt(quantity) || 0,
       status: status || "Available",
-      notes: notes || "",
-      image: image || null,
+      notes: notes || "", image: image || null,
       surgeryType: surgeryInfo?.name || "",
       setType: setInfo?.name || "",
-      createdAt: new Date(),
-      createdBy: "admin"
+      createdAt: new Date(), createdBy: "admin"
     };
     const result = await deptEquipmentCollection.insertOne(newEquipment);
     res.status(201).json({ success: true, message: "Equipment added", data: { ...newEquipment, _id: result.insertedId } });
@@ -1916,17 +1830,14 @@ app.put("/api/ot/equipment/:id", async (req, res) => {
   try {
     const { name, code, quantity, status, notes, image } = req.body;
     const updatedData = {
-      name: name.trim(),
-      code: code.trim(),
+      name: name.trim(), code: code.trim(),
       quantity: parseInt(quantity) || 0,
       status: status || "Available",
-      notes: notes || "",
-      image: image || null,
+      notes: notes || "", image: image || null,
       updatedAt: new Date()
     };
     const result = await deptEquipmentCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: updatedData }
+      { _id: new ObjectId(req.params.id) }, { $set: updatedData }
     );
     if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
     res.json({ success: true, message: "Equipment updated" });
@@ -1969,13 +1880,10 @@ app.get('/api/debug/admin-structure', async (req, res) => {
   try {
     const allAdmins = await adminCollection.find({}).toArray();
     res.json({
-      success: true,
-      totalAdmins: allAdmins.length,
+      success: true, totalAdmins: allAdmins.length,
       adminData: allAdmins.map(admin => ({
-        id: admin._id,
-        name: admin.name,
-        availableFields: Object.keys(admin),
-        fullData: admin
+        id: admin._id, name: admin.name,
+        availableFields: Object.keys(admin), fullData: admin
       }))
     });
   } catch (err) {
@@ -1999,9 +1907,7 @@ app.post('/api/generate-pdf', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({
-      success: false,
-      message: 'Error generating PDF',
-      error: error.message
+      success: false, message: 'Error generating PDF', error: error.message
     });
   }
 });
@@ -2015,23 +1921,18 @@ app.get('/api/image-proxy', async (req, res) => {
     if (!imageUrl) {
       return res.status(400).json({ success: false, message: 'Image URL is required' });
     }
-
     console.log(` Fetching image: ${imageUrl}`);
-
     const response = await fetch(imageUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       }
     });
-
     if (!response.ok) {
       return res.status(response.status).json({ success: false, message: 'Failed to fetch image' });
     }
-
     const contentType = response.headers.get('content-type') || 'image/jpeg';
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-
     res.set('Content-Type', contentType);
     res.set('Cache-Control', 'public, max-age=86400');
     res.send(buffer);
@@ -2050,7 +1951,6 @@ const hasBuild = fs.existsSync(path.join(buildPath, 'index.html'));
 if (hasBuild) {
   console.log(' Serving frontend build from:', buildPath);
   app.use(express.static(buildPath));
-
   app.get(/^\/(?!api).*/, (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
   });
@@ -2078,19 +1978,16 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` Server running on port ${PORT}`);
   console.log(` Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(` Admin: staff_no=host3487539, password=123456`);
-  console.log(` OT Departments:  /api/ot-departments`);
-  console.log(` OT Custom Lists: /api/ot-custom-lists (two-query, no aggregation)`);
-  console.log(` OT Custom Equip: /api/ot-custom-equipment`);
-  console.log(` 🚑 Diagnose:     GET  /api/ot-custom-lists-all`);
-  console.log(` 🚑 Fix orphans:  POST /api/ot-fix-orphan-lists`);
-  console.log(` 🚑 Move list:    POST /api/ot-move-list-to-dept`);
-  console.log(` Legacy Migration: dept_lists → ot_custom_lists (auto on startup)`);
-  console.log(` Health Check:    /api/health`);
-  console.log(` Debug Info:      /api/debug/info`);
-  console.log(` Collections:     /api/debug/collections-stats`);
-  console.log(` Cleanup:         POST /api/debug/clean-orphans`);
-  console.log(` Allowed origins: ${allowedOrigins.join(', ')}`);
-  console.log(` Local network:   ALLOWED (192.168.x.x, 10.x.x.x, 172.16-31.x.x)`);
+  console.log(` OT Departments:   /api/ot-departments`);
+  console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + withTimeout)`);
+  console.log(` OT Custom Equip:  /api/ot-custom-equipment`);
+  console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
+  console.log(` 🚑 Fix orphans:   POST /api/ot-fix-orphan-lists`);
+  console.log(` 🚑 Move list:     POST /api/ot-move-list-to-dept`);
+  console.log(` Health Check:     /api/health`);
+  console.log(` Debug Info:       /api/debug/info`);
+  console.log(` Collections:      /api/debug/collections-stats`);
+  console.log(` Allowed origins:  ${allowedOrigins.join(', ')}`);
   console.log(` Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
   console.log('═══════════════════════════════════════════════════════');
 });
