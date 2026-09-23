@@ -23,99 +23,55 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ============================================================
-// ⚡ CACHE with STALE-WHILE-REVALIDATE
-// ============================================================
-const cache = {
-  bootstrap: {
-    data: null,        // آخر نتيجة ناجحة (تبقى للأبد)
-    at: 0,
-    ttl: 60000,        // 60 ثانية — يعتبر "طازجاً"
-    staleTtl: 3600000  // ساعة — يعتبر "قديم لكن يمكن استخدامه"
-  },
-};
-
-function getCached(key) {
-  if (key === 'bootstrap') {
-    const c = cache.bootstrap;
-    if (!c.data) return null;
-
-    const age = Date.now() - c.at;
-
-    if (age < c.ttl) {
-      return { data: c.data, stale: false, age };
-    }
-    if (age < c.staleTtl) {
-      return { data: c.data, stale: true, age };
-    }
-    return null;
-  }
-  return null;
-}
-
-function setCached(key, data) {
-  if (key === 'bootstrap') {
-    cache.bootstrap.data = data;
-    cache.bootstrap.at = Date.now();
-  }
-}
-
-function invalidateBootstrap() {
-  // ✅ لا نحذف البيانات — فقط نعلمها أنها تحتاج تحديث
-  if (cache.bootstrap.data) {
-    cache.bootstrap.at = 0;
-    console.log('🗑️  Bootstrap cache marked stale');
-  }
-}
-
-// ============================================================
 // CORS Configuration
 // ============================================================
 const defaultOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5000',
-  'http://localhost:5173',
-  'http://127.0.0.1:3000',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
 ];
 
 const envOrigins = (process.env.CLIENT_URL || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
 const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
 
-console.log('🌐 Allowed CORS origins:', allowedOrigins);
+console.log(' Allowed CORS origins:', allowedOrigins);
 
+//  دالة للتحقق من IP محلي
 function isLocalNetworkOrigin(origin) {
-  if (!origin) return false;
-  try {
-    const url = new URL(origin);
-    const host = url.hostname;
-    if (host === 'localhost' || host === '127.0.0.1') return true;
-    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-    if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-    return false;
-  } catch {
-    return false;
-  }
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    const host = url.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    if (origin.endsWith('.onrender.com')) return callback(null, true);
-    if (isLocalNetworkOrigin(origin)) {
-      console.log(`✅ CORS allowed local network origin: ${origin}`);
-      return callback(null, true);
-    }
-    console.warn(`⚠️ CORS blocked origin: ${origin}`);
-    return callback(new Error(`CORS blocked: ${origin}`));
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (origin.endsWith('.onrender.com')) return callback(null, true);
+    if (isLocalNetworkOrigin(origin)) {
+      console.log(` CORS allowed local network origin: ${origin}`);
+      return callback(null, true);
+    }
+    console.warn(` CORS blocked origin: ${origin}`);
+    return callback(new Error(`CORS blocked: ${origin}`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
 }));
 
 app.use(express.json({ limit: '100mb' }));
@@ -126,32 +82,20 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // ============================================================
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
-const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
 
-if (!MONGODB_URI) {
-  console.error('═══════════════════════════════════════════════════════');
-  console.error('❌❌❌ خطأ حرج: MONGODB_URI غير موجود في متغيرات البيئة!');
-  console.error('═══════════════════════════════════════════════════════');
-}
+console.log(' MongoDB URI:', MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'));
 
-console.log('🔌 MongoDB URI:', MONGODB_URI
-  ? MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@')
-  : '❌ MISSING');
-
-// ✅ TIMEOUTS مطوّلة لتحمل الشبكة البطيئة
-const client = new MongoClient(
-  MONGODB_URI || 'mongodb://localhost:27017/medical_equipment',
-  {
-    serverSelectionTimeoutMS: 30000,
-    socketTimeoutMS: 60000,
-    connectTimeoutMS: 30000,
-    maxPoolSize: 10,
-    minPoolSize: 2,
-    retryWrites: true,
-    retryReads: true,
-    heartbeatFrequencyMS: 10000,
-  }
-);
+const client = new MongoClient(MONGODB_URI, {
+  serverSelectionTimeoutMS: 15000,
+  socketTimeoutMS: 60000,
+  connectTimeoutMS: 15000,
+  maxPoolSize: 10,
+  minPoolSize: 1,
+  retryWrites: true,
+  retryReads: true,
+  heartbeatFrequencyMS: 10000,
+});
 
 // ============================================================
 // Connection State
@@ -159,10 +103,6 @@ const client = new MongoClient(
 let db = null;
 let isConnecting = false;
 let lastConnectAttempt = 0;
-let lastConnectError = null;
-let lastConnectErrorAt = null;
-let lastConnectSuccessAt = null;
-let connectAttemptCount = 0;
 
 let equipmentCollection;
 let staffCollection;
@@ -177,2015 +117,1770 @@ let otCustomEquipmentCollection;
 let otDepartmentsCollection;
 
 // ============================================================
-// Legacy Migration
+//  Legacy Migration: dept_lists → ot_custom_lists
 // ============================================================
 async function migrateLegacyLists() {
-  try {
-    const settingsColl = db.collection("settings");
-    const flag = await settingsColl.findOne({ key: "legacy_migration_v1" });
+  try {
+    const settingsColl = db.collection("settings");
+    const flag = await settingsColl.findOne({ key: "legacy_migration_v1" });
 
-    if (flag) {
-      console.log("ℹ️ Legacy migration already done, skipping");
-      return;
-    }
+    if (flag) {
+      console.log(" Legacy migration already done, skipping");
+      return;
+    }
 
-    console.log("🔄 Starting legacy migration: dept_lists → ot_custom_lists");
+    console.log(" Starting legacy migration: dept_lists → ot_custom_lists");
 
-    const oldLists = await deptListsCollection.find({}).toArray();
-    const oldEquipment = await deptEquipmentCollection.find({}).toArray();
+    // 1. جلب كل البيانات القديمة
+    const oldLists = await deptListsCollection.find({}).toArray();
+    const oldEquipment = await deptEquipmentCollection.find({}).toArray();
 
-    console.log(`📦 Found ${oldLists.length} old lists, ${oldEquipment.length} old equipment items`);
+    console.log(` Found ${oldLists.length} old lists, ${oldEquipment.length} old equipment items`);
 
-    const idMap = {};
-    let listsCopied = 0;
-    let listsSkipped = 0;
-    let equipmentCopied = 0;
-    let equipmentSkipped = 0;
+    // 2. خريطة: _id القديم → id الجديد
+    const idMap = {};
+    let listsCopied = 0;
+    let listsSkipped = 0;
+    let equipmentCopied = 0;
+    let equipmentSkipped = 0;
 
-    for (const oldList of oldLists) {
-      const oldIdStr = oldList._id.toString();
-      const newId = `list_legacy_${oldIdStr}`;
+    // 3. نسخ اللستات
+    for (const oldList of oldLists) {
+      const oldIdStr = oldList._id.toString();
+      const newId = `list_legacy_${oldIdStr}`;
 
-      idMap[oldIdStr] = newId;
+      idMap[oldIdStr] = newId;
 
-      const existing = await otCustomListsCollection.findOne({ id: newId });
-      if (existing) {
-        listsSkipped++;
-        continue;
-      }
+      const existing = await otCustomListsCollection.findOne({ id: newId });
+      if (existing) {
+        listsSkipped++;
+        continue;
+      }
 
-      await otCustomListsCollection.insertOne({
-        id: newId,
-        name: oldList.name || "Untitled List",
-        description: oldList.description || "",
-        deptCode: oldList.deptCode || "General",
-        roomId: null,
-        image: null,
-        equipment: [],
-        createdBy: "Legacy Migration",
-        createdAt: oldList.createdAt || new Date(),
-        _migratedFrom: oldIdStr,
-      });
-      listsCopied++;
-    }
+      await otCustomListsCollection.insertOne({
+        id: newId,
+        name: oldList.name || "Untitled List",
+        description: oldList.description || "",
+        deptCode: oldList.deptCode || "General",
+        roomId: null,
+        image: null,
+        equipment: [],
+        createdBy: "Legacy Migration",
+        createdAt: oldList.createdAt || new Date(),
+        _migratedFrom: oldIdStr,
+      });
+      listsCopied++;
+    }
 
-    for (const oldEq of oldEquipment) {
-      const oldEqIdStr = oldEq._id.toString();
-      const oldListIdStr = String(oldEq.listId || "");
+    // 4. نسخ المعدات
+    for (const oldEq of oldEquipment) {
+      const oldEqIdStr = oldEq._id.toString();
+      const oldListIdStr = String(oldEq.listId || "");
 
-      const newListId = idMap[oldListIdStr];
-      if (!newListId) continue;
+      // تجاهل المعدات التي لا تنتمي إلى dept_lists
+      const newListId = idMap[oldListIdStr];
+      if (!newListId) continue;
 
-      const newEqId = `eq_legacy_${oldEqIdStr}`;
+      const newEqId = `eq_legacy_${oldEqIdStr}`;
 
-      const existing = await otCustomEquipmentCollection.findOne({ id: newEqId });
-      if (existing) {
-        equipmentSkipped++;
-        continue;
-      }
+      const existing = await otCustomEquipmentCollection.findOne({ id: newEqId });
+      if (existing) {
+        equipmentSkipped++;
+        continue;
+      }
 
-      await otCustomEquipmentCollection.insertOne({
-        id: newEqId,
-        listId: newListId,
-        name: oldEq.name || "Unknown",
-        code: oldEq.code || "",
-        quantity: parseInt(oldEq.quantity) || 1,
-        status: oldEq.status || "Available",
-        image: oldEq.image || null,
-        createdAt: oldEq.createdAt || new Date(),
-        _migratedFrom: oldEqIdStr,
-      });
-      equipmentCopied++;
-    }
+      await otCustomEquipmentCollection.insertOne({
+        id: newEqId,
+        listId: newListId,
+        name: oldEq.name || "Unknown",
+        code: oldEq.code || "",
+        quantity: parseInt(oldEq.quantity) || 1,
+        status: oldEq.status || "Available",
+        image: oldEq.image || null,
+        createdAt: oldEq.createdAt || new Date(),
+        _migratedFrom: oldEqIdStr,
+      });
+      equipmentCopied++;
+    }
 
-    await settingsColl.insertOne({
-      key: "legacy_migration_v1",
-      at: new Date(),
-      listsCopied,
-      listsSkipped,
-      equipmentCopied,
-      equipmentSkipped,
-      totalOldLists: oldLists.length,
-      totalOldEquipment: oldEquipment.length,
-    });
+    // 5. سجّل أن الترحيل تم
+    await settingsColl.insertOne({
+      key: "legacy_migration_v1",
+      at: new Date(),
+      listsCopied,
+      listsSkipped,
+      equipmentCopied,
+      equipmentSkipped,
+      totalOldLists: oldLists.length,
+      totalOldEquipment: oldEquipment.length,
+    });
 
-    console.log(`✅ Legacy migration complete: ${listsCopied} lists, ${equipmentCopied} equipment copied`);
-  } catch (err) {
-    console.error("⚠️ Legacy migration error:", err.message);
-  }
+    console.log(` Legacy migration complete: ${listsCopied} lists, ${equipmentCopied} equipment copied`);
+    if (listsSkipped > 0 || equipmentSkipped > 0) {
+      console.log(` Skipped (already existed): ${listsSkipped} lists, ${equipmentSkipped} equipment`);
+    }
+  } catch (err) {
+    console.error(" Legacy migration error:", err.message);
+  }
 }
 
 // ============================================================
 // Ensure Connection
 // ============================================================
 async function ensureConnection() {
-  if (db) return true;
+  if (db) return true;
 
-  if (isConnecting) {
-    let waited = 0;
-    while (isConnecting && waited < 30000) {
-      await new Promise(r => setTimeout(r, 100));
-      waited += 100;
-    }
-    return !!db;
-  }
+  if (isConnecting) {
+    let waited = 0;
+    while (isConnecting && waited < 15000) {
+      await new Promise(r => setTimeout(r, 100));
+      waited += 100;
+    }
+    return !!db;
+  }
 
-  const now = Date.now();
-  if (now - lastConnectAttempt < 1000) {
-    await new Promise(r => setTimeout(r, 1000));
-  }
-  lastConnectAttempt = Date.now();
-  connectAttemptCount++;
+  const now = Date.now();
+  if (now - lastConnectAttempt < 1000) {
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  lastConnectAttempt = Date.now();
 
-  isConnecting = true;
-  try {
-    console.log(`🔌 [${connectAttemptCount}] Connecting to MongoDB...`);
+  isConnecting = true;
+  try {
+    console.log(' Connecting to MongoDB...');
+    await client.connect();
+    db = client.db("medical_equipment");
 
-    if (!MONGODB_URI) {
-      throw new Error('MONGODB_URI_MISSING: متغير البيئة MONGODB_URI غير موجود');
-    }
+    equipmentCollection = db.collection("equipment");
+    staffCollection = db.collection("staff");
+    adminCollection = db.collection("admin");
+    deptEquipmentCollection = db.collection("dept_equipment");
+    deptListsCollection = db.collection("dept_lists");
+    otSurgeriesCollection = db.collection("ot_surgeries");
+    otSetsCollection = db.collection("ot_sets");
+    checklistsCollection = db.collection("checklists");
+    otCustomListsCollection = db.collection("ot_custom_lists");
+    otCustomEquipmentCollection = db.collection("ot_custom_equipment");
+    otDepartmentsCollection = db.collection("ot_departments");
 
-    await client.connect();
-    db = client.db("medical_equipment");
+    // ============================================================
+    //  Indexes
+    // ============================================================
+    const indexTasks = [
+      () => equipmentCollection.createIndex({ category: 1 }),
+      () => equipmentCollection.createIndex({ code: 1 }),
+      () => deptEquipmentCollection.createIndex({ deptCode: 1, listId: 1 }),
+      () => deptEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
+      () => deptListsCollection.createIndex({ deptCode: 1 }),
+      () => deptListsCollection.createIndex({ deptCode: 1, createdAt: 1 }),
+      () => otSurgeriesCollection.createIndex({ name: 1 }),
+      () => otSetsCollection.createIndex({ surgeryId: 1 }),
+      () => checklistsCollection.createIndex({ listId: 1 }),
+      () => checklistsCollection.createIndex({ submittedAt: -1 }),
+      () => checklistsCollection.createIndex({ listId: 1, submittedAt: -1 }),
+      () => otCustomListsCollection.createIndex({ deptCode: 1 }),
+      () => otCustomListsCollection.createIndex({ roomId: 1 }),
+      () => otCustomListsCollection.createIndex({ id: 1 }),
+      () => otCustomListsCollection.createIndex({ deptCode: 1, createdAt: -1 }),
+      () => otCustomEquipmentCollection.createIndex({ listId: 1 }),
+      () => otCustomEquipmentCollection.createIndex({ id: 1 }),
+      () => otCustomEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
+      () => otCustomEquipmentCollection.createIndex({ listId: 1, _id: 1 }),
+      () => otDepartmentsCollection.createIndex({ id: 1 }, { unique: true }),
+      () => otDepartmentsCollection.createIndex({ createdAt: 1 }),
+    ];
+    for (const task of indexTasks) {
+      try { await task(); } catch (e) {
+        console.warn(" Index warning:", e.message);
+      }
+    }
 
-    equipmentCollection = db.collection("equipment");
-    staffCollection = db.collection("staff");
-    adminCollection = db.collection("admin");
-    deptEquipmentCollection = db.collection("dept_equipment");
-    deptListsCollection = db.collection("dept_lists");
-    otSurgeriesCollection = db.collection("ot_surgeries");
-    otSetsCollection = db.collection("ot_sets");
-    checklistsCollection = db.collection("checklists");
-    otCustomListsCollection = db.collection("ot_custom_lists");
-    otCustomEquipmentCollection = db.collection("ot_custom_equipment");
-    otDepartmentsCollection = db.collection("ot_departments");
+    // Default admin
+    let existingAdmin = await adminCollection.findOne({ staff_no: "host3487539" });
+    if (!existingAdmin) {
+      existingAdmin = await adminCollection.findOne({ staffNumber: "host3487539" });
+    }
 
-    // Indexes
-    const indexTasks = [
-      () => equipmentCollection.createIndex({ category: 1 }),
-      () => equipmentCollection.createIndex({ code: 1 }),
-      () => deptEquipmentCollection.createIndex({ deptCode: 1, listId: 1 }),
-      () => deptEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
-      () => deptListsCollection.createIndex({ deptCode: 1 }),
-      () => deptListsCollection.createIndex({ deptCode: 1, createdAt: 1 }),
-      () => otSurgeriesCollection.createIndex({ name: 1 }),
-      () => otSetsCollection.createIndex({ surgeryId: 1 }),
-      () => checklistsCollection.createIndex({ listId: 1 }),
-      () => checklistsCollection.createIndex({ submittedAt: -1 }),
-      () => checklistsCollection.createIndex({ listId: 1, submittedAt: -1 }),
-      () => otCustomListsCollection.createIndex({ deptCode: 1 }),
-      () => otCustomListsCollection.createIndex({ roomId: 1 }),
-      () => otCustomListsCollection.createIndex({ id: 1 }),
-      () => otCustomListsCollection.createIndex({ deptCode: 1, createdAt: -1 }),
-      () => otCustomListsCollection.createIndex({ createdAt: -1 }),
-      () => otCustomEquipmentCollection.createIndex({ listId: 1 }),
-      () => otCustomEquipmentCollection.createIndex({ id: 1 }),
-      () => otCustomEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
-      () => otCustomEquipmentCollection.createIndex({ listId: 1, _id: 1 }),
-      () => otDepartmentsCollection.createIndex({ id: 1 }, { unique: true }),
-      () => otDepartmentsCollection.createIndex({ createdAt: 1 }),
-    ];
-    for (const task of indexTasks) {
-      try { await task(); } catch (e) {
-        console.warn("⚠️ Index warning:", e.message);
-      }
-    }
+    if (!existingAdmin) {
+      console.log(" Creating default admin...");
+      const hashedPassword = await bcrypt.hash("123456", 10);
+      await adminCollection.insertOne({
+        name: "System Administrator",
+        staff_no: "host3487539",
+        password: hashedPassword,
+        role: "super_admin",
+        email: "admin@example.com",
+        department: "IT Administration",
+        isActive: true,
+        lastLogin: null,
+        createdAt: new Date()
+      });
+      console.log(" Default admin created");
+    } else {
+      console.log(" Admin exists:", existingAdmin.name);
+    }
 
-    // Default admin
-    let existingAdmin = await adminCollection.findOne({ staff_no: "host3487539" });
-    if (!existingAdmin) {
-      existingAdmin = await adminCollection.findOne({ staffNumber: "host3487539" });
-    }
+    await seedDefaultDepartments();
+    await migrateLegacyLists();
 
-    if (!existingAdmin) {
-      console.log("⚠️ Creating default admin...");
-      const hashedPassword = await bcrypt.hash("123456", 10);
-      await adminCollection.insertOne({
-        name: "System Administrator",
-        staff_no: "host3487539",
-        password: hashedPassword,
-        role: "super_admin",
-        email: "admin@example.com",
-        department: "IT Administration",
-        isActive: true,
-        lastLogin: null,
-        createdAt: new Date()
-      });
-      console.log("✅ Default admin created");
-    } else {
-      console.log("✅ Admin exists:", existingAdmin.name);
-    }
-
-    await seedDefaultDepartments();
-    await migrateLegacyLists();
-
-    lastConnectSuccessAt = new Date().toISOString();
-    lastConnectError = null;
-    lastConnectErrorAt = null;
-
-    console.log("✅✅✅ MongoDB connected successfully");
-    return true;
-  } catch (error) {
-    lastConnectError = error.message;
-    lastConnectErrorAt = new Date().toISOString();
-
-    console.error("═══════════════════════════════════════════════════════");
-    console.error("❌ MongoDB connection error:", error.message);
-    console.error("═══════════════════════════════════════════════════════");
-
-    const msg = error.message.toLowerCase();
-    if (msg.includes('authentication') || msg.includes('bad auth')) {
-      console.error("💡 السبب: كلمة مرور MongoDB خاطئة");
-    } else if (msg.includes('ip') || msg.includes('whitelist')) {
-      console.error("💡 السبب: IP غير مسموح → Network Access → 0.0.0.0/0");
-    } else if (msg.includes('timeout')) {
-      console.error("💡 السبب: الشبكة بطيئة أو Region مختلف");
-    }
-
-    db = null;
-    return false;
-  } finally {
-    isConnecting = false;
-  }
+    console.log(" MongoDB connected successfully");
+    return true;
+  } catch (error) {
+    console.error(" MongoDB connection error:", error.message);
+    db = null;
+    return false;
+  } finally {
+    isConnecting = false;
+  }
 }
 
 // ============================================================
-// Seed Default OT Departments
+// Seed Default OT Departments (once)
 // ============================================================
 async function seedDefaultDepartments() {
-  try {
-    const settingsColl = db.collection("settings");
-    const flag = await settingsColl.findOne({ key: "departments_seeded_v1" });
-    if (flag) {
-      console.log("ℹ️ Departments already seeded");
-      return;
-    }
+  try {
+    const settingsColl = db.collection("settings");
+    const flag = await settingsColl.findOne({ key: "departments_seeded_v1" });
+    if (flag) {
+      console.log(" Departments already seeded");
+      return;
+    }
 
-    const defaults = [
-      { id: "dept_women", name: "Women & Maternity", description: "Obstetrics and Gynecology Department" },
-      { id: "dept_surgery", name: "General Surgery", description: "General Surgery Department" },
-      { id: "dept_ortho", name: "Orthopedics", description: "Orthopedic Surgery Department" },
-      { id: "dept_ent", name: "E.N.T", description: "Ear, Nose and Throat Department" },
-      { id: "dept_cardiac", name: "Cardiac Surgery", description: "Cardiac Surgery Department" },
-      { id: "dept_pediatric", name: "Pediatric Surgery", description: "Pediatric Surgery Department" },
-    ];
+    const defaults = [
+      { id: "dept_women", name: "Women & Maternity", description: "Obstetrics and Gynecology Department" },
+      { id: "dept_surgery", name: "General Surgery", description: "General Surgery Department" },
+      { id: "dept_ortho", name: "Orthopedics", description: "Orthopedic Surgery Department" },
+      { id: "dept_ent", name: "E.N.T", description: "Ear, Nose and Throat Department" },
+      { id: "dept_cardiac", name: "Cardiac Surgery", description: "Cardiac Surgery Department" },
+      { id: "dept_pediatric", name: "Pediatric Surgery", description: "Pediatric Surgery Department" },
+    ];
 
-    let created = 0;
-    for (const dept of defaults) {
-      const existing = await otDepartmentsCollection.findOne({ id: dept.id });
-      if (!existing) {
-        await otDepartmentsCollection.insertOne({
-          ...dept,
-          isDefault: true,
-          createdAt: new Date()
-        });
-        created++;
-      }
-    }
+    let created = 0;
+    for (const dept of defaults) {
+      const existing = await otDepartmentsCollection.findOne({ id: dept.id });
+      if (!existing) {
+        await otDepartmentsCollection.insertOne({
+          ...dept,
+          isDefault: true,
+          createdAt: new Date()
+        });
+        created++;
+      }
+    }
 
-    await settingsColl.insertOne({
-      key: "departments_seeded_v1",
-      at: new Date(),
-      created
-    });
+    await settingsColl.insertOne({
+      key: "departments_seeded_v1",
+      at: new Date(),
+      created
+    });
 
-    console.log(`✅ Seeded ${created} default departments`);
-  } catch (err) {
-    console.error("⚠️ Seed error:", err.message);
-  }
+    console.log(` Seeded ${created} default departments (one-time)`);
+  } catch (err) {
+    console.error(" Seed error:", err.message);
+  }
 }
 
 // ============================================================
 // DB Middleware
 // ============================================================
 app.use('/api', async (req, res, next) => {
-  if (req.method === 'OPTIONS') return next();
+  if (req.method === 'OPTIONS') return next();
 
-  const ok = await ensureConnection();
-  if (!ok) {
-    return res.status(503).json({
-      success: false,
-      message: "قاعدة البيانات غير متاحة مؤقتاً، الرجاء المحاولة مرة أخرى.",
-      debug: {
-        lastConnectError,
-        lastConnectErrorAt,
-        connectAttempts: connectAttemptCount,
-      }
-    });
-  }
-  next();
+  const ok = await ensureConnection();
+  if (!ok) {
+    return res.status(503).json({
+      success: false,
+      message: "قاعدة البيانات غير متاحة مؤقتاً، الرجاء المحاولة مرة أخرى.",
+    });
+  }
+  next();
 });
 
 // ============================================================
 // Keep-Alive Ping
 // ============================================================
 setInterval(async () => {
-  if (!db) {
-    await ensureConnection();
-    return;
-  }
-  try {
-    await db.command({ ping: 1 });
-  } catch (err) {
-    console.warn("⏰ Ping failed, will reconnect:", err.message);
-    db = null;
-  }
-}, 30000);
+  if (!db) {
+    await ensureConnection();
+    return;
+  }
+  try {
+    await db.command({ ping: 1 });
+  } catch (err) {
+    console.warn(" Ping failed, will reconnect:", err.message);
+    db = null;
+  }
+}, 45000);
 
 // ============================================================
 // Initial Connect
 // ============================================================
-ensureConnection().then(ok => {
-  if (ok) {
-    console.log("🎉 Initial connection successful");
-  } else {
-    console.warn("⚠️ Initial connection failed — will retry on first request");
-  }
-});
+ensureConnection();
 
 // ============================================================
 // AI Search Routes
 // ============================================================
 try {
-  setupAISearchRoutes(app);
+  setupAISearchRoutes(app);
 } catch (e) {
-  console.warn("⚠️ AI Search routes not loaded:", e.message);
+  console.warn(" AI Search routes not loaded:", e.message);
 }
 
 // ============================================================
 // HEALTH & ROOT
 // ============================================================
 app.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: "🚀 Medical Equipment API is running",
-    service: "backend",
-    dbConnected: !!db,
-    timestamp: new Date().toISOString(),
-  });
+  res.json({
+    success: true,
+    message: " Medical Equipment API is running",
+    service: "backend",
+    dbConnected: !!db,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.get('/api/health', async (req, res) => {
-  try {
-    if (!db) {
-      const ok = await ensureConnection();
-      if (!ok) {
-        return res.status(503).json({
-          success: false,
-          dbConnected: false,
-          message: "DB not connected",
-          debug: { lastConnectError, hasMongoUri: !!MONGODB_URI }
-        });
-      }
-    }
-    await db.command({ ping: 1 });
-    const [listsCount, equipmentCount, departmentsCount, checklistsCount] = await Promise.all([
-      otCustomListsCollection.countDocuments(),
-      otCustomEquipmentCollection.countDocuments(),
-      otDepartmentsCollection.countDocuments(),
-      checklistsCollection.countDocuments(),
-    ]);
-    res.json({
-      success: true,
-      dbConnected: true,
-      timestamp: new Date().toISOString(),
-      counts: {
-        otCustomLists: listsCount,
-        otCustomEquipment: equipmentCount,
-        otDepartments: departmentsCount,
-        checklists: checklistsCount,
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ============================================================
-// DB STATUS — تشخيص كامل
-// ============================================================
-app.get('/api/db-status', async (req, res) => {
-  const result = {
-    success: true,
-    dbConnected: !!db,
-    hasMongoUri: !!MONGODB_URI,
-    mongoUriHost: MONGODB_URI?.match(/@([^/?]+)/)?.[1] || null,
-    mongoUriDatabase: MONGODB_URI?.match(/\/([^/?]+)(\?|$)/)?.[1] || null,
-    connectAttempts: connectAttemptCount,
-    lastConnectError,
-    lastConnectErrorAt,
-    lastConnectSuccessAt,
-    timestamp: new Date().toISOString(),
-  };
-
-  if (db) {
-    try {
-      await db.command({ ping: 1 });
-      const collections = await db.listCollections().toArray();
-      result.availableCollections = collections.map(c => c.name);
-      result.pingOk = true;
-    } catch (e) {
-      result.pingOk = false;
-      result.pingError = e.message;
-    }
-  } else {
-    result.tryingNow = true;
-    const ok = await ensureConnection();
-    result.afterRetry = {
-      connected: !!db,
-      lastError: lastConnectError,
-    };
-  }
-
-  res.json(result);
-});
-
-// ============================================================
-// TEST LATENCY — يقيس سرعة كل استعلام
-// ============================================================
-app.get('/api/test-latency', async (req, res) => {
-  if (!db) return res.status(503).json({ error: 'DB not connected' });
-
-  const results = {};
-
-  let t = Date.now();
-  try {
-    await db.command({ ping: 1 });
-    results.ping = `${Date.now() - t}ms`;
-  } catch (e) {
-    results.ping = `ERROR: ${e.message}`;
-  }
-
-  t = Date.now();
-  try {
-    await otDepartmentsCollection.countDocuments();
-    results.countDepartments = `${Date.now() - t}ms`;
-  } catch (e) {
-    results.countDepartments = `ERROR: ${e.message}`;
-  }
-
-  t = Date.now();
-  try {
-    await otDepartmentsCollection.find({}).toArray();
-    results.findDepartments = `${Date.now() - t}ms`;
-  } catch (e) {
-    results.findDepartments = `ERROR: ${e.message}`;
-  }
-
-  t = Date.now();
-  try {
-    await otCustomListsCollection.find({}).limit(50).toArray();
-    results.findLists = `${Date.now() - t}ms`;
-  } catch (e) {
-    results.findLists = `ERROR: ${e.message}`;
-  }
-
-  t = Date.now();
-  try {
-    await otCustomEquipmentCollection.find({}).limit(50).toArray();
-    results.findEquipment = `${Date.now() - t}ms`;
-  } catch (e) {
-    results.findEquipment = `ERROR: ${e.message}`;
-  }
-
-  res.json({ success: true, results });
-});
-
-// ============================================================
-// TEST MONGO CONNECTION
-// ============================================================
-app.get('/api/test-mongo-connection', async (req, res) => {
-  const net = await import('node:net');
-  const dnsPromises = await import('node:dns').then(m => m.promises);
-
-  const results = {};
-
-  try {
-    const addresses = await dnsPromises.resolveSrv('_mongodb._tcp.cluster0.4ascplg.mongodb.net');
-    results.dnsResolve = 'OK';
-    results.hosts = addresses.map(a => `${a.name}:${a.port}`);
-  } catch (e) {
-    results.dnsResolve = e.message;
-  }
-
-  const host = MONGODB_URI?.match(/@([^/?]+)/)?.[1];
-
-  if (host) {
-    results.tcp27017 = await new Promise((resolve) => {
-      const socket = net.createConnection(27017, host, () => {
-        socket.end();
-        resolve('OK');
-      });
-      socket.setTimeout(5000);
-      socket.on('timeout', () => { socket.destroy(); resolve('TIMEOUT'); });
-      socket.on('error', (err) => resolve(`ERROR: ${err.message}`));
-    });
-
-    results.tcp443 = await new Promise((resolve) => {
-      const socket = net.createConnection(443, host, () => {
-        socket.end();
-        resolve('OK');
-      });
-      socket.setTimeout(5000);
-      socket.on('timeout', () => { socket.destroy(); resolve('TIMEOUT'); });
-      socket.on('error', (err) => resolve(`ERROR: ${err.message}`));
-    });
-  }
-
-  res.json({
-    success: true,
-    results,
-    mongoHost: host || 'unknown',
-    hasMongoUri: !!MONGODB_URI,
-  });
+  try {
+    if (!db) {
+      return res.status(503).json({
+        success: false,
+        dbConnected: false,
+        message: "DB not connected",
+      });
+    }
+    await db.command({ ping: 1 });
+    const [listsCount, equipmentCount, departmentsCount, checklistsCount] = await Promise.all([
+      otCustomListsCollection.countDocuments(),
+      otCustomEquipmentCollection.countDocuments(),
+      otDepartmentsCollection.countDocuments(),
+      checklistsCollection.countDocuments(),
+    ]);
+    res.json({
+      success: true,
+      dbConnected: true,
+      timestamp: new Date().toISOString(),
+      counts: {
+        otCustomLists: listsCount,
+        otCustomEquipment: equipmentCount,
+        otDepartments: departmentsCount,
+        checklists: checklistsCount,
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.get('/api/debug/info', async (req, res) => {
-  res.json({
-    success: true,
-    service: "backend",
-    mongodbDatabase: "medical_equipment",
-    mongoUriHost: MONGODB_URI?.match(/@([^/?]+)/)?.[1] || 'unknown',
-    allowedOrigins,
-    nodeEnv: process.env.NODE_ENV || 'development',
-    renderServiceName: process.env.RENDER_SERVICE_NAME || null,
-    renderExternalUrl: process.env.RENDER_EXTERNAL_URL || null,
-    timestamp: new Date().toISOString(),
-  });
+  res.json({
+    success: true,
+    service: "backend",
+    mongodbDatabase: "medical_equipment",
+    mongoUriHost: MONGODB_URI.match(/@([^/?]+)/)?.[1] || 'unknown',
+    allowedOrigins,
+    nodeEnv: process.env.NODE_ENV || 'development',
+    renderServiceName: process.env.RENDER_SERVICE_NAME || null,
+    renderExternalUrl: process.env.RENDER_EXTERNAL_URL || null,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.get('/api/debug/collections-stats', async (req, res) => {
-  try {
-    const collections = [
-      'ot_custom_lists',
-      'ot_custom_equipment',
-      'ot_departments',
-      'checklists',
-      'dept_lists',
-      'dept_equipment',
-      'settings'
-    ];
-    const stats = {};
-    for (const name of collections) {
-      try {
-        const count = await db.collection(name).countDocuments();
-        stats[name] = { count };
-      } catch (e) {
-        stats[name] = { error: e.message };
-      }
-    }
-    res.json({ success: true, stats });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const collections = [
+      'ot_custom_lists',
+      'ot_custom_equipment',
+      'ot_departments',
+      'checklists',
+      'dept_lists',
+      'dept_equipment',
+      'settings'
+    ];
+    const stats = {};
+    for (const name of collections) {
+      try {
+        const count = await db.collection(name).countDocuments();
+        const collStats = await db.command({ collStats: name }).catch(() => null);
+        stats[name] = {
+          count,
+          avgObjSize: collStats?.avgObjSize || 0,
+          sizeMB: collStats?.size ? (collStats.size / 1024 / 1024).toFixed(2) : '0',
+          storageSizeMB: collStats?.storageSize ? (collStats.storageSize / 1024 / 1024).toFixed(2) : '0',
+        };
+      } catch (e) {
+        stats[name] = { error: e.message };
+      }
+    }
+    res.json({ success: true, stats });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
+//  تنظيف الأدوات اليتيمة والقديمة
 app.post('/api/debug/clean-orphans', async (req, res) => {
-  try {
-    console.log('🧹 Starting orphan cleanup...');
+  try {
+    console.log(' Starting orphan cleanup...');
 
-    const noIdResult = await otCustomEquipmentCollection.deleteMany({
-      $or: [
-        { id: { $exists: false } },
-        { id: null },
-        { id: "" }
-      ]
-    });
+    const noIdResult = await otCustomEquipmentCollection.deleteMany({
+      $or: [
+        { id: { $exists: false } },
+        { id: null },
+        { id: "" }
+      ]
+    });
 
-    const allLists = await otCustomListsCollection.distinct('id');
-    const orphansResult = await otCustomEquipmentCollection.deleteMany({
-      listId: { $nin: allLists }
-    });
+    const allLists = await otCustomListsCollection.distinct('id');
+    const orphansResult = await otCustomEquipmentCollection.deleteMany({
+      listId: { $nin: allLists }
+    });
 
-    const allDepts = await otDepartmentsCollection.distinct('id');
-    const orphanListsResult = await otCustomListsCollection.deleteMany({
-      deptCode: { $nin: allDepts }
-    });
+    const allDepts = await otDepartmentsCollection.distinct('id');
+    const orphanListsResult = await otCustomListsCollection.deleteMany({
+      deptCode: { $nin: allDepts }
+    });
 
-    invalidateBootstrap();
+    console.log(` Cleanup done: ${noIdResult.deletedCount} no-id, ${orphansResult.deletedCount} orphans`);
 
-    res.json({
-      success: true,
-      deletedNoId: noIdResult.deletedCount,
-      deletedOrphans: orphansResult.deletedCount,
-      deletedOrphanLists: orphanListsResult.deletedCount,
-    });
-  } catch (err) {
-    console.error('❌ Cleanup error:', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
+    res.json({
+      success: true,
+      deletedNoId: noIdResult.deletedCount,
+      deletedOrphans: orphansResult.deletedCount,
+      deletedOrphanLists: orphanListsResult.deletedCount,
+    });
+  } catch (err) {
+    console.error(' Cleanup error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
-// ⚡⚡⚡ OT BOOTSTRAP — مع Cache + Stale-While-Revalidate
-// ============================================================
-app.get('/api/ot-bootstrap', async (req, res) => {
-  const t0 = Date.now();
-  const cached = getCached('bootstrap');
-
-  // ✅ إذا كانت طازجة → أرجعها فوراً
-  if (cached && !cached.stale) {
-    console.log(`⚡ bootstrap from FRESH CACHE in ${Date.now() - t0}ms`);
-    return res.json({
-      success: true,
-      data: cached.data,
-      meta: { elapsedMs: Date.now() - t0, cached: 'fresh', age: cached.age }
-    });
-  }
-
-  // ⚠️ إذا كانت قديمة → جرّب تحديثها، لكن إذا فشل أرجع القديمة
-  try {
-    // ✅ اجلب القوائم أولاً (آخر 100)
-    const [departments, lists] = await Promise.all([
-      otDepartmentsCollection.find({}).sort({ createdAt: 1 }).toArray(),
-      otCustomListsCollection.find({}).sort({ createdAt: -1 }).limit(100).toArray(),
-    ]);
-
-    // ✅ ثم اجلب معدات هذه القوائم فقط
-    const listIds = lists.map(l => l.id).filter(Boolean);
-    const equipment = listIds.length > 0
-      ? await otCustomEquipmentCollection.find({ listId: { $in: listIds } }).toArray()
-      : [];
-
-    const eqByList = {};
-    for (const eq of equipment) {
-      if (!eqByList[eq.listId]) eqByList[eq.listId] = [];
-      eqByList[eq.listId].push(eq);
-    }
-    for (const list of lists) {
-      list.equipment = eqByList[list.id] || [];
-    }
-
-    const payload = { departments, lists, equipment };
-    setCached('bootstrap', payload);
-
-    const elapsed = Date.now() - t0;
-    console.log(`⚡ bootstrap: ${departments.length} depts, ${lists.length} lists, ${equipment.length} eq → ${elapsed}ms`);
-
-    res.json({
-      success: true,
-      data: payload,
-      meta: { elapsedMs: elapsed, cached: false }
-    });
-  } catch (err) {
-    console.error('❌ bootstrap DB error:', err.message);
-
-    // ✅ إذا عندنا نسخة قديمة — أرجعها بدل الفشل
-    if (cached) {
-      console.log(`⚠️ Serving STALE cache (age: ${cached.age}ms) due to DB error`);
-      return res.json({
-        success: true,
-        data: cached.data,
-        meta: {
-          elapsedMs: Date.now() - t0,
-          cached: 'stale',
-          age: cached.age,
-          dbError: err.message
-        }
-      });
-    }
-
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ============================================================
-// CUSTOM DEPARTMENTS (legacy)
+// CUSTOM DEPARTMENTS (in-memory legacy)
 // ============================================================
 let customDepartments = [];
 
 app.get("/api/custom-departments", (req, res) => {
-  res.json({ success: true, data: customDepartments });
+  res.json({ success: true, data: customDepartments });
 });
 
 app.post("/api/custom-departments", (req, res) => {
-  try {
-    const { name, description } = req.body;
-    if (!name || name.trim().length === 0) {
-      return res.status(400).json({ success: false, message: "Department name is required" });
-    }
-    const newDept = {
-      _id: Date.now().toString(),
-      name: name.trim(),
-      description: description?.trim() || "Equipment Management",
-      path: `/${name.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'custom'}`,
-      createdAt: new Date().toISOString()
-    };
-    if (customDepartments.find(d => d.name.toLowerCase() === newDept.name.toLowerCase())) {
-      return res.status(400).json({ success: false, message: "Department already exists" });
-    }
-    customDepartments.push(newDept);
-    res.status(201).json({ success: true, data: newDept });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { name, description } = req.body;
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({ success: false, message: "Department name is required" });
+    }
+    const newDept = {
+      _id: Date.now().toString(),
+      name: name.trim(),
+      description: description?.trim() || "Equipment Management",
+      path: `/${name.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'custom'}`,
+      createdAt: new Date().toISOString()
+    };
+    if (customDepartments.find(d => d.name.toLowerCase() === newDept.name.toLowerCase())) {
+      return res.status(400).json({ success: false, message: "Department already exists" });
+    }
+    customDepartments.push(newDept);
+    res.status(201).json({ success: true, data: newDept });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.delete("/api/custom-departments/:id", (req, res) => {
-  try {
-    const id = req.params.id;
-    const initialLength = customDepartments.length;
-    customDepartments = customDepartments.filter(dept => dept._id !== id);
-    if (customDepartments.length === initialLength) {
-      return res.status(404).json({ success: false, message: "Department not found" });
-    }
-    res.json({ success: true, message: "Department deleted" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const id = req.params.id;
+    const initialLength = customDepartments.length;
+    customDepartments = customDepartments.filter(dept => dept._id !== id);
+    if (customDepartments.length === initialLength) {
+      return res.status(404).json({ success: false, message: "Department not found" });
+    }
+    res.json({ success: true, message: "Department deleted" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
 // OT DEPARTMENTS ROUTES
 // ============================================================
 app.get("/api/ot-departments", async (req, res) => {
-  try {
-    const depts = await otDepartmentsCollection
-      .find({})
-      .sort({ createdAt: 1 })
-      .toArray();
-    res.json({ success: true, data: depts });
-  } catch (err) {
-    console.error("❌ Error fetching departments:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const depts = await otDepartmentsCollection
+      .find({})
+      .sort({ createdAt: 1 })
+      .toArray();
+    res.json({ success: true, data: depts });
+  } catch (err) {
+    console.error(" Error fetching departments:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.post("/api/ot-departments", async (req, res) => {
-  try {
-    const { id, name, description } = req.body;
-    console.log(`📥 POST /api/ot-departments`, { id, name });
+  try {
+    const { id, name, description } = req.body;
+    console.log(` POST /api/ot-departments`, { id, name });
 
-    if (!name || !name.trim()) {
-      return res.status(400).json({ success: false, message: "name is required" });
-    }
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: "name is required" });
+    }
 
-    const deptId = id || `dept_${Date.now()}`;
+    const deptId = id || `dept_${Date.now()}`;
 
-    const existing = await otDepartmentsCollection.findOne({ id: deptId });
-    if (existing) {
-      return res.status(400).json({ success: false, message: "Department already exists" });
-    }
+    const existing = await otDepartmentsCollection.findOne({ id: deptId });
+    if (existing) {
+      return res.status(400).json({ success: false, message: "Department already exists" });
+    }
 
-    const newDept = {
-      id: deptId,
-      name: name.trim(),
-      description: description?.trim() || "",
-      isDefault: false,
-      createdAt: new Date()
-    };
+    const newDept = {
+      id: deptId,
+      name: name.trim(),
+      description: description?.trim() || "",
+      isDefault: false,
+      createdAt: new Date()
+    };
 
-    await otDepartmentsCollection.insertOne(newDept);
-    invalidateBootstrap();
-    console.log(`✅ Department created: ${name} (${deptId})`);
-    res.status(201).json({ success: true, data: newDept });
-  } catch (err) {
-    console.error("❌ Error creating department:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
+    await otDepartmentsCollection.insertOne(newDept);
+    console.log(` Department created: ${name} (${deptId})`);
+    res.status(201).json({ success: true, data: newDept });
+  } catch (err) {
+    console.error(" Error creating department:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.put("/api/ot-departments/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, description } = req.body;
-    console.log(`📥 PUT /api/ot-departments/${id}`);
+  try {
+    const { id } = req.params;
+    const { name, description } = req.body;
+    console.log(` PUT /api/ot-departments/${id}`);
 
-    const result = await otDepartmentsCollection.updateOne(
-      { id },
-      { $set: {
-        name: name?.trim() || "",
-        description: description?.trim() || "",
-        updatedAt: new Date()
-      } }
-    );
+    const result = await otDepartmentsCollection.updateOne(
+      { id },
+      { $set: {
+        name: name?.trim() || "",
+        description: description?.trim() || "",
+        updatedAt: new Date()
+      } }
+    );
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ success: false, message: "Department not found" });
-    }
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Department not found" });
+    }
 
-    invalidateBootstrap();
+    const updatedDoc = await otDepartmentsCollection.findOne({ id });
 
-    const updatedDoc = await otDepartmentsCollection.findOne({ id });
-
-    console.log(`✅ Department updated: ${id}`);
-    res.json({
-      success: true,
-      message: "Department updated",
-      data: updatedDoc
-    });
-  } catch (err) {
-    console.error("❌ Error updating department:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
+    console.log(` Department updated: ${id}`);
+    res.json({
+      success: true,
+      message: "Department updated",
+      data: updatedDoc
+    });
+  } catch (err) {
+    console.error(" Error updating department:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.delete("/api/ot-departments/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log(`📥 DELETE /api/ot-departments/${id}`);
+  try {
+    const { id } = req.params;
+    console.log(` DELETE /api/ot-departments/${id}`);
 
-    const result = await otDepartmentsCollection.deleteOne({ id });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ success: false, message: "Department not found" });
-    }
+    const result = await otDepartmentsCollection.deleteOne({ id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Department not found" });
+    }
 
-    const lists = await otCustomListsCollection.find({ deptCode: id }).toArray();
-    for (const list of lists) {
-      await otCustomEquipmentCollection.deleteMany({ listId: list.id });
-    }
-    const listsResult = await otCustomListsCollection.deleteMany({ deptCode: id });
+    const lists = await otCustomListsCollection.find({ deptCode: id }).toArray();
+    for (const list of lists) {
+      await otCustomEquipmentCollection.deleteMany({ listId: list.id });
+    }
+    const listsResult = await otCustomListsCollection.deleteMany({ deptCode: id });
 
-    invalidateBootstrap();
-
-    console.log(`✅ Department deleted: ${id} (+${listsResult.deletedCount} lists)`);
-    res.json({ success: true, message: "Department and related data deleted" });
-  } catch (err) {
-    console.error("❌ Error deleting department:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
+    console.log(` Department deleted: ${id} (+${listsResult.deletedCount} lists)`);
+    res.json({ success: true, message: "Department and related data deleted" });
+  } catch (err) {
+    console.error(" Error deleting department:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
 // STAFF ROUTES
 // ============================================================
 app.post("/api/staff/register", async (req, res) => {
-  try {
-    const { name, staffNumber, password, confirmPassword, phone, department } = req.body;
-    if (password !== confirmPassword) {
-      return res.status(400).json({ message: "Passwords do not match" });
-    }
-    const existingUser = await staffCollection.findOne({ staffNumber });
-    if (existingUser) {
-      return res.status(400).json({ message: "Staff number already exists" });
-    }
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newStaff = {
-      name, staffNumber,
-      password: hashedPassword,
-      department: department || "General",
-      phone: phone || "",
-      role: "staff",
-      isActive: true,
-      lastLogin: null,
-      createdAt: new Date()
-    };
-    const result = await staffCollection.insertOne(newStaff);
-    res.status(201).json({
-      success: true,
-      message: "Registration successful",
-      user: {
-        id: result.insertedId,
-        name: newStaff.name,
-        staffNumber: newStaff.staffNumber,
-        role: newStaff.role,
-        department: newStaff.department
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message || "Server error" });
-  }
+  try {
+    const { name, staffNumber, password, confirmPassword, phone, department } = req.body;
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: "Passwords do not match" });
+    }
+    const existingUser = await staffCollection.findOne({ staffNumber });
+    if (existingUser) {
+      return res.status(400).json({ message: "Staff number already exists" });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newStaff = {
+      name, staffNumber,
+      password: hashedPassword,
+      department: department || "General",
+      phone: phone || "",
+      role: "staff",
+      isActive: true,
+      lastLogin: null,
+      createdAt: new Date()
+    };
+    const result = await staffCollection.insertOne(newStaff);
+    res.status(201).json({
+      success: true,
+      message: "Registration successful",
+      user: {
+        id: result.insertedId,
+        name: newStaff.name,
+        staffNumber: newStaff.staffNumber,
+        role: newStaff.role,
+        department: newStaff.department
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message || "Server error" });
+  }
 });
 
 app.post("/api/staff/login", async (req, res) => {
-  try {
-    const { staffNumber, password } = req.body;
-    const user = await staffCollection.findOne({ staffNumber });
-    if (!user) {
-      return res.status(401).json({ message: "Invalid staff number or password" });
-    }
-    if (!user.isActive) {
-      return res.status(401).json({ message: "Account is deactivated" });
-    }
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: "Invalid staff number or password" });
-    }
-    await staffCollection.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } });
-    const token = jwt.sign(
-      { id: user._id, staffNumber: user.staffNumber, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-    res.json({
-      success: true,
-      message: "Login successful",
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        staffNumber: user.staffNumber,
-        role: user.role,
-        department: user.department
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message || "Server error" });
-  }
+  try {
+    const { staffNumber, password } = req.body;
+    const user = await staffCollection.findOne({ staffNumber });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid staff number or password" });
+    }
+    if (!user.isActive) {
+      return res.status(401).json({ message: "Account is deactivated" });
+    }
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: "Invalid staff number or password" });
+    }
+    await staffCollection.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } });
+    const token = jwt.sign(
+      { id: user._id, staffNumber: user.staffNumber, role: user.role },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+    res.json({
+      success: true,
+      message: "Login successful",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        staffNumber: user.staffNumber,
+        role: user.role,
+        department: user.department
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message || "Server error" });
+  }
 });
 
 app.get("/api/staff", async (req, res) => {
-  try {
-    const staff = await staffCollection.find({}).toArray();
-    const safeStaff = staff.map(s => { const { password, ...rest } = s; return rest; });
-    res.json({ success: true, data: safeStaff });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  try {
+    const staff = await staffCollection.find({}).toArray();
+    const safeStaff = staff.map(s => { const { password, ...rest } = s; return rest; });
+    res.json({ success: true, data: safeStaff });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 app.get("/api/staff/:id", async (req, res) => {
-  try {
-    const staff = await staffCollection.findOne({ _id: new ObjectId(req.params.id) });
-    if (!staff) return res.status(404).json({ message: "Staff not found" });
-    const { password, ...safeStaff } = staff;
-    res.json({ success: true, data: safeStaff });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  try {
+    const staff = await staffCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!staff) return res.status(404).json({ message: "Staff not found" });
+    const { password, ...safeStaff } = staff;
+    res.json({ success: true, data: safeStaff });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 app.put("/api/staff/:id", async (req, res) => {
-  try {
-    const { password, ...updateData } = req.body;
-    if (password) updateData.password = await bcrypt.hash(password, 10);
-    const result = await staffCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { ...updateData, updatedAt: new Date() } }
-    );
-    if (result.matchedCount === 0) return res.status(404).json({ message: "Staff not found" });
-    res.json({ success: true, message: "Staff updated" });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  try {
+    const { password, ...updateData } = req.body;
+    if (password) updateData.password = await bcrypt.hash(password, 10);
+    const result = await staffCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { ...updateData, updatedAt: new Date() } }
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ message: "Staff not found" });
+    res.json({ success: true, message: "Staff updated" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 app.delete("/api/staff/:id", async (req, res) => {
-  try {
-    const result = await staffCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-    if (result.deletedCount === 0) return res.status(404).json({ message: "Staff not found" });
-    res.json({ success: true, message: "Staff deleted" });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  try {
+    const result = await staffCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    if (result.deletedCount === 0) return res.status(404).json({ message: "Staff not found" });
+    res.json({ success: true, message: "Staff deleted" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 // ============================================================
 // ADMIN ROUTES
 // ============================================================
 app.post('/api/admin/login', async (req, res) => {
-  const { name, staff_no, password } = req.body;
-  console.log("🔐 Admin login - Name:", name, "Staff No:", staff_no);
+  const { name, staff_no, password } = req.body;
+  console.log(" Admin login - Name:", name, "Staff No:", staff_no);
 
-  try {
-    const admin = await adminCollection.findOne({
-      $or: [
-        { staff_no: staff_no },
-        { staffNumber: staff_no },
-        { staffNo: staff_no },
-        { employeeId: staff_no }
-      ]
-    });
+  try {
+    const admin = await adminCollection.findOne({
+      $or: [
+        { staff_no: staff_no },
+        { staffNumber: staff_no },
+        { staffNo: staff_no },
+        { employeeId: staff_no }
+      ]
+    });
 
-    if (!admin) {
-      return res.status(401).json({ success: false, message: "❌ Staff number not found" });
-    }
-    if (admin.isActive === false) {
-      return res.status(401).json({ success: false, message: "❌ Account is deactivated" });
-    }
+    if (!admin) {
+      return res.status(401).json({ success: false, message: " Staff number not found" });
+    }
+    if (admin.isActive === false) {
+      return res.status(401).json({ success: false, message: " Account is deactivated" });
+    }
 
-    let isPasswordValid = false;
-    if (admin.password && (admin.password.startsWith('$2a$') || admin.password.startsWith('$2b$'))) {
-      isPasswordValid = await bcrypt.compare(password, admin.password);
-    } else {
-      isPasswordValid = (admin.password === password);
-      if (isPasswordValid) {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        await adminCollection.updateOne(
-          { _id: admin._id },
-          { $set: { password: hashedPassword } }
-        );
-        console.log("✅ Password upgraded to hashed");
-      }
-    }
+    let isPasswordValid = false;
+    if (admin.password && (admin.password.startsWith('$2a$') || admin.password.startsWith('$2b$'))) {
+      isPasswordValid = await bcrypt.compare(password, admin.password);
+    } else {
+      isPasswordValid = (admin.password === password);
+      if (isPasswordValid) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await adminCollection.updateOne(
+          { _id: admin._id },
+          { $set: { password: hashedPassword } }
+        );
+        console.log(" Password upgraded to hashed");
+      }
+    }
 
-    if (!isPasswordValid) {
-      return res.status(401).json({ success: false, message: "❌ Incorrect password" });
-    }
+    if (!isPasswordValid) {
+      return res.status(401).json({ success: false, message: " Incorrect password" });
+    }
 
-    await adminCollection.updateOne(
-      { _id: admin._id },
-      { $set: { lastLogin: new Date() } }
-    );
+    await adminCollection.updateOne(
+      { _id: admin._id },
+      { $set: { lastLogin: new Date() } }
+    );
 
-    const adminStaffNo = admin.staff_no || admin.staffNumber || admin.staffNo || staff_no;
-    const token = jwt.sign(
-      {
-        id: admin._id,
-        staff_no: adminStaffNo,
-        role: admin.role || "admin",
-        name: name || admin.name
-      },
-      JWT_SECRET,
-      { expiresIn: "1d" }
-    );
+    const adminStaffNo = admin.staff_no || admin.staffNumber || admin.staffNo || staff_no;
+    const token = jwt.sign(
+      {
+        id: admin._id,
+        staff_no: adminStaffNo,
+        role: admin.role || "admin",
+        name: name || admin.name
+      },
+      JWT_SECRET,
+      { expiresIn: "1d" }
+    );
 
-    res.json({
-      success: true,
-      message: "✅ Login successful",
-      token,
-      admin: {
-        id: admin._id,
-        name: name || admin.name,
-        staff_no: adminStaffNo,
-        role: admin.role || "admin",
-        email: admin.email || "",
-        department: admin.department || "Administration"
-      }
-    });
-  } catch (err) {
-    console.error('❌ Admin login error:', err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
+    res.json({
+      success: true,
+      message: " Login successful",
+      token,
+      admin: {
+        id: admin._id,
+        name: name || admin.name,
+        staff_no: adminStaffNo,
+        role: admin.role || "admin",
+        email: admin.email || "",
+        department: admin.department || "Administration"
+      }
+    });
+  } catch (err) {
+    console.error(' Admin login error:', err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
 });
 
 const verifyAdminToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ success: false, message: "Unauthorized" });
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.admin = decoded;
-    next();
-  } catch (error) {
-    return res.status(401).json({ success: false, message: "Invalid token" });
-  }
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ success: false, message: "Unauthorized" });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.admin = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({ success: false, message: "Invalid token" });
+  }
 };
 
 app.get('/api/admin/profile', verifyAdminToken, async (req, res) => {
-  try {
-    const admin = await adminCollection.findOne({ _id: new ObjectId(req.admin.id) });
-    if (!admin) return res.status(404).json({ success: false, message: "Admin not found" });
+  try {
+    const admin = await adminCollection.findOne({ _id: new ObjectId(req.admin.id) });
+    if (!admin) return res.status(404).json({ success: false, message: "Admin not found" });
 
-    res.json({
-      success: true,
-      admin: {
-        id: admin._id,
-        name: admin.name,
-        staff_no: admin.staff_no || admin.staffNumber,
-        role: admin.role,
-        email: admin.email,
-        department: admin.department,
-        isActive: admin.isActive,
-        lastLogin: admin.lastLogin
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+    res.json({
+      success: true,
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        staff_no: admin.staff_no || admin.staffNumber,
+        role: admin.role,
+        email: admin.email,
+        department: admin.department,
+        isActive: admin.isActive,
+        lastLogin: admin.lastLogin
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.get('/api/admin/all', verifyAdminToken, async (req, res) => {
-  try {
-    const admins = await adminCollection.find({}).toArray();
-    const safeAdmins = admins.map(a => {
-      const { password, ...rest } = a;
-      return rest;
-    });
-    res.json({ success: true, data: safeAdmins });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const admins = await adminCollection.find({}).toArray();
+    const safeAdmins = admins.map(a => {
+      const { password, ...rest } = a;
+      return rest;
+    });
+    res.json({ success: true, data: safeAdmins });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
 // EQUIPMENT ROUTES (Legacy)
 // ============================================================
 app.get("/api/equipment", async (req, res) => {
-  try {
-    const { category } = req.query;
-    let query = {};
-    if (category) query.category = category;
-    const items = await equipmentCollection.find(query).toArray();
-    res.json({ success: true, data: items });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { category } = req.query;
+    let query = {};
+    if (category) query.category = category;
+    const items = await equipmentCollection.find(query).toArray();
+    res.json({ success: true, data: items });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.get("/api/equipment/:id", async (req, res) => {
-  try {
-    const equipment = await equipmentCollection.findOne({ _id: new ObjectId(req.params.id) });
-    if (!equipment) return res.status(404).json({ success: false, message: "Equipment not found" });
-    res.json({ success: true, data: equipment });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
+  try {
+    const equipment = await equipmentCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!equipment) return res.status(404).json({ success: false, message: "Equipment not found" });
+    res.json({ success: true, data: equipment });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.post("/api/equipment", async (req, res) => {
-  try {
-    const newItem = { ...req.body, createdAt: new Date(), updatedAt: new Date() };
-    if (!newItem.name || !newItem.code || !newItem.category) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
-    }
-    const result = await equipmentCollection.insertOne(newItem);
-    res.status(201).json({ success: true, message: "Equipment added", id: result.insertedId });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const newItem = { ...req.body, createdAt: new Date(), updatedAt: new Date() };
+    if (!newItem.name || !newItem.code || !newItem.category) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+    const result = await equipmentCollection.insertOne(newItem);
+    res.status(201).json({ success: true, message: "Equipment added", id: result.insertedId });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.put("/api/equipment/:id", async (req, res) => {
-  try {
-    const updatedData = { ...req.body, updatedAt: new Date() };
-    const result = await equipmentCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: updatedData }
-    );
-    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
-    res.json({ success: true, message: "Equipment updated" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const updatedData = { ...req.body, updatedAt: new Date() };
+    const result = await equipmentCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: updatedData }
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
+    res.json({ success: true, message: "Equipment updated" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.delete("/api/equipment/:id", async (req, res) => {
-  try {
-    const result = await equipmentCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
-    res.json({ success: true, message: "Equipment deleted" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const result = await equipmentCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
+    res.json({ success: true, message: "Equipment deleted" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
 // DEPARTMENT LISTS ROUTES (Legacy)
 // ============================================================
 app.get("/api/dept-lists/:deptCode", async (req, res) => {
-  try {
-    const { deptCode } = req.params;
-    const lists = await deptListsCollection
-      .find({ deptCode })
-      .sort({ createdAt: 1 })
-      .toArray();
-    res.json({ success: true, data: lists });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { deptCode } = req.params;
+    const lists = await deptListsCollection
+      .find({ deptCode })
+      .sort({ createdAt: 1 })
+      .toArray();
+    res.json({ success: true, data: lists });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.post("/api/dept-lists", async (req, res) => {
-  try {
-    const { deptCode, name, description } = req.body;
-    if (!deptCode || !name) {
-      return res.status(400).json({ success: false, message: "deptCode and name are required" });
-    }
-    const newList = {
-      deptCode,
-      name: name.trim(),
-      description: description?.trim() || "",
-      createdAt: new Date()
-    };
-    const result = await deptListsCollection.insertOne(newList);
-    res.status(201).json({ success: true, data: { ...newList, _id: result.insertedId } });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { deptCode, name, description } = req.body;
+    if (!deptCode || !name) {
+      return res.status(400).json({ success: false, message: "deptCode and name are required" });
+    }
+    const newList = {
+      deptCode,
+      name: name.trim(),
+      description: description?.trim() || "",
+      createdAt: new Date()
+    };
+    const result = await deptListsCollection.insertOne(newList);
+    res.status(201).json({ success: true, data: { ...newList, _id: result.insertedId } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.put("/api/dept-lists/:id", async (req, res) => {
-  try {
-    const { name, description } = req.body;
-    const result = await deptListsCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { name: name.trim(), description: description?.trim() || "", updatedAt: new Date() } }
-    );
-    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "List not found" });
-    res.json({ success: true, message: "List updated" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { name, description } = req.body;
+    const result = await deptListsCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { name: name.trim(), description: description?.trim() || "", updatedAt: new Date() } }
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "List not found" });
+    res.json({ success: true, message: "List updated" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.delete("/api/dept-lists/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const result = await deptListsCollection.deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "List not found" });
-    await deptEquipmentCollection.deleteMany({ listId: id });
-    res.json({ success: true, message: "List and equipment deleted" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const id = req.params.id;
+    const result = await deptListsCollection.deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "List not found" });
+    await deptEquipmentCollection.deleteMany({ listId: id });
+    res.json({ success: true, message: "List and equipment deleted" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
 // DEPARTMENT EQUIPMENT ROUTES (Legacy)
 // ============================================================
 app.get("/api/dept-equipment/list/:listId", async (req, res) => {
-  try {
-    const { listId } = req.params;
-    const items = await deptEquipmentCollection
-      .find({ listId })
-      .sort({ createdAt: 1 })
-      .toArray();
-    res.json({ success: true, data: items });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { listId } = req.params;
+    const items = await deptEquipmentCollection
+      .find({ listId })
+      .sort({ createdAt: 1 })
+      .toArray();
+    res.json({ success: true, data: items });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.get("/api/dept-equipment/:deptCode/:listId", async (req, res) => {
-  try {
-    const { deptCode, listId } = req.params;
-    const items = await deptEquipmentCollection
-      .find({ deptCode, listId })
-      .sort({ createdAt: 1 })
-      .toArray();
-    res.json({ success: true, data: items });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { deptCode, listId } = req.params;
+    const items = await deptEquipmentCollection
+      .find({ deptCode, listId })
+      .sort({ createdAt: 1 })
+      .toArray();
+    res.json({ success: true, data: items });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.post("/api/dept-equipment", async (req, res) => {
-  try {
-    const { deptCode, listId, name, code, quantity, status, notes, image } = req.body;
-    if (!deptCode || !listId || !name || !code) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
-    }
-    const newItem = {
-      deptCode, listId, name, code,
-      quantity: parseInt(quantity) || 0,
-      status: status || "Available",
-      notes: notes || "",
-      image: image || null,
-      createdAt: new Date(),
-      createdBy: "admin"
-    };
-    const result = await deptEquipmentCollection.insertOne(newItem);
-    res.status(201).json({ success: true, message: "Equipment added", data: { ...newItem, _id: result.insertedId } });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { deptCode, listId, name, code, quantity, status, notes, image } = req.body;
+    if (!deptCode || !listId || !name || !code) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+    const newItem = {
+      deptCode, listId, name, code,
+      quantity: parseInt(quantity) || 0,
+      status: status || "Available",
+      notes: notes || "",
+      image: image || null,
+      createdAt: new Date(),
+      createdBy: "admin"
+    };
+    const result = await deptEquipmentCollection.insertOne(newItem);
+    res.status(201).json({ success: true, message: "Equipment added", data: { ...newItem, _id: result.insertedId } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.put("/api/dept-equipment/:id", async (req, res) => {
-  try {
-    const { name, code, quantity, status, notes, image } = req.body;
-    const updatedData = {
-      name, code,
-      quantity: parseInt(quantity) || 0,
-      status: status || "Available",
-      notes: notes || "",
-      image: image || null,
-      updatedAt: new Date()
-    };
-    const result = await deptEquipmentCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: updatedData }
-    );
-    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
-    res.json({ success: true, message: "Equipment updated" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { name, code, quantity, status, notes, image } = req.body;
+    const updatedData = {
+      name, code,
+      quantity: parseInt(quantity) || 0,
+      status: status || "Available",
+      notes: notes || "",
+      image: image || null,
+      updatedAt: new Date()
+    };
+    const result = await deptEquipmentCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: updatedData }
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
+    res.json({ success: true, message: "Equipment updated" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.delete("/api/dept-equipment/:id", async (req, res) => {
-  try {
-    const result = await deptEquipmentCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
-    res.json({ success: true, message: "Equipment deleted" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const result = await deptEquipmentCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
+    res.json({ success: true, message: "Equipment deleted" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
 // CHECKLIST ROUTES
 // ============================================================
 app.get('/api/checklist/:listId', async (req, res) => {
-  try {
-    const { listId } = req.params;
-    const checklist = await checklistsCollection
-      .find({ listId })
-      .sort({ submittedAt: -1 })
-      .limit(1)
-      .toArray();
-    const result = checklist.length > 0 ? checklist[0] : null;
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
+  try {
+    const { listId } = req.params;
+    const checklist = await checklistsCollection
+      .find({ listId })
+      .sort({ submittedAt: -1 })
+      .limit(1)
+      .toArray();
+    const result = checklist.length > 0 ? checklist[0] : null;
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.post('/api/checklist/save', async (req, res) => {
-  try {
-    const {
-      listId, deptCode, listName, submitted, submittedAt, submittedBy, userRole, expiryDate,
-      availableQuantities, damagedQuantities, missingQuantities, checkedItems, damagedItems
-    } = req.body;
+  try {
+    const {
+      listId, deptCode, listName, submitted, submittedAt, submittedBy, userRole, expiryDate,
+      availableQuantities, damagedQuantities, missingQuantities, checkedItems, damagedItems
+    } = req.body;
 
-    let equipmentList = [];
-    let itemsFromDept = await deptEquipmentCollection.find({ listId }).toArray();
-    if (itemsFromDept.length > 0) {
-      equipmentList = itemsFromDept;
-    } else {
-      equipmentList = await otCustomEquipmentCollection.find({ listId }).toArray();
-    }
+    let equipmentList = [];
+    let itemsFromDept = await deptEquipmentCollection.find({ listId }).toArray();
+    if (itemsFromDept.length > 0) {
+      equipmentList = itemsFromDept;
+    } else {
+      equipmentList = await otCustomEquipmentCollection.find({ listId }).toArray();
+    }
 
-    let totalItems = equipmentList.length;
-    let checkedCount = 0;
-    let missingCount = 0;
-    let damagedCount = 0;
+    let totalItems = equipmentList.length;
+    let checkedCount = 0;
+    let missingCount = 0;
+    let damagedCount = 0;
 
-    const finalAvailable = {};
-    const finalDamaged = {};
-    const finalMissing = {};
+    const finalAvailable = {};
+    const finalDamaged = {};
+    const finalMissing = {};
 
-    equipmentList.forEach(item => {
-      const itemId = item.id || item._id.toString();
-      const totalQty = item.quantity || 0;
+    equipmentList.forEach(item => {
+      const itemId = item.id || item._id.toString();
+      const totalQty = item.quantity || 0;
 
-      let avail = 0, damaged = 0, missing = 0;
+      let avail = 0, damaged = 0, missing = 0;
 
-      if (availableQuantities && availableQuantities[itemId] !== undefined) {
-        avail = availableQuantities[itemId] || 0;
-        damaged = (damagedQuantities && damagedQuantities[itemId]) || 0;
-        missing = (missingQuantities && missingQuantities[itemId]) || 0;
-      } else {
-        const isChecked = (checkedItems && checkedItems[itemId]) || false;
-        const isDamaged = (damagedItems && damagedItems[itemId]) || false;
-        if (isChecked) {
-          avail = totalQty;
-        } else {
-          damaged = isDamaged ? totalQty : 0;
-          missing = isDamaged ? 0 : totalQty;
-        }
-      }
+      if (availableQuantities && availableQuantities[itemId] !== undefined) {
+        avail = availableQuantities[itemId] || 0;
+        damaged = (damagedQuantities && damagedQuantities[itemId]) || 0;
+        missing = (missingQuantities && missingQuantities[itemId]) || 0;
+      } else {
+        const isChecked = (checkedItems && checkedItems[itemId]) || false;
+        const isDamaged = (damagedItems && damagedItems[itemId]) || false;
+        if (isChecked) {
+          avail = totalQty;
+        } else {
+          damaged = isDamaged ? totalQty : 0;
+          missing = isDamaged ? 0 : totalQty;
+        }
+      }
 
-      finalAvailable[itemId] = avail;
-      finalDamaged[itemId] = damaged;
-      finalMissing[itemId] = missing;
+      finalAvailable[itemId] = avail;
+      finalDamaged[itemId] = damaged;
+      finalMissing[itemId] = missing;
 
-      if (avail > 0) checkedCount++;
-      if (missing > 0) missingCount++;
-      if (damaged > 0) damagedCount++;
-    });
+      if (avail > 0) checkedCount++;
+      if (missing > 0) missingCount++;
+      if (damaged > 0) damagedCount++;
+    });
 
-    const newChecklist = {
-      listId, deptCode, listName,
-      submitted: submitted || false,
-      submittedAt: submittedAt || new Date().toISOString(),
-      submittedBy: submittedBy || 'Staff',
-      userRole: userRole || 'staff',
-      totalItems, checkedCount, missingCount, damagedCount,
-      expiryDate: expiryDate || null,
-      availableQuantities: finalAvailable,
-      damagedQuantities: finalDamaged,
-      missingQuantities: finalMissing,
-      checkedItems: Object.keys(finalAvailable).reduce((acc, key) => { acc[key] = finalAvailable[key] > 0; return acc; }, {}),
-      damagedItems: Object.keys(finalDamaged).reduce((acc, key) => { if (finalDamaged[key] > 0) acc[key] = finalDamaged[key]; return acc; }, {}),
-      createdAt: new Date()
-    };
+    const newChecklist = {
+      listId, deptCode, listName,
+      submitted: submitted || false,
+      submittedAt: submittedAt || new Date().toISOString(),
+      submittedBy: submittedBy || 'Staff',
+      userRole: userRole || 'staff',
+      totalItems, checkedCount, missingCount, damagedCount,
+      expiryDate: expiryDate || null,
+      availableQuantities: finalAvailable,
+      damagedQuantities: finalDamaged,
+      missingQuantities: finalMissing,
+      checkedItems: Object.keys(finalAvailable).reduce((acc, key) => { acc[key] = finalAvailable[key] > 0; return acc; }, {}),
+      damagedItems: Object.keys(finalDamaged).reduce((acc, key) => { if (finalDamaged[key] > 0) acc[key] = finalDamaged[key]; return acc; }, {}),
+      createdAt: new Date()
+    };
 
-    const result = await checklistsCollection.insertOne(newChecklist);
-    console.log(`✅ Checklist saved: ${result.insertedId}`);
-    res.json({ success: true, data: { ...newChecklist, _id: result.insertedId } });
-  } catch (error) {
-    console.error('❌ Error saving checklist:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    const result = await checklistsCollection.insertOne(newChecklist);
+    console.log(` Checklist saved: ${result.insertedId}`);
+    res.json({ success: true, data: { ...newChecklist, _id: result.insertedId } });
+  } catch (error) {
+    console.error(' Error saving checklist:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.get('/api/checklists', async (req, res) => {
-  try {
-    const checklists = await checklistsCollection
-      .find({ submitted: true })
-      .sort({ submittedAt: -1 })
-      .limit(500)
-      .toArray();
+  try {
+    const checklists = await checklistsCollection
+      .find({ submitted: true })
+      .sort({ submittedAt: -1 })
+      .limit(500)
+      .toArray();
 
-    for (let checklist of checklists) {
-      const equipmentItems = await deptEquipmentCollection
-        .find({ listId: checklist.listId })
-        .limit(200)
-        .toArray();
-      if (equipmentItems.length === 0) {
-        checklist.equipmentDetails = await otCustomEquipmentCollection
-          .find({ listId: checklist.listId })
-          .limit(200)
-          .toArray();
-      } else {
-        checklist.equipmentDetails = equipmentItems;
-      }
-    }
+    for (let checklist of checklists) {
+      const equipmentItems = await deptEquipmentCollection
+        .find({ listId: checklist.listId })
+        .limit(200)
+        .toArray();
+      if (equipmentItems.length === 0) {
+        checklist.equipmentDetails = await otCustomEquipmentCollection
+          .find({ listId: checklist.listId })
+          .limit(200)
+          .toArray();
+      } else {
+        checklist.equipmentDetails = equipmentItems;
+      }
+    }
 
-    res.json({ success: true, data: checklists });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
+    res.json({ success: true, data: checklists });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // ============================================================
-// OT CUSTOM LISTS ROUTES
+//  OT CUSTOM LISTS ROUTES — بدون aggregation (يعمل مع أي حجم بيانات)
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
-  try {
-    const { roomId, deptCode } = req.query;
-    const match = {};
-    if (roomId) match.roomId = roomId;
-    if (deptCode) match.deptCode = deptCode;
+  try {
+    const { roomId, deptCode } = req.query;
+    const match = {};
+    if (roomId) match.roomId = roomId;
+    if (deptCode) match.deptCode = deptCode;
 
-    const t0 = Date.now();
+    const t0 = Date.now();
 
-    const lists = await otCustomListsCollection
-      .find(match)
-      .sort({ createdAt: -1 })
-      .limit(500)
-      .toArray();
+    // 1. جلب اللستات
+    const lists = await otCustomListsCollection
+      .find(match)
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .toArray();
 
-    if (lists.length === 0) {
-      console.log(`✅ Found 0 custom lists (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
-      return res.json({ success: true, data: [] });
-    }
+    if (lists.length === 0) {
+      console.log(` Found 0 custom lists (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
+      return res.json({ success: true, data: [] });
+    }
 
-    const listIds = lists.map(l => l.id).filter(Boolean);
-    const allEquipment = await otCustomEquipmentCollection
-      .find({ listId: { $in: listIds } })
-      .sort({ _id: 1 })
-      .toArray();
+    // 2. جلب كل المعدات المرتبطة بهذه اللستات — استعلام واحد
+    const listIds = lists.map(l => l.id).filter(Boolean);
+    const allEquipment = await otCustomEquipmentCollection
+      .find({ listId: { $in: listIds } })
+      .sort({ _id: 1 })
+      .toArray();
 
-    const equipmentByList = {};
-    for (const eq of allEquipment) {
-      if (!equipmentByList[eq.listId]) equipmentByList[eq.listId] = [];
-      equipmentByList[eq.listId].push(eq);
-    }
+    // 3. تجميع المعدات حسب listId
+    const equipmentByList = {};
+    for (const eq of allEquipment) {
+      if (!equipmentByList[eq.listId]) equipmentByList[eq.listId] = [];
+      equipmentByList[eq.listId].push(eq);
+    }
 
-    for (const list of lists) {
-      list.equipment = equipmentByList[list.id] || [];
-    }
+    // 4. دمج المعدات داخل كل لستة
+    for (const list of lists) {
+      list.equipment = equipmentByList[list.id] || [];
+    }
 
-    console.log(`✅ Found ${lists.length} custom lists + ${allEquipment.length} equipment items (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
-    res.json({ success: true, data: lists });
-  } catch (error) {
-    console.error('❌ Error fetching custom lists:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    console.log(` Found ${lists.length} custom lists + ${allEquipment.length} equipment items (deptCode=${deptCode || 'all'}) in ${Date.now() - t0}ms`);
+    res.json({ success: true, data: lists });
+  } catch (error) {
+    console.error(' Error fetching custom lists:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.post('/api/ot-custom-lists', async (req, res) => {
-  try {
-    const { id, name, description, deptCode, roomId, createdBy, image } = req.body;
+  try {
+    const { id, name, description, deptCode, roomId, createdBy, image } = req.body;
 
-    console.log(`📥 POST /api/ot-custom-lists`, { id, name, deptCode });
+    console.log(` POST /api/ot-custom-lists`, { id, name, deptCode });
 
-    if (!id || !name) {
-      return res.status(400).json({ success: false, message: "id and name are required" });
-    }
+    if (!id || !name) {
+      return res.status(400).json({ success: false, message: "id and name are required" });
+    }
 
-    const existing = await otCustomListsCollection.findOne({ id });
-    if (existing) {
-      console.warn(`⚠️ List ${id} exists — updating`);
-      await otCustomListsCollection.updateOne(
-        { id },
-        { $set: {
-          name: name.trim(),
-          description: description?.trim() || "",
-          deptCode: deptCode || "General",
-          roomId: roomId || null,
-          image: image || existing.image || null,
-          updatedAt: new Date(),
-        } }
-      );
-      invalidateBootstrap();
-      const updated = await otCustomListsCollection.findOne({ id });
-      return res.json({ success: true, data: updated, updated: true });
-    }
+    const existing = await otCustomListsCollection.findOne({ id });
+    if (existing) {
+      console.warn(` List ${id} exists — updating`);
+      await otCustomListsCollection.updateOne(
+        { id },
+        { $set: {
+          name: name.trim(),
+          description: description?.trim() || "",
+          deptCode: deptCode || "General",
+          roomId: roomId || null,
+          image: image || existing.image || null,
+          updatedAt: new Date(),
+        } }
+      );
+      const updated = await otCustomListsCollection.findOne({ id });
+      return res.json({ success: true, data: updated, updated: true });
+    }
 
-    const newList = {
-      id,
-      name: name.trim(),
-      description: description?.trim() || "",
-      deptCode: deptCode || "General",
-      roomId: roomId || null,
-      image: image || null,
-      equipment: [],
-      createdBy: createdBy || "Admin",
-      createdAt: new Date()
-    };
+    const newList = {
+      id,
+      name: name.trim(),
+      description: description?.trim() || "",
+      deptCode: deptCode || "General",
+      roomId: roomId || null,
+      image: image || null,
+      equipment: [],
+      createdBy: createdBy || "Admin",
+      createdAt: new Date()
+    };
 
-    const result = await otCustomListsCollection.insertOne(newList);
-    invalidateBootstrap();
-    console.log(`✅ Custom list created: ${name} (id=${id})`);
-    res.json({ success: true, data: { ...newList, _id: result.insertedId } });
-  } catch (error) {
-    console.error('❌ Error creating custom list:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    const result = await otCustomListsCollection.insertOne(newList);
+    console.log(` Custom list created: ${name} (id=${id})`);
+    res.json({ success: true, data: { ...newList, _id: result.insertedId } });
+  } catch (error) {
+    console.error(' Error creating custom list:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.put('/api/ot-custom-lists/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, description, deptCode, roomId, image } = req.body;
+  try {
+    const { id } = req.params;
+    const { name, description, deptCode, roomId, image } = req.body;
 
-    console.log(`📥 PUT /api/ot-custom-lists/${id}`);
+    console.log(` PUT /api/ot-custom-lists/${id}`);
 
-    const updatedList = {
-      name: name?.trim() || "",
-      description: description?.trim() || "",
-      deptCode: deptCode || "General",
-      roomId: roomId || null,
-      updatedAt: new Date()
-    };
+    const updatedList = {
+      name: name?.trim() || "",
+      description: description?.trim() || "",
+      deptCode: deptCode || "General",
+      roomId: roomId || null,
+      updatedAt: new Date()
+    };
 
-    if (image !== undefined) {
-      updatedList.image = image;
-    }
+    if (image !== undefined) {
+      updatedList.image = image;
+    }
 
-    const result = await otCustomListsCollection.updateOne(
-      { id },
-      { $set: updatedList }
-    );
+    const result = await otCustomListsCollection.updateOne(
+      { id },
+      { $set: updatedList }
+    );
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ success: false, message: "List not found" });
-    }
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "List not found" });
+    }
 
-    invalidateBootstrap();
+    const updatedDoc = await otCustomListsCollection.findOne({ id });
 
-    const updatedDoc = await otCustomListsCollection.findOne({ id });
-
-    console.log(`✅ Custom list updated: ${id}`);
-    res.json({
-      success: true,
-      message: "List updated",
-      data: updatedDoc,
-      modifiedCount: result.modifiedCount
-    });
-  } catch (error) {
-    console.error('❌ Error updating custom list:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    console.log(` Custom list updated: ${id}`);
+    res.json({
+      success: true,
+      message: "List updated",
+      data: updatedDoc,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error(' Error updating custom list:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.delete('/api/ot-custom-lists/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log(`📥 DELETE /api/ot-custom-lists/${id}`);
+  try {
+    const { id } = req.params;
+    console.log(` DELETE /api/ot-custom-lists/${id}`);
 
-    const result = await otCustomListsCollection.deleteOne({ id });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ success: false, message: "List not found" });
-    }
+    const result = await otCustomListsCollection.deleteOne({ id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "List not found" });
+    }
 
-    const eqResult = await otCustomEquipmentCollection.deleteMany({ listId: id });
-    invalidateBootstrap();
-    console.log(`✅ Custom list deleted: ${id} (+${eqResult.deletedCount} equip)`);
-    res.json({ success: true, message: "List deleted" });
-  } catch (error) {
-    console.error('❌ Error deleting custom list:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    const eqResult = await otCustomEquipmentCollection.deleteMany({ listId: id });
+    console.log(` Custom list deleted: ${id} (+${eqResult.deletedCount} equip)`);
+    res.json({ success: true, message: "List deleted" });
+  } catch (error) {
+    console.error(' Error deleting custom list:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // ============================================================
 // OT CUSTOM EQUIPMENT ROUTES
 // ============================================================
 app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
-  try {
-    const { listId } = req.params;
-    console.log(`📡 GET /api/ot-custom-equipment/${listId}`);
+  try {
+    const { listId } = req.params;
+    console.log(` GET /api/ot-custom-equipment/${listId}`);
 
-    const equipment = await otCustomEquipmentCollection
-      .find({ listId })
-      .sort({ _id: 1 })
-      .limit(1000)
-      .toArray();
+    const equipment = await otCustomEquipmentCollection
+      .find({ listId })
+      .sort({ _id: 1 })
+      .limit(1000)
+      .toArray();
 
-    console.log(`✅ Found ${equipment.length} items for list ${listId}`);
-    res.json({ success: true, data: equipment });
-  } catch (error) {
-    console.error('❌ Error fetching custom equipment:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    console.log(` Found ${equipment.length} items for list ${listId}`);
+    res.json({ success: true, data: equipment });
+  } catch (error) {
+    console.error(' Error fetching custom equipment:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.post('/api/ot-custom-equipment', async (req, res) => {
-  try {
-    const { id, listId, name, code, quantity, status, image } = req.body;
+  try {
+    const { id, listId, name, code, quantity, status, image } = req.body;
 
-    console.log(`📥 POST /api/ot-custom-equipment`, { id, listId, name });
+    console.log(` POST /api/ot-custom-equipment`, { id, listId, name });
 
-    if (!id || !listId || !name || !code) {
-      return res.status(400).json({ success: false, message: "id, listId, name, and code are required" });
-    }
+    if (!id || !listId || !name || !code) {
+      return res.status(400).json({ success: false, message: "id, listId, name, and code are required" });
+    }
 
-    const existing = await otCustomEquipmentCollection.findOne({ id });
-    if (existing) {
-      console.warn(`⚠️ Equipment ID collision: ${id}`);
-      return res.status(409).json({
-        success: false,
-        alreadyExists: true,
-        message: "Equipment ID already exists. Please retry.",
-      });
-    }
+    const existing = await otCustomEquipmentCollection.findOne({ id });
+    if (existing) {
+      console.warn(` Equipment ID collision: ${id}`);
+      return res.status(409).json({
+        success: false,
+        alreadyExists: true,
+        message: "Equipment ID already exists. Please retry.",
+      });
+    }
 
-    const newEquipment = {
-      id,
-      listId,
-      name: name.trim(),
-      code: code.trim(),
-      quantity: parseInt(quantity) || 1,
-      status: status || "Available",
-      image: image || null,
-      createdAt: new Date()
-    };
+    const newEquipment = {
+      id,
+      listId,
+      name: name.trim(),
+      code: code.trim(),
+      quantity: parseInt(quantity) || 1,
+      status: status || "Available",
+      image: image || null,
+      createdAt: new Date()
+    };
 
-    const result = await otCustomEquipmentCollection.insertOne(newEquipment);
-    invalidateBootstrap();
-    console.log(`✅ Custom equipment added: ${name} → list ${listId} (id=${id})`);
-    res.status(201).json({ success: true, data: { ...newEquipment, _id: result.insertedId } });
-  } catch (error) {
-    console.error('❌ Error adding custom equipment:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    const result = await otCustomEquipmentCollection.insertOne(newEquipment);
+    console.log(` Custom equipment added: ${name} → list ${listId} (id=${id})`);
+    res.status(201).json({ success: true, data: { ...newEquipment, _id: result.insertedId } });
+  } catch (error) {
+    console.error(' Error adding custom equipment:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.put('/api/ot-custom-equipment/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, code, quantity, status, image } = req.body;
+  try {
+    const { id } = req.params;
+    const { name, code, quantity, status, image } = req.body;
 
-    if (!id) {
-      return res.status(400).json({ success: false, message: "Equipment ID is required" });
-    }
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Equipment ID is required" });
+    }
 
-    const updatedEquipment = {
-      name: name?.trim() || "",
-      code: code?.trim() || "",
-      quantity: parseInt(quantity) || 1,
-      status: status || "Available",
-      image: image || null,
-      updatedAt: new Date()
-    };
+    const updatedEquipment = {
+      name: name?.trim() || "",
+      code: code?.trim() || "",
+      quantity: parseInt(quantity) || 1,
+      status: status || "Available",
+      image: image || null,
+      updatedAt: new Date()
+    };
 
-    const result = await otCustomEquipmentCollection.updateOne(
-      { id },
-      { $set: updatedEquipment }
-    );
+    const result = await otCustomEquipmentCollection.updateOne(
+      { id },
+      { $set: updatedEquipment }
+    );
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ success: false, message: "Equipment not found" });
-    }
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Equipment not found" });
+    }
 
-    invalidateBootstrap();
+    const updatedDoc = await otCustomEquipmentCollection.findOne({ id });
 
-    const updatedDoc = await otCustomEquipmentCollection.findOne({ id });
-
-    console.log(`✅ Custom equipment updated: ${name} (id=${id})`);
-    res.json({
-      success: true,
-      message: "Equipment updated",
-      data: updatedDoc,
-      modifiedCount: result.modifiedCount
-    });
-  } catch (error) {
-    console.error('❌ Error updating custom equipment:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    console.log(` Custom equipment updated: ${name} (id=${id})`);
+    res.json({
+      success: true,
+      message: "Equipment updated",
+      data: updatedDoc,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error(' Error updating custom equipment:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log(`📥 DELETE /api/ot-custom-equipment/${id}`);
+  try {
+    const { id } = req.params;
+    console.log(` DELETE /api/ot-custom-equipment/${id}`);
 
-    if (!id || id === 'undefined' || id === 'null') {
-      return res.status(400).json({ success: false, message: "Invalid equipment ID" });
-    }
+    if (!id || id === 'undefined' || id === 'null') {
+      return res.status(400).json({ success: false, message: "Invalid equipment ID" });
+    }
 
-    let result = await otCustomEquipmentCollection.deleteOne({ id });
-    console.log(`   deleteOne({id: '${id}'}) → deletedCount=${result.deletedCount}`);
+    let result = await otCustomEquipmentCollection.deleteOne({ id });
+    console.log(`   deleteOne({id: '${id}'}) → deletedCount=${result.deletedCount}`);
 
-    if (result.deletedCount === 0) {
-      try {
-        if (ObjectId.isValid(id)) {
-          result = await otCustomEquipmentCollection.deleteOne({ _id: new ObjectId(id) });
-          console.log(`   deleteOne({_id: '${id}'}) → deletedCount=${result.deletedCount}`);
-        }
-      } catch (e) {
-        console.warn('   _id attempt failed:', e.message);
-      }
-    }
+    if (result.deletedCount === 0) {
+      try {
+        if (ObjectId.isValid(id)) {
+          result = await otCustomEquipmentCollection.deleteOne({ _id: new ObjectId(id) });
+          console.log(`   deleteOne({_id: '${id}'}) → deletedCount=${result.deletedCount}`);
+        }
+      } catch (e) {
+        console.warn('   _id attempt failed:', e.message);
+      }
+    }
 
-    if (result.deletedCount === 0) {
-      console.warn(`⚠️ Equipment not found for deletion: ${id}`);
-      return res.status(404).json({ success: false, message: "Equipment not found in database" });
-    }
+    if (result.deletedCount === 0) {
+      console.warn(` Equipment not found for deletion: ${id}`);
+      return res.status(404).json({ success: false, message: "Equipment not found in database" });
+    }
 
-    invalidateBootstrap();
-    console.log(`✅ Custom equipment deleted: ${id}`);
-    res.json({ success: true, message: "Equipment deleted" });
-  } catch (error) {
-    console.error('❌ Error deleting custom equipment:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    console.log(` Custom equipment deleted: ${id}`);
+    res.json({ success: true, message: "Equipment deleted" });
+  } catch (error) {
+    console.error(' Error deleting custom equipment:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // ============================================================
 // OT SURGERY/SET ROUTES
 // ============================================================
 app.get("/api/ot/surgeries", async (req, res) => {
-  try {
-    const surgeries = await otSurgeriesCollection.find({}).sort({ createdAt: 1 }).toArray();
-    res.json({ success: true, data: surgeries });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const surgeries = await otSurgeriesCollection.find({}).sort({ createdAt: 1 }).toArray();
+    res.json({ success: true, data: surgeries });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.post("/api/ot/surgeries", async (req, res) => {
-  try {
-    const { name, description } = req.body;
-    if (!name || !name.trim()) {
-      return res.status(400).json({ success: false, message: "Surgery name is required" });
-    }
-    const newSurgery = {
-      name: name.trim(),
-      description: description?.trim() || "",
-      createdAt: new Date()
-    };
-    const result = await otSurgeriesCollection.insertOne(newSurgery);
-    res.status(201).json({ success: true, data: { ...newSurgery, _id: result.insertedId } });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { name, description } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: "Surgery name is required" });
+    }
+    const newSurgery = {
+      name: name.trim(),
+      description: description?.trim() || "",
+      createdAt: new Date()
+    };
+    const result = await otSurgeriesCollection.insertOne(newSurgery);
+    res.status(201).json({ success: true, data: { ...newSurgery, _id: result.insertedId } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.put("/api/ot/surgeries/:id", async (req, res) => {
-  try {
-    const { name, description } = req.body;
-    const result = await otSurgeriesCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { name: name.trim(), description: description?.trim() || "", updatedAt: new Date() } }
-    );
-    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Surgery not found" });
-    res.json({ success: true, message: "Surgery updated" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { name, description } = req.body;
+    const result = await otSurgeriesCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { name: name.trim(), description: description?.trim() || "", updatedAt: new Date() } }
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Surgery not found" });
+    res.json({ success: true, message: "Surgery updated" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.delete("/api/ot/surgeries/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const result = await otSurgeriesCollection.deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Surgery not found" });
+  try {
+    const id = req.params.id;
+    const result = await otSurgeriesCollection.deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Surgery not found" });
 
-    const sets = await otSetsCollection.find({ surgeryId: id }).toArray();
-    for (const set of sets) {
-      await deptEquipmentCollection.deleteMany({ listId: set._id.toString() });
-    }
-    await otSetsCollection.deleteMany({ surgeryId: id });
+    const sets = await otSetsCollection.find({ surgeryId: id }).toArray();
+    for (const set of sets) {
+      await deptEquipmentCollection.deleteMany({ listId: set._id.toString() });
+    }
+    await otSetsCollection.deleteMany({ surgeryId: id });
 
-    res.json({ success: true, message: "Surgery and related data deleted" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+    res.json({ success: true, message: "Surgery and related data deleted" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.get("/api/ot/sets/:surgeryId", async (req, res) => {
-  try {
-    const { surgeryId } = req.params;
-    const sets = await otSetsCollection.find({ surgeryId }).sort({ createdAt: 1 }).toArray();
-    res.json({ success: true, data: sets });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { surgeryId } = req.params;
+    const sets = await otSetsCollection.find({ surgeryId }).sort({ createdAt: 1 }).toArray();
+    res.json({ success: true, data: sets });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.post("/api/ot/sets", async (req, res) => {
-  try {
-    const { surgeryId, name, description } = req.body;
-    if (!surgeryId || !name || !name.trim()) {
-      return res.status(400).json({ success: false, message: "surgeryId and name are required" });
-    }
-    const newSet = {
-      surgeryId,
-      name: name.trim(),
-      description: description?.trim() || "",
-      createdAt: new Date()
-    };
-    const result = await otSetsCollection.insertOne(newSet);
-    res.status(201).json({ success: true, data: { ...newSet, _id: result.insertedId } });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { surgeryId, name, description } = req.body;
+    if (!surgeryId || !name || !name.trim()) {
+      return res.status(400).json({ success: false, message: "surgeryId and name are required" });
+    }
+    const newSet = {
+      surgeryId,
+      name: name.trim(),
+      description: description?.trim() || "",
+      createdAt: new Date()
+    };
+    const result = await otSetsCollection.insertOne(newSet);
+    res.status(201).json({ success: true, data: { ...newSet, _id: result.insertedId } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.put("/api/ot/sets/:id", async (req, res) => {
-  try {
-    const { name, description } = req.body;
-    const result = await otSetsCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { name: name.trim(), description: description?.trim() || "", updatedAt: new Date() } }
-    );
-    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Set not found" });
-    res.json({ success: true, message: "Set updated" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { name, description } = req.body;
+    const result = await otSetsCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { name: name.trim(), description: description?.trim() || "", updatedAt: new Date() } }
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Set not found" });
+    res.json({ success: true, message: "Set updated" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.delete("/api/ot/sets/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const result = await otSetsCollection.deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Set not found" });
+  try {
+    const id = req.params.id;
+    const result = await otSetsCollection.deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Set not found" });
 
-    await deptEquipmentCollection.deleteMany({ listId: id });
+    await deptEquipmentCollection.deleteMany({ listId: id });
 
-    res.json({ success: true, message: "Set and equipment deleted" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+    res.json({ success: true, message: "Set and equipment deleted" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.get("/api/ot/equipment/:setId", async (req, res) => {
-  try {
-    const { setId } = req.params;
-    const equipment = await deptEquipmentCollection
-      .find({ listId: setId })
-      .sort({ createdAt: 1 })
-      .toArray();
-    res.json({ success: true, data: equipment });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { setId } = req.params;
+    const equipment = await deptEquipmentCollection
+      .find({ listId: setId })
+      .sort({ createdAt: 1 })
+      .toArray();
+    res.json({ success: true, data: equipment });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.post("/api/ot/equipment", async (req, res) => {
-  try {
-    const { setId, name, code, quantity, status, notes, image } = req.body;
-    if (!setId || !name || !code) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
-    }
+  try {
+    const { setId, name, code, quantity, status, notes, image } = req.body;
+    if (!setId || !name || !code) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
 
-    const setInfo = await otSetsCollection.findOne({ _id: new ObjectId(setId) });
-    const surgeryInfo = setInfo ? await otSurgeriesCollection.findOne({ _id: new ObjectId(setInfo.surgeryId) }) : null;
+    const setInfo = await otSetsCollection.findOne({ _id: new ObjectId(setId) });
+    const surgeryInfo = setInfo ? await otSurgeriesCollection.findOne({ _id: new ObjectId(setInfo.surgeryId) }) : null;
 
-    const newEquipment = {
-      deptCode: "OT",
-      listId: setId,
-      name: name.trim(),
-      code: code.trim(),
-      quantity: parseInt(quantity) || 0,
-      status: status || "Available",
-      notes: notes || "",
-      image: image || null,
-      surgeryType: surgeryInfo?.name || "",
-      setType: setInfo?.name || "",
-      createdAt: new Date(),
-      createdBy: "admin"
-    };
-    const result = await deptEquipmentCollection.insertOne(newEquipment);
-    res.status(201).json({ success: true, message: "Equipment added", data: { ...newEquipment, _id: result.insertedId } });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+    const newEquipment = {
+      deptCode: "OT",
+      listId: setId,
+      name: name.trim(),
+      code: code.trim(),
+      quantity: parseInt(quantity) || 0,
+      status: status || "Available",
+      notes: notes || "",
+      image: image || null,
+      surgeryType: surgeryInfo?.name || "",
+      setType: setInfo?.name || "",
+      createdAt: new Date(),
+      createdBy: "admin"
+    };
+    const result = await deptEquipmentCollection.insertOne(newEquipment);
+    res.status(201).json({ success: true, message: "Equipment added", data: { ...newEquipment, _id: result.insertedId } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.put("/api/ot/equipment/:id", async (req, res) => {
-  try {
-    const { name, code, quantity, status, notes, image } = req.body;
-    const updatedData = {
-      name: name.trim(),
-      code: code.trim(),
-      quantity: parseInt(quantity) || 0,
-      status: status || "Available",
-      notes: notes || "",
-      image: image || null,
-      updatedAt: new Date()
-    };
-    const result = await deptEquipmentCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: updatedData }
-    );
-    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
-    res.json({ success: true, message: "Equipment updated" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const { name, code, quantity, status, notes, image } = req.body;
+    const updatedData = {
+      name: name.trim(),
+      code: code.trim(),
+      quantity: parseInt(quantity) || 0,
+      status: status || "Available",
+      notes: notes || "",
+      image: image || null,
+      updatedAt: new Date()
+    };
+    const result = await deptEquipmentCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: updatedData }
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
+    res.json({ success: true, message: "Equipment updated" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.delete("/api/ot/equipment/:id", async (req, res) => {
-  try {
-    const result = await deptEquipmentCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
-    res.json({ success: true, message: "Equipment deleted" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const result = await deptEquipmentCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    if (result.deletedCount === 0) return res.status(404).json({ success: false, message: "Equipment not found" });
+    res.json({ success: true, message: "Equipment deleted" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
 // DEBUG ROUTES
 // ============================================================
 app.get('/api/test/admins', async (req, res) => {
-  try {
-    const collectionsList = await db.listCollections().toArray();
-    const collectionNames = collectionsList.map(c => c.name);
-    let admin = await adminCollection.findOne({ staff_no: "host3487539" });
-    if (!admin) admin = await adminCollection.findOne({ staffNumber: "host3487539" });
-    res.json({
-      success: true,
-      availableCollections: collectionNames,
-      adminFound: admin ? { name: admin.name, staff_no: admin.staff_no || admin.staffNumber, role: admin.role } : null,
-      message: admin ? "✅ Admin found!" : "❌ No admin found"
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const collectionsList = await db.listCollections().toArray();
+    const collectionNames = collectionsList.map(c => c.name);
+    let admin = await adminCollection.findOne({ staff_no: "host3487539" });
+    if (!admin) admin = await adminCollection.findOne({ staffNumber: "host3487539" });
+    res.json({
+      success: true,
+      availableCollections: collectionNames,
+      adminFound: admin ? { name: admin.name, staff_no: admin.staff_no || admin.staffNumber, role: admin.role } : null,
+      message: admin ? " Admin found!" : " No admin found"
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.get('/api/debug/admin-structure', async (req, res) => {
-  try {
-    const allAdmins = await adminCollection.find({}).toArray();
-    res.json({
-      success: true,
-      totalAdmins: allAdmins.length,
-      adminData: allAdmins.map(admin => ({
-        id: admin._id,
-        name: admin.name,
-        availableFields: Object.keys(admin),
-        fullData: admin
-      }))
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  try {
+    const allAdmins = await adminCollection.find({}).toArray();
+    res.json({
+      success: true,
+      totalAdmins: allAdmins.length,
+      adminData: allAdmins.map(admin => ({
+        id: admin._id,
+        name: admin.name,
+        availableFields: Object.keys(admin),
+        fullData: admin
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ============================================================
 // PDF GENERATION ROUTE
 // ============================================================
 app.post('/api/generate-pdf', async (req, res) => {
-  try {
-    const { content, filename } = req.body;
-    if (!content) {
-      return res.status(400).json({ success: false, message: 'Content is required' });
-    }
-    res.json({
-      success: true,
-      message: 'PDF generated successfully',
-      filename: filename || 'document.pdf'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error generating PDF',
-      error: error.message
-    });
-  }
+  try {
+    const { content, filename } = req.body;
+    if (!content) {
+      return res.status(400).json({ success: false, message: 'Content is required' });
+    }
+    res.json({
+      success: true,
+      message: 'PDF generated successfully',
+      filename: filename || 'document.pdf'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error generating PDF',
+      error: error.message
+    });
+  }
 });
 
 // ============================================================
 // IMAGE PROXY ROUTE
 // ============================================================
 app.get('/api/image-proxy', async (req, res) => {
-  try {
-    const imageUrl = req.query.url;
-    if (!imageUrl) {
-      return res.status(400).json({ success: false, message: 'Image URL is required' });
-    }
+  try {
+    const imageUrl = req.query.url;
+    if (!imageUrl) {
+      return res.status(400).json({ success: false, message: 'Image URL is required' });
+    }
 
-    console.log(`📡 Fetching image: ${imageUrl}`);
+    console.log(` Fetching image: ${imageUrl}`);
 
-    const response = await fetch(imageUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    });
+    const response = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
 
-    if (!response.ok) {
-      return res.status(response.status).json({ success: false, message: 'Failed to fetch image' });
-    }
+    if (!response.ok) {
+      return res.status(response.status).json({ success: false, message: 'Failed to fetch image' });
+    }
 
-    const contentType = response.headers.get('content-type') || 'image/jpeg';
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
 
-    res.set('Content-Type', contentType);
-    res.set('Cache-Control', 'public, max-age=86400');
-    res.send(buffer);
-  } catch (error) {
-    console.error('❌ Image proxy error:', error.message);
-    res.status(500).json({ success: false, message: error.message });
-  }
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buffer);
+  } catch (error) {
+    console.error(' Image proxy error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // ============================================================
@@ -2195,25 +1890,25 @@ const buildPath = path.join(__dirname, 'build');
 const hasBuild = fs.existsSync(path.join(buildPath, 'index.html'));
 
 if (hasBuild) {
-  console.log('📦 Serving frontend build from:', buildPath);
-  app.use(express.static(buildPath));
+  console.log(' Serving frontend build from:', buildPath);
+  app.use(express.static(buildPath));
 
-  app.get(/^\/(?!api).*/, (req, res) => {
-    res.sendFile(path.join(buildPath, 'index.html'));
-  });
+  app.get(/^\/(?!api).*/, (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'));
+  });
 } else {
-  console.log('ℹ️ No frontend build found (API-only mode)');
+  console.log(' No frontend build found (API-only mode)');
 }
 
 // ============================================================
 // ERROR HANDLER
 // ============================================================
 app.use((err, req, res, next) => {
-  console.error('💥 Unhandled error:', err.message);
-  if (err.message?.startsWith('CORS')) {
-    return res.status(403).json({ success: false, message: err.message });
-  }
-  res.status(500).json({ success: false, message: err.message || 'Server error' });
+  console.error(' Unhandled error:', err.message);
+  if (err.message?.startsWith('CORS')) {
+    return res.status(403).json({ success: false, message: err.message });
+  }
+  res.status(500).json({ success: false, message: err.message || 'Server error' });
 });
 
 // ============================================================
@@ -2221,20 +1916,20 @@ app.use((err, req, res, next) => {
 // ============================================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log('═══════════════════════════════════════════════════════');
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`👑 Admin: staff_no=host3487539, password=123456`);
-  console.log(`📦 OT Departments:  /api/ot-departments`);
-  console.log(`📋 OT Custom Lists: /api/ot-custom-lists`);
-  console.log(`🔧 OT Custom Equip: /api/ot-custom-equipment`);
-  console.log(`⚡ OT Bootstrap:     /api/ot-bootstrap (STALE-CACHE ⚡)`);
-  console.log(`🔍 DB Status:       /api/db-status`);
-  console.log(`📊 Test Latency:    /api/test-latency`);
-  console.log(`🔌 Test Mongo:      /api/test-mongo-connection`);
-  console.log(`✅ Health Check:    /api/health`);
-  console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
-  console.log(`📦 Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
-  console.log(`🔌 MongoDB URI set: ${MONGODB_URI ? 'YES ✅' : 'NO ❌'}`);
-  console.log('═══════════════════════════════════════════════════════');
+  console.log('═══════════════════════════════════════════════════════');
+  console.log(` Server running on port ${PORT}`);
+  console.log(` Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(` Admin: staff_no=host3487539, password=123456`);
+  console.log(` OT Departments:  /api/ot-departments`);
+  console.log(` OT Custom Lists: /api/ot-custom-lists (two-query, no aggregation)`);
+  console.log(` OT Custom Equip: /api/ot-custom-equipment`);
+  console.log(` Legacy Migration: dept_lists → ot_custom_lists (auto on startup)`);
+  console.log(` Health Check:    /api/health`);
+  console.log(` Debug Info:      /api/debug/info`);
+  console.log(` Collections:     /api/debug/collections-stats`);
+  console.log(` Cleanup:         POST /api/debug/clean-orphans`);
+  console.log(` Allowed origins: ${allowedOrigins.join(', ')}`);
+  console.log(` Local network:   ALLOWED (192.168.x.x, 10.x.x.x, 172.16-31.x.x)`);
+  console.log(` Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
+  console.log('═══════════════════════════════════════════════════════');
 });
