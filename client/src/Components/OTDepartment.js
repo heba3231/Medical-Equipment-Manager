@@ -144,10 +144,9 @@ function OTDepartment() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [expiryDate, setExpiryDate] = useState(null);
 
-  // ✅ اللستات اليتيمة
+  // ✅ جديد: اللستات اليتيمة
   const [orphanLists, setOrphanLists] = useState([]);
   const [orphanSectionOpen, setOrphanSectionOpen] = useState(true);
-  const [serverDebugInfo, setServerDebugInfo] = useState(null);
 
   // ✅ Refs
   const selectedDeptIdRef = useRef(selectedDeptId);
@@ -243,6 +242,13 @@ function OTDepartment() {
         <circle cx="9" cy="7" r="4" />
         <path d="M23 21v-2a4 4 0 00-3-3.87" />
         <path d="M16 3.13a4 4 0 010 7.75" />
+      </svg>
+    ),
+    qty: () => (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#004d32" strokeWidth="2">
+        <rect x="2" y="2" width="20" height="20" rx="2" />
+        <line x1="8" y1="12" x2="16" y2="12" />
+        <line x1="12" y1="8" x2="12" y2="16" />
       </svg>
     ),
     search: () => (
@@ -374,7 +380,7 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — متوازي + اللستات اليتيمة
+  // ✅ loadDepartments — تحميل متوازي + اللستات اليتيمة
   // ============================================================
   const loadDepartments = async () => {
     try {
@@ -383,7 +389,7 @@ function OTDepartment() {
 
       const t0 = Date.now();
 
-      // 1. الأقسام + اللستات اليتيمة بالتوازي
+      // 1. اجلب الأقسام + اللستات اليتيمة بالتوازي
       const [deptsData, orphanData] = await Promise.all([
         apiFetch(`${API_BASE}/ot-departments?_t=${Date.now()}`),
         apiFetch(`${API_BASE}/ot-custom-lists-all?_t=${Date.now()}`).catch(err => {
@@ -397,20 +403,13 @@ function OTDepartment() {
 
       console.log(`📥 ${depts.length} departments loaded in ${Date.now() - t0}ms`);
 
-      // 2. لستات كل الأقسام بالتوازي
+      // 2. اجلب لستات كل الأقسام بالتوازي
       let results = [];
       if (depts.length > 0) {
         results = await Promise.all(
           depts.map(dept =>
             apiFetch(`${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(dept.id)}&_t=${Date.now()}`)
-              .then(d => {
-                // ✅ تسجيل معلومات debug من السيرفر
-                if (d.debug) {
-                  console.log(`🐛 debug [${dept.name}]:`, d.debug);
-                  setServerDebugInfo(prev => ({ ...prev, [dept.id]: d.debug }));
-                }
-                return { deptId: dept.id, lists: d.data || [] };
-              })
+              .then(d => ({ deptId: dept.id, lists: d.data || [] }))
               .catch(err => {
                 console.warn(`⚠️ Failed to fetch lists for ${dept.id}:`, err.message);
                 return { deptId: dept.id, lists: [] };
@@ -419,7 +418,7 @@ function OTDepartment() {
         );
       }
 
-      // 3. ابنِ state
+      // 3. ابنِ state من النتائج
       const newLists = {};
       const newEquipment = {};
 
@@ -437,6 +436,8 @@ function OTDepartment() {
       if (orphanData?.success && Array.isArray(orphanData.orphanLists)) {
         setOrphanLists(orphanData.orphanLists);
         console.log(`⚠️ Found ${orphanData.orphanLists.length} orphan lists`);
+
+        // عرض تلقائي للقسم إذا فيه لستات يتيمة
         if (orphanData.orphanLists.length > 0) {
           setOrphanSectionOpen(true);
         }
@@ -454,7 +455,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists
+  // ✅ fetchLists — بدون طلب إضافي للمعدات
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -474,7 +475,7 @@ function OTDepartment() {
           setEquipment(prev => ({ ...prev, ...equipMap }));
         }
 
-        console.log(`📥 fetchLists [${deptId}]: ${listsArr.length} lists`, data.debug || '');
+        console.log(`📥 fetchLists [${deptId}]: ${listsArr.length} lists`);
       }
     } catch (err) {
       console.error("❌ fetchLists error for", deptId, ":", err.message);
@@ -483,7 +484,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment
+  // ✅ fetchEquipment — للتحديث اليدوي فقط
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
@@ -501,7 +502,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ POLLING
+  // ✅ POLLING — آمن (لا يمسح البيانات عند فشل جزئي)
   // ============================================================
   useEffect(() => {
     let isRefreshing = false;
@@ -514,6 +515,7 @@ function OTDepartment() {
       isRefreshing = true;
 
       try {
+        // 1. الأقسام + اليتيمة بالتوازي
         const [deptsData, orphanData] = await Promise.all([
           apiFetch(`${API_BASE}/ot-departments?_t=${Date.now()}`),
           apiFetch(`${API_BASE}/ot-custom-lists-all?_t=${Date.now()}`).catch(() => null)
@@ -526,6 +528,7 @@ function OTDepartment() {
           return;
         }
 
+        // 2. اجلب اللستات بالتوازي
         const results = await Promise.all(
           depts.map(dept =>
             apiFetch(
@@ -567,6 +570,7 @@ function OTDepartment() {
           return merged;
         });
 
+        // 3. حدّث اللستات اليتيمة إذا وصلت
         if (orphanData?.success && Array.isArray(orphanData.orphanLists)) {
           setOrphanLists(orphanData.orphanLists);
         }
@@ -645,7 +649,7 @@ function OTDepartment() {
   };
 
   const handleDeleteDept = async (id, name) => {
-    // ✅ تحقق من عدد اللستات
+    // ✅ تحقق من عدد اللستات في هذا القسم
     let listCount = 0;
     try {
       const check = await apiFetch(
@@ -702,8 +706,13 @@ function OTDepartment() {
       });
 
       if (data.success) {
+        // حدّث القائمة محلياً
         setOrphanLists(prev => prev.filter(l => l.id !== listId));
+
+        // حدّث قائمة اللستات للقسم الهدف
         await fetchLists(targetDeptCode);
+
+        // حدّث الأقسام (لو احتاج الأمر)
         console.log(`✅ List ${listId} moved to ${targetDeptCode}`);
       }
     } catch (err) {
@@ -819,7 +828,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD
+  // ✅ EQUIPMENT CRUD — مع Optimistic Update
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -2183,7 +2192,10 @@ function OTDepartment() {
           <div
             style={{
               position: 'fixed',
-              top: 0, left: 0, right: 0, bottom: 0,
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
               backgroundColor: 'rgba(0,0,0,0.92)',
               display: 'flex',
               alignItems: 'center',
@@ -2535,7 +2547,9 @@ function OTDepartment() {
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <button
-            onClick={() => { loadDepartments(); }}
+            onClick={() => {
+              loadDepartments();
+            }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -2627,6 +2641,7 @@ function OTDepartment() {
 
           {orphanSectionOpen && (
             <>
+              {/* زر إصلاح جماعي */}
               {isAdmin && departments.length > 0 && (
                 <div style={{
                   background: "white",
@@ -2686,6 +2701,7 @@ function OTDepartment() {
                 </div>
               )}
 
+              {/* قائمة اللستات اليتيمة */}
               <div style={{
                 display: "flex",
                 flexDirection: "column",
@@ -2793,6 +2809,7 @@ function OTDepartment() {
       }}>
         {/* ===== LEFT COLUMN ===== */}
         <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          {/* DEPARTMENTS SECTION */}
           <div style={{
             background: "white",
             borderRadius: "16px",
@@ -2943,6 +2960,7 @@ function OTDepartment() {
             </div>
           </div>
 
+          {/* LISTS SECTION */}
           {selectedDeptId && (
             <div style={{
               background: "white",
@@ -3177,6 +3195,7 @@ function OTDepartment() {
             </div>
           ) : (
             <>
+              {/* Add Equipment Form */}
               {isAdmin && (
                 <div style={{
                   background: "#f8fafb",
@@ -3357,6 +3376,7 @@ function OTDepartment() {
                 </div>
               )}
 
+              {/* EQUIPMENT LIST HEADER WITH QR */}
               <div style={{
                 display: "flex",
                 flexDirection: isMobile ? "column" : "row",
@@ -3488,6 +3508,7 @@ function OTDepartment() {
                 </div>
               </div>
 
+              {/* EQUIPMENT TABLE */}
               {filteredAndSortedEquipment.length === 0 ? (
                 <div style={{
                   textAlign: "center",
@@ -3639,7 +3660,10 @@ function OTDepartment() {
         <div
           style={{
             position: 'fixed',
-            top: 0, left: 0, right: 0, bottom: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             backgroundColor: 'rgba(0,0,0,0.85)',
             display: 'flex',
             alignItems: 'center',
@@ -3719,7 +3743,10 @@ function OTDepartment() {
         <div
           style={{
             position: "fixed",
-            top: 0, left: 0, right: 0, bottom: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             background: "rgba(0,0,0,0.9)",
             display: "flex",
             alignItems: "center",
