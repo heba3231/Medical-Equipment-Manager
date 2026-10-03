@@ -511,6 +511,36 @@ app.get('/api/debug/collections-stats', requireDebugToken, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+app.post('/api/ot-fix-missing-deptcode', requireDebugToken, async (req, res) => {
+  try {
+    const { targetDeptCode } = req.body;
+    const targetDept = await otDepartmentsCollection.findOne({ id: targetDeptCode });
+    if (!targetDept) {
+      return res.status(404).json({ success: false, message: "Department not found" });
+    }
+
+    const result = await otCustomListsCollection.updateMany(
+      {
+        $or: [
+          { deptCode: { $exists: false } },
+          { deptCode: null },
+          { deptCode: "" },
+          { deptCode: "General" }
+        ]
+      },
+      { $set: { deptCode: targetDeptCode, updatedAt: new Date() } }
+    );
+
+    res.json({
+      success: true,
+      fixed: result.modifiedCount,
+      targetDept: targetDept.name
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 
 // ✅ محمي: clean-orphans (يقوم بحذف بيانات!)
 app.post('/api/debug/clean-orphans', requireDebugToken, async (req, res) => {
@@ -906,6 +936,73 @@ app.post("/api/staff/login", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: error.message || "Server error" });
+  }
+});
+// ============================================================
+// ✅ NEW: Bulk endpoint — كل الأقسام + اللستات + المعدات في request واحد
+// ============================================================
+app.get('/api/ot-bootstrap', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    console.log("🚀 GET /api/ot-bootstrap (bulk bootstrap)");
+
+    // جلب كل شيء بالتوازي
+    const [depts, lists, allEquipment] = await Promise.all([
+      withTimeout(
+        otDepartmentsCollection.find({}).sort({ createdAt: 1 }).maxTimeMS(5000).toArray(),
+        8000, "bootstrap: departments"
+      ),
+      withTimeout(
+        otCustomListsCollection.find({}).sort({ createdAt: -1 }).limit(1000).maxTimeMS(5000).toArray(),
+        8000, "bootstrap: lists"
+      ),
+      withTimeout(
+        otCustomEquipmentCollection.find({}).limit(20000).maxTimeMS(8000).toArray(),
+        12000, "bootstrap: equipment"
+      ),
+    ]);
+
+    // تجميع المعدات حسب listId
+    const equipByList = {};
+    for (const eq of allEquipment) {
+      if (!equipByList[eq.listId]) equipByList[eq.listId] = [];
+      equipByList[eq.listId].push(eq);
+    }
+
+    // تجميع اللستات حسب deptCode + إرفاق المعدات
+    const listsByDept = {};
+    for (const list of lists) {
+      const deptCode = list.deptCode || "General";
+      if (!listsByDept[deptCode]) listsByDept[deptCode] = [];
+      listsByDept[deptCode].push({
+        ...list,
+        equipment: equipByList[list.id] || []
+      });
+    }
+
+    console.log(`✅ Bootstrap done in ${Date.now() - startedAt}ms: ${depts.length} depts, ${lists.length} lists, ${allEquipment.length} equip`);
+
+    return res.json({
+      success: true,
+      data: {
+        departments: depts,
+        listsByDept,
+        equipmentByList: equipByList,
+        stats: {
+          departments: depts.length,
+          lists: lists.length,
+          equipment: allEquipment.length,
+        }
+      },
+      debug: { timeMs: Date.now() - startedAt }
+    });
+  } catch (error) {
+    console.error("❌ /api/ot-bootstrap ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      debug: { timeMs: Date.now() - startedAt }
+    });
   }
 });
 
