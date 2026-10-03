@@ -72,7 +72,6 @@ function OTDepartment() {
   const [selectedListId, setSelectedListId] = useState(qrListId || null);
 
   const [equipment, setEquipment] = useState({});
-  const [equipmentCounts, setEquipmentCounts] = useState({}); // ✅ جديد: عدّات المعدات لكل لستة
   const [newEquipment, setNewEquipment] = useState({
     name: "",
     code: "",
@@ -320,32 +319,23 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — bootstrap + equipment counts بالتوازي
+  // ✅ loadDepartments — يستخدم /api/ot-bootstrap السريع
+  //    (يجلب الأقسام + اللستات فقط بدون معدات)
   // ============================================================
   const loadDepartments = async () => {
     try {
       setLoading(true);
       setServerError(null);
 
-      // ✅ الأقسام + اللستات + عدّات المعدات بالتوازي
-      const [bootstrapData, countsData] = await Promise.all([
-        apiFetch(`${API_BASE}/ot-bootstrap`),
-        apiFetch(`${API_BASE}/ot-equipment-counts`).catch(err => {
-          console.warn("Equipment counts failed (non-fatal):", err.message);
-          return { success: false, data: {} };
-        }),
-      ]);
+      // ✅ request واحد سريع بدل 13
+      const data = await apiFetch(`${API_BASE}/ot-bootstrap`);
 
-      if (bootstrapData.success) {
-        const { departments: depts, listsByDept } = bootstrapData.data;
+      if (data.success) {
+        const { departments: depts, listsByDept } = data.data;
 
         setDepartments(depts);
         setLists(listsByDept);
-
-        // ✅ حفظ عدّات المعدات
-        if (countsData.success) {
-          setEquipmentCounts(countsData.data || {});
-        }
+        // ✅ المعدات تُجلب عند الحاجة (عند اختيار لستة أو QR scan)
       }
     } catch (err) {
       console.error("Error loading departments:", err.message);
@@ -367,19 +357,17 @@ function OTDepartment() {
       if (data.success) {
         const listsArr = data.data || [];
 
+        // نفصل equipment عن list لتخزينه في state منفصل
         const listsForState = listsArr.map(({ equipment, ...rest }) => rest);
         setLists(prev => ({ ...prev, [deptId]: listsForState }));
 
+        // ✅ نستخدم equipment المرفق من response مباشرة
         const equipmentFromResponse = {};
-        const countsFromResponse = {};
         const listsNeedingFetch = [];
 
         for (const list of listsArr) {
           if (Array.isArray(list.equipment) && list.equipment.length > 0) {
             equipmentFromResponse[list.id] = list.equipment;
-            countsFromResponse[list.id] = list.equipment.length;
-          } else if (Array.isArray(list.equipment) && list.equipment.length === 0) {
-            countsFromResponse[list.id] = 0;
           } else {
             listsNeedingFetch.push(list.id);
           }
@@ -389,10 +377,7 @@ function OTDepartment() {
           setEquipment(prev => ({ ...prev, ...equipmentFromResponse }));
         }
 
-        if (Object.keys(countsFromResponse).length > 0) {
-          setEquipmentCounts(prev => ({ ...prev, ...countsFromResponse }));
-        }
-
+        // نجلب فقط الlists التي لم يرجع لها equipment (fallback)
         if (listsNeedingFetch.length > 0) {
           await Promise.all(listsNeedingFetch.map(id => fetchEquipment(id)));
         }
@@ -404,7 +389,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment — يجلب المعدات عند اختيار لستة
+  // ✅ fetchEquipment — يُستدعى عند اختيار لستة أو QR scan
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
@@ -412,10 +397,7 @@ function OTDepartment() {
         `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}`
       );
       if (data.success) {
-        const items = data.data || [];
-        setEquipment(prev => ({ ...prev, [listId]: items }));
-        // ✅ تحديث العدّاد أيضاً
-        setEquipmentCounts(prev => ({ ...prev, [listId]: items.length }));
+        setEquipment(prev => ({ ...prev, [listId]: data.data || [] }));
       }
     } catch (err) {
       console.error("Error fetching equipment:", err.message);
@@ -423,7 +405,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ DEPARTMENT CRUD
+  // ✅ DEPARTMENT CRUD — عبر API + تحديث state مباشرة
   // ============================================================
   const handleAddDept = async () => {
     if (!newDept.name.trim()) return alert("Please enter department name");
@@ -438,6 +420,7 @@ function OTDepartment() {
             description: newDept.description.trim()
           })
         });
+        // ✅ تحديث state مباشرة
         setDepartments(prev => prev.map(d =>
           d.id === editingDeptId
             ? { ...d, name: newDept.name.trim(), description: newDept.description.trim() }
@@ -455,6 +438,7 @@ function OTDepartment() {
             description: newDept.description.trim()
           })
         });
+        // ✅ إضافة للـ state مباشرة بدل إعادة التحميل
         if (data.data) {
           setDepartments(prev => [...prev, data.data]);
           setLists(prev => ({ ...prev, [deptId]: [] }));
@@ -480,17 +464,14 @@ function OTDepartment() {
     try {
       await apiFetch(`${API_BASE}/ot-departments/${id}`, { method: "DELETE" });
 
+      // ✅ حذف من state مباشرة (لا حاجة لإعادة تحميل)
       setDepartments(prev => prev.filter(d => d.id !== id));
       setLists(prev => { const c = { ...prev }; delete c[id]; return c; });
 
+      // حذف كل المعدات المرتبطة بلستات هذا القسم
       const deptLists = lists[id] || [];
       const listIds = deptLists.map(l => l.id);
       setEquipment(prev => {
-        const c = { ...prev };
-        listIds.forEach(lid => delete c[lid]);
-        return c;
-      });
-      setEquipmentCounts(prev => {
         const c = { ...prev };
         listIds.forEach(lid => delete c[lid]);
         return c;
@@ -535,6 +516,7 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
+      // ✅ تحديث state مباشرة بدل fetchLists
       if (editingListId) {
         setLists(prev => ({
           ...prev,
@@ -551,7 +533,6 @@ function OTDepartment() {
           [selectedDeptId]: [...(prev[selectedDeptId] || []), listWithoutEquip]
         }));
         setEquipment(prev => ({ ...prev, [listData.id]: [] }));
-        setEquipmentCounts(prev => ({ ...prev, [listData.id]: 0 }));
       }
 
       setNewList({ name: "", description: "" });
@@ -579,6 +560,7 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Delete failed");
 
+      // ✅ حذف من state مباشرة
       setLists(prev => ({
         ...prev,
         [selectedDeptId]: (prev[selectedDeptId] || []).filter(l => l.id !== listId)
@@ -588,13 +570,6 @@ function OTDepartment() {
         const copy = { ...prev };
         delete copy[listId];
         return copy;
-      });
-
-      // ✅ حذف العدّاد
-      setEquipmentCounts(prev => {
-        const c = { ...prev };
-        delete c[listId];
-        return c;
       });
 
       if (selectedListId === listId) setSelectedListId(null);
@@ -637,8 +612,8 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
+      // ✅ تحديث state مباشرة بدل re-fetch
       if (editingEquipId && data.data) {
-        // تعديل: استبدال العنصر
         setEquipment(prev => ({
           ...prev,
           [selectedListId]: (prev[selectedListId] || []).map(eq =>
@@ -646,14 +621,9 @@ function OTDepartment() {
           )
         }));
       } else if (data.data) {
-        // إضافة جديدة: إلحاق + تحديث العدّاد
         setEquipment(prev => ({
           ...prev,
           [selectedListId]: [...(prev[selectedListId] || []), data.data]
-        }));
-        setEquipmentCounts(prev => ({
-          ...prev,
-          [selectedListId]: (prev[selectedListId] || 0) + 1
         }));
       } else {
         await fetchEquipment(selectedListId);
@@ -689,15 +659,10 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Delete failed");
 
+      // ✅ حذف من state مباشرة
       setEquipment(prev => ({
         ...prev,
         [selectedListId]: (prev[selectedListId] || []).filter(eq => eq.id !== id)
-      }));
-
-      // ✅ نقص العدّاد
-      setEquipmentCounts(prev => ({
-        ...prev,
-        [selectedListId]: Math.max(0, (prev[selectedListId] || 1) - 1)
       }));
     } catch (err) {
       console.error("Error deleting equipment:", err);
@@ -757,14 +722,6 @@ function OTDepartment() {
   const selectedListObj = currentLists.find(l => l.id === selectedListId) || null;
   const selectedListName = selectedListObj?.name || "";
   const selectedDeptName = departments.find(d => d.id === selectedDeptId)?.name || "";
-
-  // ✅ دالة موحّدة لعرض عدد المعدات للستة
-  const getEquipmentCount = (listId) => {
-    // أولوية: المعدات المحمّلة → العدّاد من الـ aggregate → 0
-    if (Array.isArray(equipment[listId])) return equipment[listId].length;
-    if (typeof equipmentCounts[listId] === "number") return equipmentCounts[listId];
-    return 0;
-  };
 
   // ========== SEARCH & SORT ==========
   const filteredAndSortedEquipment = useMemo(() => {
@@ -2566,9 +2523,8 @@ function OTDepartment() {
                     >
                       <Icons.list />
                       <span style={{ flex: 1 }}>{list.name}</span>
-                      {/* ✅ العدد يعتمد على equipmentCounts إذا لم تكن المعدات محمّلة */}
                       <span style={{ fontSize: "11px", color: "#9ca3af" }}>
-                        ({getEquipmentCount(list.id)})
+                        ({equipment[list.id]?.length || 0})
                       </span>
                       {isAdmin && (
                         <div style={{ display: "flex", gap: "2px" }}>
