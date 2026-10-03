@@ -511,6 +511,8 @@ app.get('/api/debug/collections-stats', requireDebugToken, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// ✅ محمي: fix missing deptCode
 app.post('/api/ot-fix-missing-deptcode', requireDebugToken, async (req, res) => {
   try {
     const { targetDeptCode } = req.body;
@@ -540,7 +542,6 @@ app.post('/api/ot-fix-missing-deptcode', requireDebugToken, async (req, res) => 
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
 
 // ✅ محمي: clean-orphans (يقوم بحذف بيانات!)
 app.post('/api/debug/clean-orphans', requireDebugToken, async (req, res) => {
@@ -744,6 +745,61 @@ app.post('/api/ot-move-list-to-dept', requireDebugToken, async (req, res) => {
 });
 
 // ============================================================
+// 🚀 OT BOOTSTRAP — endpoint سريع يجلب الأقسام + اللستات فقط
+//    (بدون معدات — تُجلب عند الحاجة لتجنب البطء)
+// ============================================================
+app.get('/api/ot-bootstrap', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    console.log("🚀 GET /api/ot-bootstrap");
+
+    // ✅ فقط الأقسام + اللستات (بدون معدات)
+    const [depts, lists] = await Promise.all([
+      withTimeout(
+        otDepartmentsCollection.find({}).sort({ createdAt: 1 }).maxTimeMS(5000).toArray(),
+        8000, "bootstrap: departments"
+      ),
+      withTimeout(
+        otCustomListsCollection.find({}).sort({ createdAt: -1 }).limit(1000).maxTimeMS(5000).toArray(),
+        8000, "bootstrap: lists"
+      ),
+    ]);
+
+    // تجميع اللستات حسب deptCode (بدون معدات)
+    const listsByDept = {};
+    for (const list of lists) {
+      const deptCode = list.deptCode || "General";
+      if (!listsByDept[deptCode]) listsByDept[deptCode] = [];
+      listsByDept[deptCode].push({ ...list, equipment: [] });
+    }
+
+    console.log(`✅ Bootstrap done in ${Date.now() - startedAt}ms: ${depts.length} depts, ${lists.length} lists`);
+
+    return res.json({
+      success: true,
+      data: {
+        departments: depts,
+        listsByDept,
+        equipmentByList: {},
+        stats: {
+          departments: depts.length,
+          lists: lists.length,
+          equipment: 0,
+        }
+      },
+      debug: { timeMs: Date.now() - startedAt }
+    });
+  } catch (error) {
+    console.error("❌ /api/ot-bootstrap ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      debug: { timeMs: Date.now() - startedAt }
+    });
+  }
+});
+
+// ============================================================
 // CUSTOM DEPARTMENTS (in-memory legacy)
 // ============================================================
 let customDepartments = [];
@@ -936,73 +992,6 @@ app.post("/api/staff/login", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: error.message || "Server error" });
-  }
-});
-// ============================================================
-// ✅ NEW: Bulk endpoint — كل الأقسام + اللستات + المعدات في request واحد
-// ============================================================
-app.get('/api/ot-bootstrap', async (req, res) => {
-  const startedAt = Date.now();
-  try {
-    console.log("🚀 GET /api/ot-bootstrap (bulk bootstrap)");
-
-    // جلب كل شيء بالتوازي
-    const [depts, lists, allEquipment] = await Promise.all([
-      withTimeout(
-        otDepartmentsCollection.find({}).sort({ createdAt: 1 }).maxTimeMS(5000).toArray(),
-        8000, "bootstrap: departments"
-      ),
-      withTimeout(
-        otCustomListsCollection.find({}).sort({ createdAt: -1 }).limit(1000).maxTimeMS(5000).toArray(),
-        8000, "bootstrap: lists"
-      ),
-      withTimeout(
-        otCustomEquipmentCollection.find({}).limit(20000).maxTimeMS(8000).toArray(),
-        12000, "bootstrap: equipment"
-      ),
-    ]);
-
-    // تجميع المعدات حسب listId
-    const equipByList = {};
-    for (const eq of allEquipment) {
-      if (!equipByList[eq.listId]) equipByList[eq.listId] = [];
-      equipByList[eq.listId].push(eq);
-    }
-
-    // تجميع اللستات حسب deptCode + إرفاق المعدات
-    const listsByDept = {};
-    for (const list of lists) {
-      const deptCode = list.deptCode || "General";
-      if (!listsByDept[deptCode]) listsByDept[deptCode] = [];
-      listsByDept[deptCode].push({
-        ...list,
-        equipment: equipByList[list.id] || []
-      });
-    }
-
-    console.log(`✅ Bootstrap done in ${Date.now() - startedAt}ms: ${depts.length} depts, ${lists.length} lists, ${allEquipment.length} equip`);
-
-    return res.json({
-      success: true,
-      data: {
-        departments: depts,
-        listsByDept,
-        equipmentByList: equipByList,
-        stats: {
-          departments: depts.length,
-          lists: lists.length,
-          equipment: allEquipment.length,
-        }
-      },
-      debug: { timeMs: Date.now() - startedAt }
-    });
-  } catch (error) {
-    console.error("❌ /api/ot-bootstrap ERROR:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      debug: { timeMs: Date.now() - startedAt }
-    });
   }
 });
 
@@ -1450,7 +1439,6 @@ app.get('/api/checklists', async (req, res) => {
     console.log("==============================================");
     console.log("GET /api/checklists (bulk mode)");
 
-    // STEP 1: جلب الchecklists
     const checklists = await withTimeout(
       checklistsCollection
         .find({ submitted: true })
@@ -1471,11 +1459,9 @@ app.get('/api/checklists', async (req, res) => {
       });
     }
 
-    // STEP 2: قائمة listIds فريدة
     const listIds = [...new Set(checklists.map(c => c.listId).filter(Boolean))];
     console.log(`2️⃣ Unique listIds: ${listIds.length}`);
 
-    // STEP 3: جلب كل المعدات بالجملة (dept + ot) بالتوازي
     const [deptEquipment, otEquipment] = await Promise.all([
       withTimeout(
         deptEquipmentCollection
@@ -1503,7 +1489,6 @@ app.get('/api/checklists', async (req, res) => {
 
     console.log(`3️⃣ Bulk equipment: dept=${deptEquipment.length}, ot=${otEquipment.length} (${Date.now() - startedAt}ms)`);
 
-    // STEP 4: تجميع المعدات حسب listId
     const deptEqByList = {};
     for (const eq of deptEquipment) {
       if (!deptEqByList[eq.listId]) deptEqByList[eq.listId] = [];
@@ -1515,7 +1500,6 @@ app.get('/api/checklists', async (req, res) => {
       otEqByList[eq.listId].push(eq);
     }
 
-    // STEP 5: ربط المعدات بنفس منطق الكود القديم (dept أولاً، ثم OT كـfallback)
     for (const checklist of checklists) {
       const listId = checklist.listId;
       const deptItems = deptEqByList[listId] || [];
@@ -1565,7 +1549,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
     console.log("GET /api/ot-custom-lists");
     console.log("Query:", match);
 
-    // STEP 1: Get Lists only
     console.log("1️⃣ Fetching lists...");
     const lists = await withTimeout(
       otCustomListsCollection
@@ -1586,11 +1569,9 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       });
     }
 
-    // STEP 2: Get equipment IDs
     const listIds = lists.map(list => list.id).filter(Boolean);
     console.log("2️⃣ List IDs:", listIds.length);
 
-    // STEP 3: Get equipment (with safe fallback)
     console.log("3️⃣ Fetching equipment...");
     let allEquipment = [];
     if (listIds.length > 0) {
@@ -1611,7 +1592,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       }
     }
 
-    // STEP 4: Group equipment by listId
     const equipmentByList = {};
     for (const equipment of allEquipment) {
       if (!equipmentByList[equipment.listId]) {
@@ -1620,7 +1600,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       equipmentByList[equipment.listId].push(equipment);
     }
 
-    // STEP 5: Attach equipment to lists
     for (const list of lists) {
       list.equipment = equipmentByList[list.id] || [];
     }
@@ -2087,7 +2066,6 @@ app.get('/api/test/admins', requireDebugToken, async (req, res) => {
 app.get('/api/debug/admin-structure', requireDebugToken, async (req, res) => {
   try {
     const allAdmins = await adminCollection.find({}).toArray();
-    // نحذف حقول كلمة المرور من الرد
     const safeAdmins = allAdmins.map(({ password, ...rest }) => rest);
     res.json({
       success: true, totalAdmins: allAdmins.length,
@@ -2190,12 +2168,14 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` Admin staff_no: ${DEFAULT_ADMIN_STAFF_NO}`);
   console.log(` Admin password: ${process.env.DEFAULT_ADMIN_PASSWORD ? '********' : '(default from code — change in prod!)'}`);
   console.log(` Debug token: ${ADMIN_DEBUG_TOKEN ? 'SET' : 'NOT SET (debug routes protected by env only)'}`);
+  console.log(` OT Bootstrap:     /api/ot-bootstrap (FAST — depts + lists only)`);
   console.log(` OT Departments:   /api/ot-departments`);
   console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + withTimeout)`);
   console.log(` OT Custom Equip:  /api/ot-custom-equipment`);
   console.log(` Checklists:       /api/checklists (BULK — no N+1)`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
   console.log(` 🚑 Fix orphans:   POST /api/ot-fix-orphan-lists  [protected]`);
+  console.log(` 🚑 Fix missing:   POST /api/ot-fix-missing-deptcode [protected]`);
   console.log(` 🚑 Move list:     POST /api/ot-move-list-to-dept [protected]`);
   console.log(` Health Check:     /api/health`);
   console.log(` Debug Info:       /api/debug/info`);

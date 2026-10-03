@@ -319,32 +319,34 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — من MongoDB + تحميل متوازي لللستات
+  // ✅ loadDepartments — يستخدم /api/ot-bootstrap السريع
+  //    (يجلب الأقسام + اللستات فقط بدون معدات)
   // ============================================================
-const loadDepartments = async () => {
-  try {
-    setLoading(true);
-    setServerError(null);
+  const loadDepartments = async () => {
+    try {
+      setLoading(true);
+      setServerError(null);
 
-    // ✅ request واحد بدل 13
-    const data = await apiFetch(`${API_BASE}/ot-bootstrap`);
+      // ✅ request واحد سريع بدل 13
+      const data = await apiFetch(`${API_BASE}/ot-bootstrap`);
 
-    if (data.success) {
-      const { departments: depts, listsByDept, equipmentByList } = data.data;
-      
-      setDepartments(depts);
-      setLists(listsByDept);
-      setEquipment(equipmentByList);
+      if (data.success) {
+        const { departments: depts, listsByDept } = data.data;
+
+        setDepartments(depts);
+        setLists(listsByDept);
+        // ✅ المعدات تُجلب عند الحاجة (عند اختيار لستة أو QR scan)
+      }
+    } catch (err) {
+      console.error("Error loading departments:", err.message);
+      setServerError(err.message);
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    console.error("Error loading departments:", err.message);
-    setServerError(err.message);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
+
   // ============================================================
-  // ✅ fetchLists — يستفيد من equipment المرفق في response
+  // ✅ fetchLists — fallback عند الحاجة (بعد QR scan مثلاً)
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -364,7 +366,7 @@ const loadDepartments = async () => {
         const listsNeedingFetch = [];
 
         for (const list of listsArr) {
-          if (Array.isArray(list.equipment)) {
+          if (Array.isArray(list.equipment) && list.equipment.length > 0) {
             equipmentFromResponse[list.id] = list.equipment;
           } else {
             listsNeedingFetch.push(list.id);
@@ -387,7 +389,7 @@ const loadDepartments = async () => {
   };
 
   // ============================================================
-  // ✅ fetchEquipment — fallback فقط عند الحاجة
+  // ✅ fetchEquipment — يُستدعى عند اختيار لستة أو QR scan
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
@@ -403,176 +405,180 @@ const loadDepartments = async () => {
   };
 
   // ============================================================
-  // ✅ DEPARTMENT CRUD — عبر API
+  // ✅ DEPARTMENT CRUD — عبر API + تحديث state مباشرة
   // ============================================================
-const handleAddDept = async () => {
-  if (!newDept.name.trim()) return alert("Please enter department name");
-  setSaving(true);
-  try {
-    if (editingDeptId) {
-      await apiFetch(`${API_BASE}/ot-departments/${editingDeptId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newDept.name.trim(),
-          description: newDept.description.trim()
-        })
-      });
-      // ✅ تحديث state مباشرة
-      setDepartments(prev => prev.map(d =>
-        d.id === editingDeptId
-          ? { ...d, name: newDept.name.trim(), description: newDept.description.trim() }
-          : d
-      ));
-      setEditingDeptId(null);
-    } else {
-      const deptId = `dept_${Date.now()}`;
-      const data = await apiFetch(`${API_BASE}/ot-departments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: deptId,
-          name: newDept.name.trim(),
-          description: newDept.description.trim()
-        })
-      });
-      // ✅ إضافة للـ state مباشرة بدل إعادة التحميل
-      if (data.data) {
-        setDepartments(prev => [...prev, data.data]);
-        setLists(prev => ({ ...prev, [deptId]: [] }));
+  const handleAddDept = async () => {
+    if (!newDept.name.trim()) return alert("Please enter department name");
+    setSaving(true);
+    try {
+      if (editingDeptId) {
+        await apiFetch(`${API_BASE}/ot-departments/${editingDeptId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: newDept.name.trim(),
+            description: newDept.description.trim()
+          })
+        });
+        // ✅ تحديث state مباشرة
+        setDepartments(prev => prev.map(d =>
+          d.id === editingDeptId
+            ? { ...d, name: newDept.name.trim(), description: newDept.description.trim() }
+            : d
+        ));
+        setEditingDeptId(null);
+      } else {
+        const deptId = `dept_${Date.now()}`;
+        const data = await apiFetch(`${API_BASE}/ot-departments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: deptId,
+            name: newDept.name.trim(),
+            description: newDept.description.trim()
+          })
+        });
+        // ✅ إضافة للـ state مباشرة بدل إعادة التحميل
+        if (data.data) {
+          setDepartments(prev => [...prev, data.data]);
+          setLists(prev => ({ ...prev, [deptId]: [] }));
+        }
       }
+      setNewDept({ name: "", description: "" });
+    } catch (err) {
+      console.error("Error saving department:", err);
+      alert("❌ فشل حفظ القسم: " + err.message);
+    } finally {
+      setSaving(false);
     }
-    setNewDept({ name: "", description: "" });
-  } catch (err) {
-    console.error("Error saving department:", err);
-    alert("❌ فشل حفظ القسم: " + err.message);
-  } finally {
-    setSaving(false);
-  }
-};
+  };
+
   const handleEditDept = (dept) => {
     setEditingDeptId(dept.id);
     setNewDept({ name: dept.name, description: dept.description || "" });
   };
 
-const handleDeleteDept = async (id, name) => {
-  if (!window.confirm(`Delete department "${name}"? All lists and equipment will be deleted!`)) return;
+  const handleDeleteDept = async (id, name) => {
+    if (!window.confirm(`Delete department "${name}"? All lists and equipment will be deleted!`)) return;
 
-  try {
-    await apiFetch(`${API_BASE}/ot-departments/${id}`, { method: "DELETE" });
+    try {
+      await apiFetch(`${API_BASE}/ot-departments/${id}`, { method: "DELETE" });
 
-    // ✅ حذف من state مباشرة (لا حاجة لإعادة تحميل)
-    setDepartments(prev => prev.filter(d => d.id !== id));
-    setLists(prev => { const c = { ...prev }; delete c[id]; return c; });
+      // ✅ حذف من state مباشرة (لا حاجة لإعادة تحميل)
+      setDepartments(prev => prev.filter(d => d.id !== id));
+      setLists(prev => { const c = { ...prev }; delete c[id]; return c; });
 
-    // حذف كل المعدات المرتبطة بلستات هذا القسم
-    const deptLists = lists[id] || [];
-    const listIds = deptLists.map(l => l.id);
-    setEquipment(prev => {
-      const c = { ...prev };
-      listIds.forEach(lid => delete c[lid]);
-      return c;
-    });
+      // حذف كل المعدات المرتبطة بلستات هذا القسم
+      const deptLists = lists[id] || [];
+      const listIds = deptLists.map(l => l.id);
+      setEquipment(prev => {
+        const c = { ...prev };
+        listIds.forEach(lid => delete c[lid]);
+        return c;
+      });
 
-    if (selectedDeptId === id) setSelectedDeptId(null);
-    if (selectedListId) setSelectedListId(null);
-  } catch (err) {
-    console.error("Error deleting department:", err);
-    alert("❌ فشل حذف القسم: " + err.message);
-  }
-};
+      if (selectedDeptId === id) setSelectedDeptId(null);
+      if (selectedListId) setSelectedListId(null);
+    } catch (err) {
+      console.error("Error deleting department:", err);
+      alert("❌ فشل حذف القسم: " + err.message);
+    }
+  };
+
   // ============================================================
   // ✅ LIST CRUD
   // ============================================================
-const handleAddList = async () => {
-  if (!newList.name.trim()) return alert("Please enter list name");
-  if (!selectedDeptId) return alert("Please select a department first");
+  const handleAddList = async () => {
+    if (!newList.name.trim()) return alert("Please enter list name");
+    if (!selectedDeptId) return alert("Please select a department first");
 
-  setSaving(true);
-  try {
-    const listData = {
-      id: editingListId || `list_${Date.now()}`,
-      name: newList.name.trim(),
-      description: newList.description.trim() || "",
-      deptCode: selectedDeptId,
-      roomId: null,
-      createdBy: localStorage.getItem("userName") || "Admin"
-    };
+    setSaving(true);
+    try {
+      const listData = {
+        id: editingListId || `list_${Date.now()}`,
+        name: newList.name.trim(),
+        description: newList.description.trim() || "",
+        deptCode: selectedDeptId,
+        roomId: null,
+        createdBy: localStorage.getItem("userName") || "Admin"
+      };
 
-    const url = editingListId
-      ? `${API_BASE}/ot-custom-lists/${editingListId}`
-      : `${API_BASE}/ot-custom-lists`;
-    const method = editingListId ? "PUT" : "POST";
+      const url = editingListId
+        ? `${API_BASE}/ot-custom-lists/${editingListId}`
+        : `${API_BASE}/ot-custom-lists`;
+      const method = editingListId ? "PUT" : "POST";
 
-    const data = await apiFetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(listData)
-    });
+      const data = await apiFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(listData)
+      });
 
-    if (!data.success) throw new Error(data.message || "Unknown error");
+      if (!data.success) throw new Error(data.message || "Unknown error");
 
-    // ✅ تحديث state مباشرة بدل fetchLists
-    if (editingListId) {
-      setLists(prev => ({
-        ...prev,
-        [selectedDeptId]: (prev[selectedDeptId] || []).map(l =>
-          l.id === editingListId
-            ? { ...l, name: listData.name, description: listData.description }
-            : l
-        )
-      }));
-    } else if (data.data) {
-      const { equipment: _, ...listWithoutEquip } = data.data;
-      setLists(prev => ({
-        ...prev,
-        [selectedDeptId]: [...(prev[selectedDeptId] || []), listWithoutEquip]
-      }));
-      setEquipment(prev => ({ ...prev, [listData.id]: [] }));
+      // ✅ تحديث state مباشرة بدل fetchLists
+      if (editingListId) {
+        setLists(prev => ({
+          ...prev,
+          [selectedDeptId]: (prev[selectedDeptId] || []).map(l =>
+            l.id === editingListId
+              ? { ...l, name: listData.name, description: listData.description }
+              : l
+          )
+        }));
+      } else if (data.data) {
+        const { equipment: _, ...listWithoutEquip } = data.data;
+        setLists(prev => ({
+          ...prev,
+          [selectedDeptId]: [...(prev[selectedDeptId] || []), listWithoutEquip]
+        }));
+        setEquipment(prev => ({ ...prev, [listData.id]: [] }));
+      }
+
+      setNewList({ name: "", description: "" });
+      setEditingListId(null);
+    } catch (err) {
+      console.error("Error saving list:", err);
+      alert("❌ فشل حفظ اللستة: " + err.message);
+    } finally {
+      setSaving(false);
     }
+  };
 
-    setNewList({ name: "", description: "" });
-    setEditingListId(null);
-  } catch (err) {
-    console.error("Error saving list:", err);
-    alert("❌ فشل حفظ اللستة: " + err.message);
-  } finally {
-    setSaving(false);
-  }
-};
   const handleEditList = (list) => {
     setEditingListId(list.id);
     setNewList({ name: list.name, description: list.description || "" });
   };
 
-const handleDeleteList = async (listId, name) => {
-  if (!window.confirm(`Delete list "${name}"? All equipment will be deleted!`)) return;
+  const handleDeleteList = async (listId, name) => {
+    if (!window.confirm(`Delete list "${name}"? All equipment will be deleted!`)) return;
 
-  try {
-    const data = await apiFetch(`${API_BASE}/ot-custom-lists/${listId}`, {
-      method: "DELETE"
-    });
+    try {
+      const data = await apiFetch(`${API_BASE}/ot-custom-lists/${listId}`, {
+        method: "DELETE"
+      });
 
-    if (!data.success) throw new Error(data.message || "Delete failed");
+      if (!data.success) throw new Error(data.message || "Delete failed");
 
-    // ✅ حذف من state مباشرة
-    setLists(prev => ({
-      ...prev,
-      [selectedDeptId]: (prev[selectedDeptId] || []).filter(l => l.id !== listId)
-    }));
+      // ✅ حذف من state مباشرة
+      setLists(prev => ({
+        ...prev,
+        [selectedDeptId]: (prev[selectedDeptId] || []).filter(l => l.id !== listId)
+      }));
 
-    setEquipment(prev => {
-      const copy = { ...prev };
-      delete copy[listId];
-      return copy;
-    });
+      setEquipment(prev => {
+        const copy = { ...prev };
+        delete copy[listId];
+        return copy;
+      });
 
-    if (selectedListId === listId) setSelectedListId(null);
-  } catch (err) {
-    console.error("Error deleting list:", err);
-    alert("❌ فشل حذف اللستة: " + err.message);
-  }
-};
+      if (selectedListId === listId) setSelectedListId(null);
+    } catch (err) {
+      console.error("Error deleting list:", err);
+      alert("❌ فشل حذف اللستة: " + err.message);
+    }
+  };
+
   // ============================================================
   // ✅ EQUIPMENT CRUD
   // ============================================================
