@@ -17,38 +17,7 @@ function useWindowSize() {
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
 // ============================================================
-// ✅ Cache settings
-// ============================================================
-const CACHE_TTL = 5 * 60 * 1000; // 5 دقائق
-const CACHE_KEY_DEPTS = 'ot-departments-v1';
-const CACHE_KEY_LISTS = 'ot-lists-v1-';       // + deptId
-const CACHE_KEY_EQUIP = 'ot-equipment-v1-';   // + listId
-
-function readCache(key) {
-  try {
-    const raw = sessionStorage.getItem(key);
-    if (!raw) return null;
-    const { data, at } = JSON.parse(raw);
-    if (Date.now() - at > CACHE_TTL) {
-      sessionStorage.removeItem(key);
-      return null;
-    }
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-function writeCache(key, data) {
-  try {
-    sessionStorage.setItem(key, JSON.stringify({ data, at: Date.now() }));
-  } catch {
-    // sessionStorage ممتلئ
-  }
-}
-
-// ============================================================
-// ✅ API Helper
+// ✅ API Helper — يفحص response.ok ويرمي خطأ واضح
 // ============================================================
 async function apiFetch(url, options = {}) {
   const response = await fetch(url, {
@@ -336,49 +305,35 @@ function OTDepartment() {
     }
   }, []);
 
-  // ============================================================
-  // ✅ LOAD DATA — lazy: فقط الأقسام
-  // ============================================================
+  // ========== LOAD DATA ==========
   useEffect(() => {
     loadDepartments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ QR: نحمّل equipment فقط عند الحاجة
   useEffect(() => {
     if (qrListId && qrDeptCode) {
       setSelectedDeptId(qrDeptCode);
       setSelectedListId(qrListId);
       fetchEquipment(qrListId);
-      fetchLists(qrDeptCode);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — أقسام فقط + cache
+  // ✅ loadDepartments — من MongoDB + تحميل متوازي لللستات
   // ============================================================
-  const loadDepartments = async (forceRefresh = false) => {
+  const loadDepartments = async () => {
     try {
       setLoading(true);
       setServerError(null);
-
-      if (!forceRefresh) {
-        const cached = readCache(CACHE_KEY_DEPTS);
-        if (cached) {
-          setDepartments(cached);
-          setLoading(false);
-          console.log('📦 Departments from cache:', cached.length);
-          return;
-        }
-      }
 
       const data = await apiFetch(`${API_BASE}/ot-departments`);
 
       if (data.success) {
         const depts = data.data || [];
         setDepartments(depts);
-        writeCache(CACHE_KEY_DEPTS, depts);
+
+        // ✅ جلب اللستات لكل الأقسام بالتوازي بدل التسلسل
+        await Promise.all(depts.map(dept => fetchLists(dept.id)));
       }
     } catch (err) {
       console.error("Error loading departments:", err.message);
@@ -389,92 +344,66 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists — lazy، مع equipmentCount
+  // ✅ fetchLists — يستفيد من equipment المرفق في response
   // ============================================================
-  const fetchLists = async (deptId, forceRefresh = false) => {
-    const cacheKey = CACHE_KEY_LISTS + deptId;
-
+  const fetchLists = async (deptId) => {
     try {
-      if (!forceRefresh) {
-        const cached = readCache(cacheKey);
-        if (cached) {
-          setLists(prev => ({ ...prev, [deptId]: cached }));
-          return cached;
-        }
-      }
-
       const data = await apiFetch(
-        `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}&includeEquipment=false`
+        `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}`
       );
 
       if (data.success) {
         const listsArr = data.data || [];
-        // ✅ نحتفظ بـequipmentCount، نتجاهل equipment placeholder
+
+        // نفصل equipment عن list لتخزينه في state منفصل
         const listsForState = listsArr.map(({ equipment, ...rest }) => rest);
         setLists(prev => ({ ...prev, [deptId]: listsForState }));
-        writeCache(cacheKey, listsForState);
-        console.log(`📦 Lists for ${deptId}: ${listsForState.length}`);
-        return listsForState;
+
+        // ✅ نستخدم equipment المرفق من response مباشرة
+        const equipmentFromResponse = {};
+        const listsNeedingFetch = [];
+
+        for (const list of listsArr) {
+          if (Array.isArray(list.equipment)) {
+            equipmentFromResponse[list.id] = list.equipment;
+          } else {
+            listsNeedingFetch.push(list.id);
+          }
+        }
+
+        if (Object.keys(equipmentFromResponse).length > 0) {
+          setEquipment(prev => ({ ...prev, ...equipmentFromResponse }));
+        }
+
+        // نجلب فقط الlists التي لم يرجع لها equipment (fallback)
+        if (listsNeedingFetch.length > 0) {
+          await Promise.all(listsNeedingFetch.map(id => fetchEquipment(id)));
+        }
       }
     } catch (err) {
       console.error("Error fetching lists for", deptId, ":", err.message);
       setLists(prev => ({ ...prev, [deptId]: prev[deptId] || [] }));
     }
-    return [];
   };
 
   // ============================================================
-  // ✅ fetchEquipment — lazy، تُستدعى عند اختيار لستة
+  // ✅ fetchEquipment — fallback فقط عند الحاجة
   // ============================================================
-  const fetchEquipment = async (listId, forceRefresh = false) => {
-    const cacheKey = CACHE_KEY_EQUIP + listId;
-
+  const fetchEquipment = async (listId) => {
     try {
-      if (!forceRefresh) {
-        const cached = readCache(cacheKey);
-        if (cached) {
-          setEquipment(prev => ({ ...prev, [listId]: cached }));
-          return cached;
-        }
-      }
-
       const data = await apiFetch(
         `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}`
       );
       if (data.success) {
-        const items = data.data || [];
-        setEquipment(prev => ({ ...prev, [listId]: items }));
-        writeCache(cacheKey, items);
-        console.log(`📦 Equipment for ${listId}: ${items.length}`);
-        return items;
+        setEquipment(prev => ({ ...prev, [listId]: data.data || [] }));
       }
     } catch (err) {
       console.error("Error fetching equipment:", err.message);
     }
-    return [];
   };
 
   // ============================================================
-  // ✅ HELPER: تحديث equipmentCount في lists state
-  // ============================================================
-  const bumpListEquipmentCount = (deptId, listId, delta) => {
-    if (!deptId || !listId) return;
-    setLists(prev => {
-      const deptLists = prev[deptId];
-      if (!deptLists) return prev;
-      return {
-        ...prev,
-        [deptId]: deptLists.map(l =>
-          l.id === listId
-            ? { ...l, equipmentCount: Math.max(0, (l.equipmentCount || 0) + delta) }
-            : l
-        )
-      };
-    });
-  };
-
-  // ============================================================
-  // ✅ DEPARTMENT CRUD
+  // ✅ DEPARTMENT CRUD — عبر API
   // ============================================================
   const handleAddDept = async () => {
     if (!newDept.name.trim()) return alert("Please enter department name");
@@ -482,6 +411,7 @@ function OTDepartment() {
     setSaving(true);
     try {
       if (editingDeptId) {
+        // تعديل
         await apiFetch(`${API_BASE}/ot-departments/${editingDeptId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -492,6 +422,7 @@ function OTDepartment() {
         });
         setEditingDeptId(null);
       } else {
+        // إضافة جديدة
         const deptId = `dept_${Date.now()}`;
         await apiFetch(`${API_BASE}/ot-departments`, {
           method: "POST",
@@ -504,8 +435,7 @@ function OTDepartment() {
         });
       }
 
-      try { sessionStorage.removeItem(CACHE_KEY_DEPTS); } catch {}
-      await loadDepartments(true);
+      await loadDepartments();
       setNewDept({ name: "", description: "" });
     } catch (err) {
       console.error("Error saving department:", err);
@@ -526,18 +456,14 @@ function OTDepartment() {
     try {
       await apiFetch(`${API_BASE}/ot-departments/${id}`, { method: "DELETE" });
 
+      // نظفي state
       setDepartments(prev => prev.filter(d => d.id !== id));
       setLists(prev => { const c = { ...prev }; delete c[id]; return c; });
 
       if (selectedDeptId === id) setSelectedDeptId(null);
       if (selectedListId) setSelectedListId(null);
 
-      try {
-        sessionStorage.removeItem(CACHE_KEY_DEPTS);
-        sessionStorage.removeItem(CACHE_KEY_LISTS + id);
-      } catch {}
-
-      await loadDepartments(true);
+      await loadDepartments();
     } catch (err) {
       console.error("Error deleting department:", err);
       alert("❌ فشل حذف القسم: " + err.message);
@@ -575,8 +501,7 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      try { sessionStorage.removeItem(CACHE_KEY_LISTS + selectedDeptId); } catch {}
-      await fetchLists(selectedDeptId, true);
+      await fetchLists(selectedDeptId);
 
       setNewList({ name: "", description: "" });
       setEditingListId(null);
@@ -603,11 +528,7 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Delete failed");
 
-      try {
-        sessionStorage.removeItem(CACHE_KEY_LISTS + selectedDeptId);
-        sessionStorage.removeItem(CACHE_KEY_EQUIP + listId);
-      } catch {}
-      await fetchLists(selectedDeptId, true);
+      await fetchLists(selectedDeptId);
 
       setEquipment(prev => {
         const copy = { ...prev };
@@ -623,7 +544,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD — مع تحديث equipmentCount
+  // ✅ EQUIPMENT CRUD
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -655,7 +576,7 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ تحديث state محلياً
+      // ✅ تحديث state مباشرة بدل re-fetch
       if (editingEquipId && data.data) {
         setEquipment(prev => ({
           ...prev,
@@ -663,24 +584,14 @@ function OTDepartment() {
             eq.id === editingEquipId ? data.data : eq
           )
         }));
-        // لا نغير equipmentCount عند التعديل
       } else if (data.data) {
         setEquipment(prev => ({
           ...prev,
           [selectedListId]: [...(prev[selectedListId] || []), data.data]
         }));
-        // ✅ زيادة العدد +1 في قائمة الlists
-        bumpListEquipmentCount(selectedDeptId, selectedListId, +1);
       } else {
-        // fallback
-        try { sessionStorage.removeItem(CACHE_KEY_EQUIP + selectedListId); } catch {}
-        await fetchEquipment(selectedListId, true);
-        try { sessionStorage.removeItem(CACHE_KEY_LISTS + selectedDeptId); } catch {}
-        await fetchLists(selectedDeptId, true);
+        await fetchEquipment(selectedListId);
       }
-
-      // مسح cache المعدات لتحديثها في الزيارة القادمة
-      try { sessionStorage.removeItem(CACHE_KEY_EQUIP + selectedListId); } catch {}
 
       resetEquipmentForm();
     } catch (err) {
@@ -712,15 +623,11 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Delete failed");
 
+      // ✅ حذف من state مباشرة
       setEquipment(prev => ({
         ...prev,
         [selectedListId]: (prev[selectedListId] || []).filter(eq => eq.id !== id)
       }));
-
-      // ✅ نقصان العدد -1 في قائمة الlists
-      bumpListEquipmentCount(selectedDeptId, selectedListId, -1);
-
-      try { sessionStorage.removeItem(CACHE_KEY_EQUIP + selectedListId); } catch {}
     } catch (err) {
       console.error("Error deleting equipment:", err);
       alert("❌ فشل حذف المعدة: " + err.message);
@@ -997,9 +904,6 @@ function OTDepartment() {
 
       alert('✅ Checklist submitted successfully!');
       setCheckMode(false);
-
-      try { sessionStorage.removeItem('reports-cache-v1'); } catch {}
-
       navigate('/reports', { state: { refresh: true } });
     } catch (err) {
       console.error('Error submitting checklist:', err);
@@ -1051,7 +955,6 @@ function OTDepartment() {
               }
               return updatedLists;
             });
-            try { sessionStorage.removeItem(CACHE_KEY_LISTS + selectedDeptId); } catch {}
           } else {
             alert("❌ Failed to save image: " + (result.message || "Unknown error"));
             setCheckListImage(null);
@@ -1096,7 +999,6 @@ function OTDepartment() {
           }
           return updatedLists;
         });
-        try { sessionStorage.removeItem(CACHE_KEY_LISTS + selectedDeptId); } catch {}
         alert("✅ Image removed successfully");
       }
     } catch (err) {
@@ -1976,7 +1878,7 @@ function OTDepartment() {
   }
 
   // ============================================================
-  // 🟢 SIMPLE VIEW (QR)
+  // 🟢 SIMPLE VIEW
   // ============================================================
   if (isSimpleView && qrListId) {
     const simpleEquipment = equipment[qrListId] || [];
@@ -2222,9 +2124,7 @@ function OTDepartment() {
     );
   }
 
-  // ============================================================
-  // 🏠 RENDER (Full Page)
-  // ============================================================
+  // ========== RENDER (Full Page) ==========
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: "80px" }}>
@@ -2234,6 +2134,7 @@ function OTDepartment() {
     );
   }
 
+  // ✅ رسالة خطأ الاتصال بالسيرفر
   if (serverError && departments.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", maxWidth: "600px", margin: "0 auto" }}>
@@ -2241,7 +2142,7 @@ function OTDepartment() {
         <h2 style={{ color: "#dc2626", marginBottom: "10px" }}>تعذّر الاتصال بالسيرفر</h2>
         <p style={{ color: "#6b7280", marginBottom: "20px" }}>{serverError}</p>
         <button
-          onClick={() => loadDepartments(true)}
+          onClick={loadDepartments}
           style={{ padding: "10px 24px", background: "#006341", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}
         >
           🔄 إعادة المحاولة
@@ -2427,11 +2328,10 @@ function OTDepartment() {
                       cursor: "pointer",
                       fontSize: isMobile ? "12px" : "13px"
                     }}
-                    onClick={async () => {
+                    onClick={() => {
                       setSelectedDeptId(dept.id);
                       setSelectedListId(null);
-                      // ✅ lazy: نجلب lists فقط عند فتح القسم
-                      await fetchLists(dept.id);
+                      fetchLists(dept.id);
                     }}
                   >
                     <Icons.hospital />
@@ -2580,19 +2480,15 @@ function OTDepartment() {
                         cursor: "pointer",
                         fontSize: isMobile ? "12px" : "13px"
                       }}
-                      onClick={async () => {
+                      onClick={() => {
                         setSelectedListId(list.id);
-                        // ✅ lazy: نجلب equipment فقط عند فتح اللستة
-                        if (!equipment[list.id]) {
-                          await fetchEquipment(list.id);
-                        }
+                        fetchEquipment(list.id);
                       }}
                     >
                       <Icons.list />
                       <span style={{ flex: 1 }}>{list.name}</span>
-                      {/* ✅ العدد: equipment المحمّل أولاً، ثم equipmentCount من الـBackend */}
                       <span style={{ fontSize: "11px", color: "#9ca3af" }}>
-                        ({equipment[list.id]?.length ?? list.equipmentCount ?? 0})
+                        ({equipment[list.id]?.length || 0})
                       </span>
                       {isAdmin && (
                         <div style={{ display: "flex", gap: "2px" }}>
