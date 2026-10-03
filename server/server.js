@@ -800,6 +800,45 @@ app.get('/api/ot-bootstrap', async (req, res) => {
 });
 
 // ============================================================
+// ✅ NEW: عدّ المعدات لكل لستة (خفيف جداً — aggregate)
+// ============================================================
+app.get('/api/ot-equipment-counts', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    console.log("📊 GET /api/ot-equipment-counts");
+
+    const counts = await withTimeout(
+      otCustomEquipmentCollection.aggregate([
+        { $group: { _id: "$listId", count: { $sum: 1 } } }
+      ]).maxTimeMS(8000).toArray(),
+      12000,
+      "Equipment counts aggregation"
+    );
+
+    const countMap = {};
+    for (const item of counts) {
+      if (item._id) countMap[item._id] = item.count;
+    }
+
+    console.log(`✅ Counts done in ${Date.now() - startedAt}ms: ${Object.keys(countMap).length} lists`);
+
+    return res.json({
+      success: true,
+      data: countMap,
+      debug: { timeMs: Date.now() - startedAt }
+    });
+  } catch (error) {
+    console.error("❌ /api/ot-equipment-counts ERROR:", error);
+    // ✅ لا نفشل — نرجع خريطة فارغة
+    return res.json({
+      success: true,
+      data: {},
+      debug: { timeMs: Date.now() - startedAt, error: error.message }
+    });
+  }
+});
+
+// ============================================================
 // CUSTOM DEPARTMENTS (in-memory legacy)
 // ============================================================
 let customDepartments = [];
@@ -2168,19 +2207,20 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` Admin staff_no: ${DEFAULT_ADMIN_STAFF_NO}`);
   console.log(` Admin password: ${process.env.DEFAULT_ADMIN_PASSWORD ? '********' : '(default from code — change in prod!)'}`);
   console.log(` Debug token: ${ADMIN_DEBUG_TOKEN ? 'SET' : 'NOT SET (debug routes protected by env only)'}`);
-  console.log(` OT Bootstrap:     /api/ot-bootstrap (FAST — depts + lists only)`);
-  console.log(` OT Departments:   /api/ot-departments`);
-  console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + withTimeout)`);
-  console.log(` OT Custom Equip:  /api/ot-custom-equipment`);
-  console.log(` Checklists:       /api/checklists (BULK — no N+1)`);
-  console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
-  console.log(` 🚑 Fix orphans:   POST /api/ot-fix-orphan-lists  [protected]`);
-  console.log(` 🚑 Fix missing:   POST /api/ot-fix-missing-deptcode [protected]`);
-  console.log(` 🚑 Move list:     POST /api/ot-move-list-to-dept [protected]`);
-  console.log(` Health Check:     /api/health`);
-  console.log(` Debug Info:       /api/debug/info`);
-  console.log(` Collections:      /api/debug/collections-stats [protected]`);
-  console.log(` Allowed origins:  ${allowedOrigins.join(', ')}`);
-  console.log(` Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
+  console.log(` OT Bootstrap:       /api/ot-bootstrap (FAST — depts + lists only)`);
+  console.log(` OT Equip Counts:    /api/ot-equipment-counts (FAST — counts only)`);
+  console.log(` OT Departments:     /api/ot-departments`);
+  console.log(` OT Custom Lists:    /api/ot-custom-lists (SAFE + withTimeout)`);
+  console.log(` OT Custom Equip:    /api/ot-custom-equipment`);
+  console.log(` Checklists:         /api/checklists (BULK — no N+1)`);
+  console.log(` 🚑 Diagnose:        GET  /api/ot-custom-lists-all`);
+  console.log(` 🚑 Fix orphans:     POST /api/ot-fix-orphan-lists  [protected]`);
+  console.log(` 🚑 Fix missing:     POST /api/ot-fix-missing-deptcode [protected]`);
+  console.log(` 🚑 Move list:       POST /api/ot-move-list-to-dept [protected]`);
+  console.log(` Health Check:       /api/health`);
+  console.log(` Debug Info:         /api/debug/info`);
+  console.log(` Collections:        /api/debug/collections-stats [protected]`);
+  console.log(` Allowed origins:    ${allowedOrigins.join(', ')}`);
+  console.log(` Serving frontend:   ${hasBuild ? 'YES' : 'NO'}`);
   console.log('═══════════════════════════════════════════════════════');
 });
