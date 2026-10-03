@@ -319,7 +319,7 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ loadDepartments — من MongoDB (بدل localStorage)
+  // ✅ loadDepartments — من MongoDB + تحميل متوازي لللستات
   // ============================================================
   const loadDepartments = async () => {
     try {
@@ -332,10 +332,8 @@ function OTDepartment() {
         const depts = data.data || [];
         setDepartments(depts);
 
-        // اجلب اللستات لكل قسم
-        for (const dept of depts) {
-          await fetchLists(dept.id);
-        }
+        // ✅ جلب اللستات لكل الأقسام بالتوازي بدل التسلسل
+        await Promise.all(depts.map(dept => fetchLists(dept.id)));
       }
     } catch (err) {
       console.error("Error loading departments:", err.message);
@@ -346,7 +344,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists — بدون createDefaultList، مع فحص response.ok
+  // ✅ fetchLists — يستفيد من equipment المرفق في response
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -356,10 +354,30 @@ function OTDepartment() {
 
       if (data.success) {
         const listsArr = data.data || [];
-        setLists(prev => ({ ...prev, [deptId]: listsArr }));
+
+        // نفصل equipment عن list لتخزينه في state منفصل
+        const listsForState = listsArr.map(({ equipment, ...rest }) => rest);
+        setLists(prev => ({ ...prev, [deptId]: listsForState }));
+
+        // ✅ نستخدم equipment المرفق من response مباشرة
+        const equipmentFromResponse = {};
+        const listsNeedingFetch = [];
 
         for (const list of listsArr) {
-          await fetchEquipment(list.id);
+          if (Array.isArray(list.equipment)) {
+            equipmentFromResponse[list.id] = list.equipment;
+          } else {
+            listsNeedingFetch.push(list.id);
+          }
+        }
+
+        if (Object.keys(equipmentFromResponse).length > 0) {
+          setEquipment(prev => ({ ...prev, ...equipmentFromResponse }));
+        }
+
+        // نجلب فقط الlists التي لم يرجع لها equipment (fallback)
+        if (listsNeedingFetch.length > 0) {
+          await Promise.all(listsNeedingFetch.map(id => fetchEquipment(id)));
         }
       }
     } catch (err) {
@@ -369,7 +387,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment — مع فحص response.ok
+  // ✅ fetchEquipment — fallback فقط عند الحاجة
   // ============================================================
   const fetchEquipment = async (listId) => {
     try {
@@ -417,7 +435,7 @@ function OTDepartment() {
         });
       }
 
-      await loadDepartments(); // ✅ إعادة تحميل من السيرفر
+      await loadDepartments();
       setNewDept({ name: "", description: "" });
     } catch (err) {
       console.error("Error saving department:", err);
@@ -445,7 +463,6 @@ function OTDepartment() {
       if (selectedDeptId === id) setSelectedDeptId(null);
       if (selectedListId) setSelectedListId(null);
 
-      // ✅ إعادة تحميل للتأكد
       await loadDepartments();
     } catch (err) {
       console.error("Error deleting department:", err);
@@ -454,7 +471,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ LIST CRUD — مع فحص الفشل + إعادة تحميل
+  // ✅ LIST CRUD
   // ============================================================
   const handleAddList = async () => {
     if (!newList.name.trim()) return alert("Please enter list name");
@@ -484,7 +501,6 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ إعادة تحميل من السيرفر للتأكد من الحفظ الفعلي
       await fetchLists(selectedDeptId);
 
       setNewList({ name: "", description: "" });
@@ -512,7 +528,6 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Delete failed");
 
-      // ✅ إعادة تحميل من السيرفر للتأكد من الحذف الفعلي
       await fetchLists(selectedDeptId);
 
       setEquipment(prev => {
@@ -529,7 +544,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD — مع فحص الفشل + إعادة تحميل
+  // ✅ EQUIPMENT CRUD
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -561,7 +576,23 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      await fetchEquipment(selectedListId);
+      // ✅ تحديث state مباشرة بدل re-fetch
+      if (editingEquipId && data.data) {
+        setEquipment(prev => ({
+          ...prev,
+          [selectedListId]: (prev[selectedListId] || []).map(eq =>
+            eq.id === editingEquipId ? data.data : eq
+          )
+        }));
+      } else if (data.data) {
+        setEquipment(prev => ({
+          ...prev,
+          [selectedListId]: [...(prev[selectedListId] || []), data.data]
+        }));
+      } else {
+        await fetchEquipment(selectedListId);
+      }
+
       resetEquipmentForm();
     } catch (err) {
       console.error("Error saving equipment:", err);
@@ -592,7 +623,11 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Delete failed");
 
-      await fetchEquipment(selectedListId);
+      // ✅ حذف من state مباشرة
+      setEquipment(prev => ({
+        ...prev,
+        [selectedListId]: (prev[selectedListId] || []).filter(eq => eq.id !== id)
+      }));
     } catch (err) {
       console.error("Error deleting equipment:", err);
       alert("❌ فشل حذف المعدة: " + err.message);

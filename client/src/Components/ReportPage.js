@@ -1,5 +1,5 @@
 // Components/ReportPage.js
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
@@ -34,14 +34,20 @@ function ReportPage() {
   const isMobile = width < 768;
   const isTablet = width >= 768 && width < 1024;
 
+  // ✅ نمنع الـfetch المزدوج عند العودة من Checklist
+  const hasFetchedRef = useRef(false);
+  const abortRef = useRef(null);
+
   // ============================================================
   // ✅ تحميل الأقسام من MongoDB (بدل localStorage)
   // ============================================================
   useEffect(() => {
+    const controller = new AbortController();
     const loadDepartments = async () => {
       try {
         const response = await fetch(`${API_BASE}/ot-departments`, {
           cache: 'no-store',
+          signal: controller.signal,
         });
         const data = await response.json();
         if (data.success) {
@@ -50,44 +56,69 @@ function ReportPage() {
           console.warn('Failed to load departments:', data.message);
         }
       } catch (e) {
-        console.warn('Could not load departments from server:', e.message);
+        if (e.name !== 'AbortError') {
+          console.warn('Could not load departments from server:', e.message);
+        }
       }
     };
     loadDepartments();
+    return () => controller.abort();
   }, []);
 
   // ========== Fetch reports ==========
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
+    // نلغي أي طلب سابق
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
+    setError(null);
     try {
       const response = await fetch(`${API_BASE}/checklists`, {
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal,
       });
       const data = await response.json();
+
       if (data.success) {
-        setChecklists(data.data);
+        // ✅ عرض معلومات الأداء في console
+        if (data.debug?.timeMs !== undefined) {
+          console.log(`📊 /api/checklists returned in ${data.debug.timeMs}ms`, data.debug);
+        }
+        setChecklists(data.data || []);
       } else {
         setError(data.message || 'Failed to load reports');
       }
     } catch (err) {
-      setError('Connection error: ' + err.message);
+      if (err.name !== 'AbortError') {
+        setError('Connection error: ' + err.message);
+      }
     } finally {
       setLoading(false);
     }
-  };
-
-  // ========== Initial load ==========
-  useEffect(() => {
-    fetchReports();
   }, []);
 
-  // ========== Reload when returning from checklist page ==========
+  // ========== Initial load — مرة واحدة فقط ==========
   useEffect(() => {
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
+
+    fetchReports();
+
+    // ✅ إذا كان قادمًا من Checklist مع refresh، نمسح الstate بدون fetch ثاني
     if (location.state?.refresh) {
-      fetchReports();
       navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location.state, navigate, location.pathname]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ تنظيف عند unmount
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
 
   // ========== Filtering ==========
   const filteredChecklists = useMemo(() => {
@@ -651,6 +682,7 @@ function ReportPage() {
                     </thead>
                     <tbody>
                       {selectedChecklist.equipmentDetails.map((item) => {
+                        // ✅ نحاول id أولاً، ثم _id كـfallback
                         const possibleKeys = [];
                         if (item.id) possibleKeys.push(item.id);
                         if (item._id) possibleKeys.push(item._id.toString());

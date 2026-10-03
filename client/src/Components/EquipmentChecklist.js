@@ -15,6 +15,14 @@ function useWindowSize() {
   return size;
 }
 
+// ✅ Helper: توحيد الـID المستخدم في الchecklist
+function getItemId(item) {
+  if (!item) return null;
+  if (item.id) return String(item.id);
+  if (item._id) return item._id.toString();
+  return null;
+}
+
 function EquipmentChecklist() {
   const { deptCode, listId } = useParams();
   const location = useLocation();
@@ -37,43 +45,49 @@ function EquipmentChecklist() {
   const isMobile = width < 640;
   const isTablet = width >= 640 && width < 1024;
 
-  // ========== Load equipment ==========
-  useEffect(() => {
-    if (!listId) {
-      setError("No list ID provided");
-      setLoading(false);
-      return;
-    }
-    fetchEquipment();
-    if (!isNewCheck) {
-      fetchSavedChecklist();
-    } else {
-      setSubmitted(false);
-      setSubmissionData(null);
-    }
-  }, [listId, isNewCheck]);
-
+  // ============================================================
+  // ✅ Load equipment — يجرب dept_equipment ثم ot_custom_equipment
+  // ============================================================
   const fetchEquipment = async () => {
     try {
-      const response = await fetch(`${API_BASE}/dept-equipment/list/${listId}`);
-      const data = await response.json();
+      let items = [];
 
-      if (data.success) {
-        setEquipment(data.data);
-        const initialChecked = {};
-        data.data.forEach(item => {
-          const id = item._id.toString();
-          initialChecked[id] = false;
-        });
-        setCheckedItems(initialChecked);
-      } else {
-        setError(data.message || "Failed to fetch equipment");
+      // 1) نحاول dept_equipment أولاً
+      try {
+        const response = await fetch(`${API_BASE}/dept-equipment/list/${listId}`);
+        const data = await response.json();
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          items = data.data;
+        }
+      } catch (e) {
+        console.warn("dept-equipment fetch failed:", e.message);
       }
+
+      // 2) fallback إلى ot_custom_equipment
+      if (items.length === 0) {
+        try {
+          const response = await fetch(`${API_BASE}/ot-custom-equipment/${listId}`);
+          const data = await response.json();
+          if (data.success) {
+            items = data.data || [];
+          }
+        } catch (e) {
+          console.warn("ot-custom-equipment fetch failed:", e.message);
+        }
+      }
+
+      setEquipment(items);
+
+      // ✅ تهيئة checkedItems بالـID الموحّد
+      const initialChecked = {};
+      items.forEach(item => {
+        const id = getItemId(item);
+        if (id) initialChecked[id] = false;
+      });
+      setCheckedItems(initialChecked);
     } catch (err) {
       console.error('Error fetching equipment:', err);
       setError("Connection error: " + err.message);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -91,6 +105,29 @@ function EquipmentChecklist() {
       console.error('Error fetching saved checklist:', err);
     }
   };
+
+  // ============================================================
+  // ✅ useEffect — تسلسل صارم لمنع Race Condition
+  // ============================================================
+  useEffect(() => {
+    if (!listId) {
+      setError("No list ID provided");
+      setLoading(false);
+      return;
+    }
+
+    (async () => {
+      await fetchEquipment();  // أولاً: المعدات + تهيئة checkedItems
+      if (!isNewCheck) {
+        await fetchSavedChecklist();  // ثانياً: نطبق القيم المحفوظة
+      } else {
+        setSubmitted(false);
+        setSubmissionData(null);
+      }
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listId, isNewCheck]);
 
   // ========== Interactions ==========
   const handleCheck = (itemId) => {
@@ -111,8 +148,8 @@ function EquipmentChecklist() {
     }
     const allChecked = {};
     equipment.forEach(item => {
-      const id = item._id.toString();
-      allChecked[id] = true;
+      const id = getItemId(item);
+      if (id) allChecked[id] = true;
     });
     setCheckedItems(allChecked);
   };
@@ -124,8 +161,8 @@ function EquipmentChecklist() {
     }
     const allUnchecked = {};
     equipment.forEach(item => {
-      const id = item._id.toString();
-      allUnchecked[id] = false;
+      const id = getItemId(item);
+      if (id) allUnchecked[id] = false;
     });
     setCheckedItems(allUnchecked);
   };
@@ -133,8 +170,8 @@ function EquipmentChecklist() {
   const handleStartNewCheck = () => {
     const initialChecked = {};
     equipment.forEach(item => {
-      const id = item._id.toString();
-      initialChecked[id] = false;
+      const id = getItemId(item);
+      if (id) initialChecked[id] = false;
     });
     setCheckedItems(initialChecked);
     setSubmitted(false);
@@ -154,9 +191,10 @@ function EquipmentChecklist() {
                        "Staff";
       const userRole = localStorage.getItem("userRole") || "staff";
 
+      // ✅ نوحّد كل المفاتيح كـstrings
       const checkedItemsStr = {};
       Object.keys(checkedItems).forEach(key => {
-        checkedItemsStr[key.toString()] = checkedItems[key];
+        checkedItemsStr[String(key)] = checkedItems[key];
       });
 
       const payload = {
@@ -202,7 +240,7 @@ function EquipmentChecklist() {
     const submittedByName = submissionData?.submittedBy || userName;
 
     let tableRows = equipment.map((item, index) => {
-      const itemId = item._id.toString();
+      const itemId = getItemId(item);
       const isChecked = checkedItems[itemId] || false;
       return `
         <tr>
@@ -707,7 +745,7 @@ function EquipmentChecklist() {
             }}
           >
             {equipment.map((item, index) => {
-              const itemId = item._id.toString();
+              const itemId = getItemId(item);
               const isChecked = checkedItems[itemId] || false;
               const sStyle = statusStyle(item.status || 'Available');
 
@@ -937,7 +975,7 @@ function EquipmentChecklist() {
 
               <tbody>
                 {equipment.map((item) => {
-                  const itemId = item._id.toString();
+                  const itemId = getItemId(item);
                   const isChecked = checkedItems[itemId] || false;
                   const sStyle = statusStyle(item.status || 'Available');
 

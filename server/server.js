@@ -85,6 +85,32 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluste
 
 console.log(' MongoDB URI:', MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'));
 
+// ✅ Admin default credentials من ENV
+const DEFAULT_ADMIN_STAFF_NO = process.env.DEFAULT_ADMIN_STAFF_NO || "host3487539";
+const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || "123456";
+
+// ✅ Token لحماية debug routes الحساسة
+const ADMIN_DEBUG_TOKEN = process.env.ADMIN_DEBUG_TOKEN || null;
+
+// ✅ Middleware لحماية routes الـdebug
+function requireDebugToken(req, res, next) {
+  // في development نسمح بدون token
+  if (process.env.NODE_ENV !== 'production' && !ADMIN_DEBUG_TOKEN) {
+    return next();
+  }
+  if (!ADMIN_DEBUG_TOKEN) {
+    return res.status(403).json({
+      success: false,
+      message: "Debug routes are disabled. Set ADMIN_DEBUG_TOKEN to enable.",
+    });
+  }
+  const token = req.headers['x-debug-token'] || req.query.debugToken;
+  if (token !== ADMIN_DEBUG_TOKEN) {
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  }
+  next();
+}
+
 // ✅ إعدادات محسّنة — فشل سريع بدل انتظار طويل
 const client = new MongoClient(MONGODB_URI, {
   serverSelectionTimeoutMS: 10000,
@@ -277,17 +303,17 @@ async function ensureConnection() {
       }
     }
 
-    let existingAdmin = await adminCollection.findOne({ staff_no: "host3487539" });
+    let existingAdmin = await adminCollection.findOne({ staff_no: DEFAULT_ADMIN_STAFF_NO });
     if (!existingAdmin) {
-      existingAdmin = await adminCollection.findOne({ staffNumber: "host3487539" });
+      existingAdmin = await adminCollection.findOne({ staffNumber: DEFAULT_ADMIN_STAFF_NO });
     }
 
     if (!existingAdmin) {
       console.log(" Creating default admin...");
-      const hashedPassword = await bcrypt.hash("123456", 10);
+      const hashedPassword = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
       await adminCollection.insertOne({
         name: "System Administrator",
-        staff_no: "host3487539",
+        staff_no: DEFAULT_ADMIN_STAFF_NO,
         password: hashedPassword,
         role: "super_admin",
         email: "admin@example.com",
@@ -443,6 +469,7 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// ✅ /api/debug/info — آمن (لا يعرض credentials)
 app.get('/api/debug/info', async (req, res) => {
   res.json({
     success: true,
@@ -457,7 +484,8 @@ app.get('/api/debug/info', async (req, res) => {
   });
 });
 
-app.get('/api/debug/collections-stats', async (req, res) => {
+// ✅ محمي: collections-stats
+app.get('/api/debug/collections-stats', requireDebugToken, async (req, res) => {
   try {
     const collections = [
       'ot_custom_lists', 'ot_custom_equipment', 'ot_departments',
@@ -484,7 +512,8 @@ app.get('/api/debug/collections-stats', async (req, res) => {
   }
 });
 
-app.post('/api/debug/clean-orphans', async (req, res) => {
+// ✅ محمي: clean-orphans (يقوم بحذف بيانات!)
+app.post('/api/debug/clean-orphans', requireDebugToken, async (req, res) => {
   try {
     console.log(' Starting orphan cleanup...');
     const noIdResult = await otCustomEquipmentCollection.deleteMany({
@@ -603,10 +632,8 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
   }
 });
 
-// ============================================================
-// 🚑 FIX: إعادة ربط اللستات اليتيمة بقسم موجود
-// ============================================================
-app.post('/api/ot-fix-orphan-lists', async (req, res) => {
+// ✅ محمي: fix orphan lists (يعدّل بيانات)
+app.post('/api/ot-fix-orphan-lists', requireDebugToken, async (req, res) => {
   try {
     const { targetDeptCode, dryRun = false } = req.body;
     if (!targetDeptCode) {
@@ -656,10 +683,8 @@ app.post('/api/ot-fix-orphan-lists', async (req, res) => {
   }
 });
 
-// ============================================================
-// 🚑 FIX: نقل لستة واحدة إلى قسم معين
-// ============================================================
-app.post('/api/ot-move-list-to-dept', async (req, res) => {
+// ✅ محمي: move list (يعدّل بيانات)
+app.post('/api/ot-move-list-to-dept', requireDebugToken, async (req, res) => {
   try {
     const { listId, targetDeptCode } = req.body;
     if (!listId || !targetDeptCode) {
@@ -935,7 +960,7 @@ app.delete("/api/staff/:id", async (req, res) => {
 // ============================================================
 app.post('/api/admin/login', async (req, res) => {
   const { name, staff_no, password } = req.body;
-  console.log(" Admin login - Name:", name, "Staff No:", staff_no);
+  console.log(" Admin login attempt - staff_no:", staff_no ? '***' : '(missing)');
 
   try {
     const admin = await adminCollection.findOne({
@@ -1319,24 +1344,111 @@ app.post('/api/checklist/save', async (req, res) => {
   }
 });
 
+// ============================================================
+// ✅ FIXED: /api/checklists — Bulk fetch (بدل N+1)
+// ============================================================
 app.get('/api/checklists', async (req, res) => {
+  const startedAt = Date.now();
   try {
-    const checklists = await checklistsCollection
-      .find({ submitted: true }).sort({ submittedAt: -1 }).limit(500).toArray();
+    console.log("==============================================");
+    console.log("GET /api/checklists (bulk mode)");
 
-    for (let checklist of checklists) {
-      const equipmentItems = await deptEquipmentCollection
-        .find({ listId: checklist.listId }).limit(200).toArray();
-      if (equipmentItems.length === 0) {
-        checklist.equipmentDetails = await otCustomEquipmentCollection
-          .find({ listId: checklist.listId }).limit(200).toArray();
-      } else {
-        checklist.equipmentDetails = equipmentItems;
-      }
+    // STEP 1: جلب الchecklists
+    const checklists = await withTimeout(
+      checklistsCollection
+        .find({ submitted: true })
+        .sort({ submittedAt: -1 })
+        .limit(500)
+        .maxTimeMS(8000)
+        .toArray(),
+      12000,
+      "Fetching checklists"
+    );
+    console.log(`1️⃣ Checklists: ${checklists.length} (${Date.now() - startedAt}ms)`);
+
+    if (checklists.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        debug: { checklists: 0, listIds: 0, timeMs: Date.now() - startedAt }
+      });
     }
-    res.json({ success: true, data: checklists });
+
+    // STEP 2: قائمة listIds فريدة
+    const listIds = [...new Set(checklists.map(c => c.listId).filter(Boolean))];
+    console.log(`2️⃣ Unique listIds: ${listIds.length}`);
+
+    // STEP 3: جلب كل المعدات بالجملة (dept + ot) بالتوازي
+    const [deptEquipment, otEquipment] = await Promise.all([
+      withTimeout(
+        deptEquipmentCollection
+          .find({ listId: { $in: listIds } })
+          .maxTimeMS(8000)
+          .toArray(),
+        12000,
+        "Fetching dept equipment bulk"
+      ).catch(err => {
+        console.warn("⚠️ dept_equipment bulk fetch failed:", err.message);
+        return [];
+      }),
+      withTimeout(
+        otCustomEquipmentCollection
+          .find({ listId: { $in: listIds } })
+          .maxTimeMS(8000)
+          .toArray(),
+        12000,
+        "Fetching ot equipment bulk"
+      ).catch(err => {
+        console.warn("⚠️ ot_custom_equipment bulk fetch failed:", err.message);
+        return [];
+      }),
+    ]);
+
+    console.log(`3️⃣ Bulk equipment: dept=${deptEquipment.length}, ot=${otEquipment.length} (${Date.now() - startedAt}ms)`);
+
+    // STEP 4: تجميع المعدات حسب listId
+    const deptEqByList = {};
+    for (const eq of deptEquipment) {
+      if (!deptEqByList[eq.listId]) deptEqByList[eq.listId] = [];
+      deptEqByList[eq.listId].push(eq);
+    }
+    const otEqByList = {};
+    for (const eq of otEquipment) {
+      if (!otEqByList[eq.listId]) otEqByList[eq.listId] = [];
+      otEqByList[eq.listId].push(eq);
+    }
+
+    // STEP 5: ربط المعدات بنفس منطق الكود القديم (dept أولاً، ثم OT كـfallback)
+    for (const checklist of checklists) {
+      const listId = checklist.listId;
+      const deptItems = deptEqByList[listId] || [];
+      checklist.equipmentDetails = deptItems.length > 0
+        ? deptItems.slice(0, 200)
+        : (otEqByList[listId] || []).slice(0, 200);
+    }
+
+    console.log(`✅ Completed /api/checklists in ${Date.now() - startedAt}ms`);
+    console.log("==============================================");
+
+    res.json({
+      success: true,
+      data: checklists,
+      debug: {
+        checklists: checklists.length,
+        listIds: listIds.length,
+        deptEquipment: deptEquipment.length,
+        otEquipment: otEquipment.length,
+        timeMs: Date.now() - startedAt,
+      }
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("❌ /api/checklists ERROR:", error);
+    console.log("==============================================");
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      debug: { timeMs: Date.now() - startedAt }
+    });
   }
 });
 
@@ -1379,7 +1491,7 @@ app.get('/api/ot-custom-lists', async (req, res) => {
 
     // STEP 2: Get equipment IDs
     const listIds = lists.map(list => list.id).filter(Boolean);
-    console.log("2️⃣ List IDs:", listIds);
+    console.log("2️⃣ List IDs:", listIds.length);
 
     // STEP 3: Get equipment (with safe fallback)
     console.log("3️⃣ Fetching equipment...");
@@ -1398,7 +1510,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
         console.log(`3️⃣ Equipment fetched: ${allEquipment.length} (${Date.now() - startedAt}ms)`);
       } catch (equipmentError) {
         console.error("⚠️ Equipment query failed:", equipmentError.message);
-        // ✅ مهم: لا نفشل تحميل الـ Lists بسبب equipment
         allEquipment = [];
       }
     }
@@ -1859,12 +1970,12 @@ app.delete("/api/ot/equipment/:id", async (req, res) => {
 // ============================================================
 // DEBUG ROUTES
 // ============================================================
-app.get('/api/test/admins', async (req, res) => {
+app.get('/api/test/admins', requireDebugToken, async (req, res) => {
   try {
     const collectionsList = await db.listCollections().toArray();
     const collectionNames = collectionsList.map(c => c.name);
-    let admin = await adminCollection.findOne({ staff_no: "host3487539" });
-    if (!admin) admin = await adminCollection.findOne({ staffNumber: "host3487539" });
+    let admin = await adminCollection.findOne({ staff_no: DEFAULT_ADMIN_STAFF_NO });
+    if (!admin) admin = await adminCollection.findOne({ staffNumber: DEFAULT_ADMIN_STAFF_NO });
     res.json({
       success: true,
       availableCollections: collectionNames,
@@ -1876,12 +1987,14 @@ app.get('/api/test/admins', async (req, res) => {
   }
 });
 
-app.get('/api/debug/admin-structure', async (req, res) => {
+app.get('/api/debug/admin-structure', requireDebugToken, async (req, res) => {
   try {
     const allAdmins = await adminCollection.find({}).toArray();
+    // نحذف حقول كلمة المرور من الرد
+    const safeAdmins = allAdmins.map(({ password, ...rest }) => rest);
     res.json({
       success: true, totalAdmins: allAdmins.length,
-      adminData: allAdmins.map(admin => ({
+      adminData: safeAdmins.map(admin => ({
         id: admin._id, name: admin.name,
         availableFields: Object.keys(admin), fullData: admin
       }))
@@ -1977,16 +2090,19 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log('═══════════════════════════════════════════════════════');
   console.log(` Server running on port ${PORT}`);
   console.log(` Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(` Admin: staff_no=host3487539, password=123456`);
+  console.log(` Admin staff_no: ${DEFAULT_ADMIN_STAFF_NO}`);
+  console.log(` Admin password: ${process.env.DEFAULT_ADMIN_PASSWORD ? '********' : '(default from code — change in prod!)'}`);
+  console.log(` Debug token: ${ADMIN_DEBUG_TOKEN ? 'SET' : 'NOT SET (debug routes protected by env only)'}`);
   console.log(` OT Departments:   /api/ot-departments`);
   console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + withTimeout)`);
   console.log(` OT Custom Equip:  /api/ot-custom-equipment`);
+  console.log(` Checklists:       /api/checklists (BULK — no N+1)`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
-  console.log(` 🚑 Fix orphans:   POST /api/ot-fix-orphan-lists`);
-  console.log(` 🚑 Move list:     POST /api/ot-move-list-to-dept`);
+  console.log(` 🚑 Fix orphans:   POST /api/ot-fix-orphan-lists  [protected]`);
+  console.log(` 🚑 Move list:     POST /api/ot-move-list-to-dept [protected]`);
   console.log(` Health Check:     /api/health`);
   console.log(` Debug Info:       /api/debug/info`);
-  console.log(` Collections:      /api/debug/collections-stats`);
+  console.log(` Collections:      /api/debug/collections-stats [protected]`);
   console.log(` Allowed origins:  ${allowedOrigins.join(', ')}`);
   console.log(` Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
   console.log('═══════════════════════════════════════════════════════');
