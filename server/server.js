@@ -767,7 +767,6 @@ app.get("/api/ot-departments", async (req, res) => {
     const depts = await withTimeout(
       otDepartmentsCollection
         .find({}, {
-          // ✅ نستبعد الحقول الثقيلة لو وجدت مستقبلاً
           projection: { id: 1, name: 1, description: 1, isDefault: 1, createdAt: 1 }
         })
         .sort({ createdAt: 1 })
@@ -1486,7 +1485,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES — SAFE + includeEquipment
+// ✅ OT CUSTOM LISTS ROUTES — SAFE + includeEquipment + equipmentCount
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   const startedAt = Date.now();
@@ -1520,35 +1519,56 @@ app.get('/api/ot-custom-lists', async (req, res) => {
     if (lists.length === 0) {
       return res.json({
         success: true, data: [],
-        debug: { lists: 0, equipment: 0, withEquipment, timeMs: Date.now() - startedAt }
+        debug: { lists: 0, equipment: 0, counts: 0, withEquipment, timeMs: Date.now() - startedAt }
       });
     }
 
-    // ✅ لو ما نبي equipment، نرجع فوراً
+    const listIds = lists.map(list => list.id).filter(Boolean);
+
+    // ✅ لو ما نبي equipment، نجيب العدد فقط (aggregation خفيف) ونرجع فوراً
     if (!withEquipment) {
+      let countMap = {};
+
+      if (listIds.length > 0) {
+        try {
+          const counts = await withTimeout(
+            otCustomEquipmentCollection.aggregate([
+              { $match: { listId: { $in: listIds } } },
+              { $group: { _id: '$listId', count: { $sum: 1 } } }
+            ]).toArray(),
+            5000,
+            "Counting equipment per list"
+          );
+          counts.forEach(c => { countMap[c._id] = c.count; });
+          console.log(`2️⃣ Counts computed for ${Object.keys(countMap).length} lists (${Date.now() - startedAt}ms)`);
+        } catch (e) {
+          console.warn("⚠️ equipmentCount aggregation failed:", e.message);
+        }
+      }
+
       for (const list of lists) {
         list.equipment = [];
+        list.equipmentCount = countMap[list.id] || 0;
       }
-      console.log(`✅ Completed (no equipment) in ${Date.now() - startedAt}ms`);
+
+      console.log(`✅ Completed (lists + counts) in ${Date.now() - startedAt}ms`);
       console.log("==============================================");
+
       return res.json({
         success: true,
         data: lists,
         debug: {
           lists: lists.length,
           equipment: 0,
+          counts: Object.keys(countMap).length,
           withEquipment: false,
           timeMs: Date.now() - startedAt,
         }
       });
     }
 
-    // STEP 2: Get equipment IDs
-    const listIds = lists.map(list => list.id).filter(Boolean);
-    console.log("2️⃣ List IDs:", listIds.length);
-
-    // STEP 3: Get equipment (with safe fallback)
-    console.log("3️⃣ Fetching equipment...");
+    // STEP 2: Get equipment (withEquipment=true)
+    console.log("2️⃣ Fetching equipment...");
     let allEquipment = [];
     if (listIds.length > 0) {
       try {
@@ -1561,14 +1581,14 @@ app.get('/api/ot-custom-lists', async (req, res) => {
           8000,
           "Fetching custom equipment"
         );
-        console.log(`3️⃣ Equipment fetched: ${allEquipment.length} (${Date.now() - startedAt}ms)`);
+        console.log(`2️⃣ Equipment fetched: ${allEquipment.length} (${Date.now() - startedAt}ms)`);
       } catch (equipmentError) {
         console.error("⚠️ Equipment query failed:", equipmentError.message);
         allEquipment = [];
       }
     }
 
-    // STEP 4: Group equipment by listId
+    // STEP 3: Group equipment by listId
     const equipmentByList = {};
     for (const equipment of allEquipment) {
       if (!equipmentByList[equipment.listId]) {
@@ -1577,9 +1597,10 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       equipmentByList[equipment.listId].push(equipment);
     }
 
-    // STEP 5: Attach equipment to lists
+    // STEP 4: Attach equipment + equipmentCount to lists
     for (const list of lists) {
       list.equipment = equipmentByList[list.id] || [];
+      list.equipmentCount = list.equipment.length;
     }
 
     console.log(`✅ Completed (with equipment) in ${Date.now() - startedAt}ms`);
@@ -1591,6 +1612,7 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       debug: {
         lists: lists.length,
         equipment: allEquipment.length,
+        counts: lists.length,
         withEquipment: true,
         timeMs: Date.now() - startedAt
       }
@@ -2149,6 +2171,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` Debug token: ${ADMIN_DEBUG_TOKEN ? 'SET' : 'NOT SET (debug routes protected by env only)'}`);
   console.log(` OT Departments:   /api/ot-departments`);
   console.log(` OT Custom Lists:  /api/ot-custom-lists?includeEquipment=false|true`);
+  console.log(`   → includeEquipment=false: يرجع equipmentCount لكل list ✅`);
   console.log(` OT Custom Equip:  /api/ot-custom-equipment`);
   console.log(` Checklists:       /api/checklists?includeEquipment=false|true`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
