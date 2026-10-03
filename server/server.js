@@ -94,7 +94,6 @@ const ADMIN_DEBUG_TOKEN = process.env.ADMIN_DEBUG_TOKEN || null;
 
 // ✅ Middleware لحماية routes الـdebug
 function requireDebugToken(req, res, next) {
-  // في development نسمح بدون token
   if (process.env.NODE_ENV !== 'production' && !ADMIN_DEBUG_TOKEN) {
     return next();
   }
@@ -763,12 +762,21 @@ app.delete("/api/custom-departments/:id", (req, res) => {
 // OT DEPARTMENTS ROUTES
 // ============================================================
 app.get("/api/ot-departments", async (req, res) => {
+  const startedAt = Date.now();
   try {
     const depts = await withTimeout(
-      otDepartmentsCollection.find({}).sort({ createdAt: 1 }).maxTimeMS(5000).toArray(),
+      otDepartmentsCollection
+        .find({}, {
+          // ✅ نستبعد الحقول الثقيلة لو وجدت مستقبلاً
+          projection: { id: 1, name: 1, description: 1, isDefault: 1, createdAt: 1 }
+        })
+        .sort({ createdAt: 1 })
+        .maxTimeMS(5000)
+        .toArray(),
       8000,
       "Fetching departments"
     );
+    console.log(`✅ /ot-departments → ${depts.length} in ${Date.now() - startedAt}ms`);
     res.json({ success: true, data: depts });
   } catch (err) {
     console.error(" Error fetching departments:", err);
@@ -1345,13 +1353,16 @@ app.post('/api/checklist/save', async (req, res) => {
 });
 
 // ============================================================
-// ✅ FIXED: /api/checklists — Bulk fetch (بدل N+1)
+// ✅ /api/checklists — Bulk fetch + includeEquipment
 // ============================================================
 app.get('/api/checklists', async (req, res) => {
   const startedAt = Date.now();
   try {
+    const { includeEquipment } = req.query;
+    const withEquipment = includeEquipment === 'true';
+
     console.log("==============================================");
-    console.log("GET /api/checklists (bulk mode)");
+    console.log(`GET /api/checklists (includeEquipment=${withEquipment})`);
 
     // STEP 1: جلب الchecklists
     const checklists = await withTimeout(
@@ -1371,6 +1382,27 @@ app.get('/api/checklists', async (req, res) => {
         success: true,
         data: [],
         debug: { checklists: 0, listIds: 0, timeMs: Date.now() - startedAt }
+      });
+    }
+
+    // ✅ لو ما نبي equipmentDetails، نرجع فوراً (بدون استعلامات إضافية)
+    if (!withEquipment) {
+      for (const checklist of checklists) {
+        checklist.equipmentDetails = [];
+      }
+      console.log(`✅ Completed (no equipment) in ${Date.now() - startedAt}ms`);
+      console.log("==============================================");
+      return res.json({
+        success: true,
+        data: checklists,
+        debug: {
+          checklists: checklists.length,
+          listIds: 0,
+          deptEquipment: 0,
+          otEquipment: 0,
+          withEquipment: false,
+          timeMs: Date.now() - startedAt,
+        }
       });
     }
 
@@ -1427,7 +1459,7 @@ app.get('/api/checklists', async (req, res) => {
         : (otEqByList[listId] || []).slice(0, 200);
     }
 
-    console.log(`✅ Completed /api/checklists in ${Date.now() - startedAt}ms`);
+    console.log(`✅ Completed (with equipment) in ${Date.now() - startedAt}ms`);
     console.log("==============================================");
 
     res.json({
@@ -1438,6 +1470,7 @@ app.get('/api/checklists', async (req, res) => {
         listIds: listIds.length,
         deptEquipment: deptEquipment.length,
         otEquipment: otEquipment.length,
+        withEquipment: true,
         timeMs: Date.now() - startedAt,
       }
     });
@@ -1453,22 +1486,24 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES — SAFE VERSION
+// ✅ OT CUSTOM LISTS ROUTES — SAFE + includeEquipment
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   const startedAt = Date.now();
 
   try {
-    const { roomId, deptCode } = req.query;
+    const { roomId, deptCode, includeEquipment } = req.query;
+    const withEquipment = includeEquipment === 'true';
+
     const match = {};
     if (roomId) match.roomId = roomId;
     if (deptCode) match.deptCode = deptCode;
 
     console.log("==============================================");
-    console.log("GET /api/ot-custom-lists");
+    console.log(`GET /api/ot-custom-lists (includeEquipment=${withEquipment})`);
     console.log("Query:", match);
 
-    // STEP 1: Get Lists only
+    // STEP 1: Get Lists
     console.log("1️⃣ Fetching lists...");
     const lists = await withTimeout(
       otCustomListsCollection
@@ -1485,7 +1520,26 @@ app.get('/api/ot-custom-lists', async (req, res) => {
     if (lists.length === 0) {
       return res.json({
         success: true, data: [],
-        debug: { lists: 0, equipment: 0, timeMs: Date.now() - startedAt }
+        debug: { lists: 0, equipment: 0, withEquipment, timeMs: Date.now() - startedAt }
+      });
+    }
+
+    // ✅ لو ما نبي equipment، نرجع فوراً
+    if (!withEquipment) {
+      for (const list of lists) {
+        list.equipment = [];
+      }
+      console.log(`✅ Completed (no equipment) in ${Date.now() - startedAt}ms`);
+      console.log("==============================================");
+      return res.json({
+        success: true,
+        data: lists,
+        debug: {
+          lists: lists.length,
+          equipment: 0,
+          withEquipment: false,
+          timeMs: Date.now() - startedAt,
+        }
       });
     }
 
@@ -1528,7 +1582,7 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       list.equipment = equipmentByList[list.id] || [];
     }
 
-    console.log(`✅ Completed /api/ot-custom-lists in ${Date.now() - startedAt}ms`);
+    console.log(`✅ Completed (with equipment) in ${Date.now() - startedAt}ms`);
     console.log("==============================================");
 
     return res.json({
@@ -1537,6 +1591,7 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       debug: {
         lists: lists.length,
         equipment: allEquipment.length,
+        withEquipment: true,
         timeMs: Date.now() - startedAt
       }
     });
@@ -1990,7 +2045,6 @@ app.get('/api/test/admins', requireDebugToken, async (req, res) => {
 app.get('/api/debug/admin-structure', requireDebugToken, async (req, res) => {
   try {
     const allAdmins = await adminCollection.find({}).toArray();
-    // نحذف حقول كلمة المرور من الرد
     const safeAdmins = allAdmins.map(({ password, ...rest }) => rest);
     res.json({
       success: true, totalAdmins: allAdmins.length,
@@ -2094,9 +2148,9 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` Admin password: ${process.env.DEFAULT_ADMIN_PASSWORD ? '********' : '(default from code — change in prod!)'}`);
   console.log(` Debug token: ${ADMIN_DEBUG_TOKEN ? 'SET' : 'NOT SET (debug routes protected by env only)'}`);
   console.log(` OT Departments:   /api/ot-departments`);
-  console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + withTimeout)`);
+  console.log(` OT Custom Lists:  /api/ot-custom-lists?includeEquipment=false|true`);
   console.log(` OT Custom Equip:  /api/ot-custom-equipment`);
-  console.log(` Checklists:       /api/checklists (BULK — no N+1)`);
+  console.log(` Checklists:       /api/checklists?includeEquipment=false|true`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
   console.log(` 🚑 Fix orphans:   POST /api/ot-fix-orphan-lists  [protected]`);
   console.log(` 🚑 Move list:     POST /api/ot-move-list-to-dept [protected]`);

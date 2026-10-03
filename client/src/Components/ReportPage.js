@@ -4,6 +4,11 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
+// ✅ Cache settings
+const CACHE_TTL = 5 * 60 * 1000; // 5 دقائق
+const CACHE_KEY_REPORTS = 'reports-cache-v1';
+const CACHE_KEY_DEPTS = 'reports-depts-cache-v1';
+
 function useWindowSize() {
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   useEffect(() => {
@@ -12,6 +17,30 @@ function useWindowSize() {
     return () => window.removeEventListener('resize', handler);
   }, []);
   return size;
+}
+
+// ✅ Helper: قراءة/كتابة cache
+function readCache(key) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const { data, at } = JSON.parse(raw);
+    if (Date.now() - at > CACHE_TTL) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(key, data) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ data, at: Date.now() }));
+  } catch {
+    // sessionStorage ممتلئ — تجاهل
+  }
 }
 
 function ReportPage() {
@@ -30,63 +59,82 @@ function ReportPage() {
   const [filterDate, setFilterDate] = useState('');
   const [selectedChecklist, setSelectedChecklist] = useState(null);
 
+  // ✅ حالة تحميل التفاصيل داخل Modal
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
   const { width } = useWindowSize();
   const isMobile = width < 768;
   const isTablet = width >= 768 && width < 1024;
 
-  // ✅ نمنع الـfetch المزدوج عند العودة من Checklist
+  // ✅ منع fetch مزدوج + abort
   const hasFetchedRef = useRef(false);
   const abortRef = useRef(null);
 
   // ============================================================
-  // ✅ تحميل الأقسام من MongoDB (بدل localStorage)
+  // ✅ تحميل الأقسام — مع cache
   // ============================================================
   useEffect(() => {
-    const controller = new AbortController();
     const loadDepartments = async () => {
+      // ✅ نحاول من cache أولاً
+      const cached = readCache(CACHE_KEY_DEPTS);
+      if (cached) {
+        setDepartments(cached);
+        console.log('📦 Departments from cache:', cached.length);
+        return;
+      }
+
       try {
         const response = await fetch(`${API_BASE}/ot-departments`, {
           cache: 'no-store',
-          signal: controller.signal,
         });
         const data = await response.json();
         if (data.success) {
           setDepartments(data.data || []);
-        } else {
-          console.warn('Failed to load departments:', data.message);
+          writeCache(CACHE_KEY_DEPTS, data.data || []);
         }
       } catch (e) {
-        if (e.name !== 'AbortError') {
-          console.warn('Could not load departments from server:', e.message);
-        }
+        console.warn('Could not load departments from server:', e.message);
       }
     };
     loadDepartments();
-    return () => controller.abort();
   }, []);
 
-  // ========== Fetch reports ==========
-  const fetchReports = useCallback(async () => {
-    // نلغي أي طلب سابق
+  // ============================================================
+  // ✅ fetchReports — بدون equipment (سريع)
+  // ============================================================
+  const fetchReports = useCallback(async (forceRefresh = false) => {
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // ✅ cache أولاً (إلا لو forceRefresh)
+    if (!forceRefresh) {
+      const cached = readCache(CACHE_KEY_REPORTS);
+      if (cached) {
+        setChecklists(cached);
+        setLoading(false);
+        console.log('📦 Reports from cache:', cached.length);
+        return;
+      }
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/checklists`, {
+      // ✅ includeEquipment=false — يجلب فقط البيانات الأساسية
+      const response = await fetch(`${API_BASE}/checklists?includeEquipment=false`, {
         cache: 'no-store',
         signal: controller.signal,
       });
       const data = await response.json();
 
       if (data.success) {
-        // ✅ عرض معلومات الأداء في console
         if (data.debug?.timeMs !== undefined) {
-          console.log(`📊 /api/checklists returned in ${data.debug.timeMs}ms`, data.debug);
+          console.log(`📊 /checklists (no equip) in ${data.debug.timeMs}ms`, data.debug);
         }
-        setChecklists(data.data || []);
+        const list = data.data || [];
+        setChecklists(list);
+        writeCache(CACHE_KEY_REPORTS, list);
       } else {
         setError(data.message || 'Failed to load reports');
       }
@@ -106,8 +154,9 @@ function ReportPage() {
 
     fetchReports();
 
-    // ✅ إذا كان قادمًا من Checklist مع refresh، نمسح الstate بدون fetch ثاني
+    // ✅ إذا قادم من Checklist مع refresh، نجبر fetch جديد
     if (location.state?.refresh) {
+      fetchReports(true);
       navigate(location.pathname, { replace: true, state: {} });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,6 +168,52 @@ function ReportPage() {
       if (abortRef.current) abortRef.current.abort();
     };
   }, []);
+
+  // ============================================================
+  // ✅ openDetails — يجلب equipmentDetails عند فتح Modal فقط
+  // ============================================================
+  const openDetails = useCallback(async (checklist) => {
+    // ✅ أولاً نعرض الchecklist بدون تفاصيل
+    setSelectedChecklist(checklist);
+
+    // ✅ لو عنده equipmentDetails مسبقاً (من cache قديم)، لا نعيد الجلب
+    if (checklist.equipmentDetails && checklist.equipmentDetails.length > 0) {
+      return;
+    }
+
+    // ✅ نجلب التفاصيل
+    setLoadingDetails(true);
+    try {
+      const response = await fetch(`${API_BASE}/checklists?includeEquipment=true`, {
+        cache: 'no-store',
+      });
+      const data = await response.json();
+
+      if (data.success && Array.isArray(data.data)) {
+        // نلاقي نفس الchecklist بالتفاصيل
+        const updated = data.data.find(c =>
+          (c._id && checklist._id && c._id === checklist._id) ||
+          (c.listId && checklist.listId && c.listId === checklist.listId &&
+           c.submittedAt === checklist.submittedAt)
+        );
+
+        if (updated && updated.equipmentDetails) {
+          setSelectedChecklist(updated);
+        } else {
+          console.warn('⚠️ Could not find matching checklist with details');
+        }
+      }
+    } catch (err) {
+      console.warn('Could not load equipment details:', err.message);
+    } finally {
+      setLoadingDetails(false);
+    }
+  }, []);
+
+  const closeDetails = () => {
+    setSelectedChecklist(null);
+    setLoadingDetails(false);
+  };
 
   // ========== Filtering ==========
   const filteredChecklists = useMemo(() => {
@@ -144,9 +239,6 @@ function ReportPage() {
     return result;
   }, [checklists, selectedDeptId, filterDept, filterDate]);
 
-  const openDetails = (checklist) => setSelectedChecklist(checklist);
-  const closeDetails = () => setSelectedChecklist(null);
-
   const stats = useMemo(() => {
     const total = checklists.length;
     const depts = new Set(checklists.map(c => c.deptCode || c.deptName)).size;
@@ -166,6 +258,13 @@ function ReportPage() {
     } catch {
       return '—';
     }
+  };
+
+  // ========== Manual Refresh ==========
+  const handleRefresh = () => {
+    // ✅ نمسح cache ونعيد الجلب
+    try { sessionStorage.removeItem(CACHE_KEY_REPORTS); } catch {}
+    fetchReports(true);
   };
 
   const Icon = ({ name }) => {
@@ -198,7 +297,7 @@ function ReportPage() {
     return (
       <div style={{ padding: '40px', textAlign: 'center', color: '#dc2626' }}>
         <h2>❌ {error}</h2>
-        <button onClick={fetchReports} style={{ padding: '10px 24px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Retry</button>
+        <button onClick={handleRefresh} style={{ padding: '10px 24px', background: '#006341', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Retry</button>
       </div>
     );
   }
@@ -233,7 +332,7 @@ function ReportPage() {
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
-            onClick={fetchReports}
+            onClick={handleRefresh}
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
               background: '#e5e7eb', color: '#1f2937', border: 'none',
@@ -449,7 +548,7 @@ function ReportPage() {
               : 'No reports have been submitted yet.'}
           </p>
           <button
-            onClick={fetchReports}
+            onClick={handleRefresh}
             style={{
               padding: '8px 20px',
               background: '#006341',
@@ -646,8 +745,13 @@ function ReportPage() {
               <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
             </div>
 
-            {/* Equipment table */}
-            {selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 ? (
+            {/* Equipment table — with loading state */}
+            {loadingDetails ? (
+              <div style={{ padding: '40px', textAlign: 'center' }}>
+                <div style={{ width: '32px', height: '32px', border: '3px solid #e5ede9', borderTop: '3px solid #006341', borderRadius: '50%', animation: 'spin 0.7s linear infinite', margin: '0 auto 12px' }}></div>
+                <p style={{ color: '#6b7280', fontSize: '14px' }}>Loading equipment details...</p>
+              </div>
+            ) : selectedChecklist.equipmentDetails && selectedChecklist.equipmentDetails.length > 0 ? (
               <div>
                 <h4 style={{
                   borderBottom: '2px solid #e5e7eb',
