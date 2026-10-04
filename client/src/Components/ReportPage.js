@@ -2,12 +2,41 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
+// ============================================================
+// ✅ Robust API_BASE — يعمل على لابتوب + جوال + Render + نطاق عام
+// ============================================================
+const getApiBase = () => {
+  // 1. ENV له الأولوية
+  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
+
+  const { hostname, protocol, origin } = window.location;
+
+  // 2. localhost → port 5000
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `${protocol}//${hostname}:5000/api`;
+  }
+
+  // 3. شبكة محلية (192.168.x / 10.x / 172.16-31.x) → port 5000
+  if (
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  ) {
+    return `${protocol}//${hostname}:5000/api`;
+  }
+
+  // 4. نطاق عام (Render / Netlify / custom) → نفس الـorigin
+  //    السيرفر يخدم الفرونت من نفس المكان (express.static)
+  return `${origin}/api`;
+};
+
+const API_BASE = getApiBase();
+console.log('🌐 ReportPage API_BASE:', API_BASE);
 
 // ✅ Cache settings
 const CACHE_TTL = 5 * 60 * 1000; // 5 دقائق
-const CACHE_KEY_REPORTS = 'reports-cache-v1';
-const CACHE_KEY_DEPTS = 'reports-depts-cache-v1';
+const CACHE_KEY_REPORTS = 'reports-cache-v2';
+const CACHE_KEY_DEPTS = 'reports-depts-cache-v2';
 
 function useWindowSize() {
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -19,7 +48,6 @@ function useWindowSize() {
   return size;
 }
 
-// ✅ Helper: قراءة/كتابة cache
 function readCache(key) {
   try {
     const raw = sessionStorage.getItem(key);
@@ -50,32 +78,50 @@ function ReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // ===== STATE FOR DEPARTMENTS (من MongoDB الآن) =====
   const [departments, setDepartments] = useState([]);
   const [selectedDeptId, setSelectedDeptId] = useState('');
 
-  // ===== FILTERS =====
   const [filterDept, setFilterDept] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [selectedChecklist, setSelectedChecklist] = useState(null);
 
-  // ✅ حالة تحميل التفاصيل داخل Modal
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   const { width } = useWindowSize();
   const isMobile = width < 768;
   const isTablet = width >= 768 && width < 1024;
 
-  // ✅ منع fetch مزدوج + abort
   const hasFetchedRef = useRef(false);
   const abortRef = useRef(null);
+
+  // ============================================================
+  // ✅ fetchWithRetry — إعادة محاولة تلقائية عند فشل الشبكة
+  // ============================================================
+  const fetchWithRetry = useCallback(async (url, options = {}, retries = 2) => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch(url, options);
+        if (!res.ok && res.status >= 500 && attempt < retries) {
+          await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+          continue;
+        }
+        return res;
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        if (attempt < retries) {
+          await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+          continue;
+        }
+        throw err;
+      }
+    }
+  }, []);
 
   // ============================================================
   // ✅ تحميل الأقسام — مع cache
   // ============================================================
   useEffect(() => {
     const loadDepartments = async () => {
-      // ✅ نحاول من cache أولاً
       const cached = readCache(CACHE_KEY_DEPTS);
       if (cached) {
         setDepartments(cached);
@@ -84,7 +130,7 @@ function ReportPage() {
       }
 
       try {
-        const response = await fetch(`${API_BASE}/ot-departments`, {
+        const response = await fetchWithRetry(`${API_BASE}/ot-departments`, {
           cache: 'no-store',
         });
         const data = await response.json();
@@ -97,17 +143,16 @@ function ReportPage() {
       }
     };
     loadDepartments();
-  }, []);
+  }, [fetchWithRetry]);
 
   // ============================================================
-  // ✅ fetchReports — بدون equipment (سريع)
+  // ✅ fetchReports — بدون equipment (سريع) + retry
   // ============================================================
   const fetchReports = useCallback(async (forceRefresh = false) => {
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // ✅ cache أولاً (إلا لو forceRefresh)
     if (!forceRefresh) {
       const cached = readCache(CACHE_KEY_REPORTS);
       if (cached) {
@@ -121,11 +166,10 @@ function ReportPage() {
     setLoading(true);
     setError(null);
     try {
-      // ✅ includeEquipment=false — يجلب فقط البيانات الأساسية
-      const response = await fetch(`${API_BASE}/checklists?includeEquipment=false`, {
-        cache: 'no-store',
-        signal: controller.signal,
-      });
+      const response = await fetchWithRetry(
+        `${API_BASE}/checklists?includeEquipment=false`,
+        { cache: 'no-store', signal: controller.signal }
+      );
       const data = await response.json();
 
       if (data.success) {
@@ -145,24 +189,22 @@ function ReportPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchWithRetry]);
 
-  // ========== Initial load — مرة واحدة فقط ==========
+  // ========== Initial load — مرة واحدة فقط (بدون double-fetch) ==========
   useEffect(() => {
     if (hasFetchedRef.current) return;
     hasFetchedRef.current = true;
 
-    fetchReports();
+    const forceRefresh = !!location.state?.refresh;
+    fetchReports(forceRefresh);
 
-    // ✅ إذا قادم من Checklist مع refresh، نجبر fetch جديد
-    if (location.state?.refresh) {
-      fetchReports(true);
+    if (forceRefresh) {
       navigate(location.pathname, { replace: true, state: {} });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ تنظيف عند unmount
   useEffect(() => {
     return () => {
       if (abortRef.current) abortRef.current.abort();
@@ -173,24 +215,20 @@ function ReportPage() {
   // ✅ openDetails — يجلب equipmentDetails عند فتح Modal فقط
   // ============================================================
   const openDetails = useCallback(async (checklist) => {
-    // ✅ أولاً نعرض الchecklist بدون تفاصيل
     setSelectedChecklist(checklist);
 
-    // ✅ لو عنده equipmentDetails مسبقاً (من cache قديم)، لا نعيد الجلب
     if (checklist.equipmentDetails && checklist.equipmentDetails.length > 0) {
       return;
     }
 
-    // ✅ نجلب التفاصيل
     setLoadingDetails(true);
     try {
-      const response = await fetch(`${API_BASE}/checklists?includeEquipment=true`, {
+      const response = await fetchWithRetry(`${API_BASE}/checklists?includeEquipment=true`, {
         cache: 'no-store',
       });
       const data = await response.json();
 
       if (data.success && Array.isArray(data.data)) {
-        // نلاقي نفس الchecklist بالتفاصيل
         const updated = data.data.find(c =>
           (c._id && checklist._id && c._id === checklist._id) ||
           (c.listId && checklist.listId && c.listId === checklist.listId &&
@@ -208,7 +246,7 @@ function ReportPage() {
     } finally {
       setLoadingDetails(false);
     }
-  }, []);
+  }, [fetchWithRetry]);
 
   const closeDetails = () => {
     setSelectedChecklist(null);
@@ -260,9 +298,7 @@ function ReportPage() {
     }
   };
 
-  // ========== Manual Refresh ==========
   const handleRefresh = () => {
-    // ✅ نمسح cache ونعيد الجلب
     try { sessionStorage.removeItem(CACHE_KEY_REPORTS); } catch {}
     fetchReports(true);
   };
@@ -745,7 +781,7 @@ function ReportPage() {
               <div><strong>Status:</strong> {selectedChecklist.submitted ? '✅ Confirmed' : '⏳ Draft'}</div>
             </div>
 
-            {/* Equipment table — with loading state */}
+            {/* Equipment table */}
             {loadingDetails ? (
               <div style={{ padding: '40px', textAlign: 'center' }}>
                 <div style={{ width: '32px', height: '32px', border: '3px solid #e5ede9', borderTop: '3px solid #006341', borderRadius: '50%', animation: 'spin 0.7s linear infinite', margin: '0 auto 12px' }}></div>
@@ -786,7 +822,6 @@ function ReportPage() {
                     </thead>
                     <tbody>
                       {selectedChecklist.equipmentDetails.map((item) => {
-                        // ✅ نحاول id أولاً، ثم _id كـfallback
                         const possibleKeys = [];
                         if (item.id) possibleKeys.push(item.id);
                         if (item._id) possibleKeys.push(item._id.toString());

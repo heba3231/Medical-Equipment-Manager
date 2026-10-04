@@ -1434,13 +1434,16 @@ app.post('/api/checklist/save', async (req, res) => {
 });
 
 // ============================================================
-// ✅ FIXED: /api/checklists — Bulk fetch (بدل N+1)
+// ✅ FIXED: /api/checklists — Bulk fetch + includeEquipment param
 // ============================================================
 app.get('/api/checklists', async (req, res) => {
   const startedAt = Date.now();
   try {
+    // ✅ احترام includeEquipment=false لتسريع التحميل الأولي
+    const includeEquipment = req.query.includeEquipment !== 'false';
+
     console.log("==============================================");
-    console.log("GET /api/checklists (bulk mode)");
+    console.log(`GET /api/checklists (includeEquipment=${includeEquipment})`);
 
     const checklists = await withTimeout(
       checklistsCollection
@@ -1462,12 +1465,27 @@ app.get('/api/checklists', async (req, res) => {
       });
     }
 
+    // ✅ Fast path: بدون معدات (رد صغير وسريع)
+    if (!includeEquipment) {
+      console.log(`✅ Fast path: ${checklists.length} checklists (no equipment) in ${Date.now() - startedAt}ms`);
+      console.log("==============================================");
+      return res.json({
+        success: true,
+        data: checklists,
+        debug: {
+          checklists: checklists.length,
+          includeEquipment: false,
+          timeMs: Date.now() - startedAt,
+        }
+      });
+    }
+
+    // ===== المسار البطيء: مع المعدات (عند فتح Modal فقط) =====
     const listIds = [...new Set(checklists.map(c => c.listId).filter(Boolean))];
     console.log(`2️⃣ Unique listIds: ${listIds.length}`);
 
     const [deptEquipment, otEquipment] = await Promise.all([
       withTimeout(
-        // ✅ projection: بدون صور
         deptEquipmentCollection
           .find({ listId: { $in: listIds } }, { projection: { image: 0 } })
           .maxTimeMS(8000)
@@ -1479,7 +1497,6 @@ app.get('/api/checklists', async (req, res) => {
         return [];
       }),
       withTimeout(
-        // ✅ projection: بدون صور
         otCustomEquipmentCollection
           .find({ listId: { $in: listIds } }, { projection: { image: 0 } })
           .maxTimeMS(8000)
@@ -1513,7 +1530,7 @@ app.get('/api/checklists', async (req, res) => {
         : (otEqByList[listId] || []).slice(0, 200);
     }
 
-    console.log(`✅ Completed /api/checklists in ${Date.now() - startedAt}ms`);
+    console.log(`✅ Completed /api/checklists (with equipment) in ${Date.now() - startedAt}ms`);
     console.log("==============================================");
 
     res.json({
@@ -1521,6 +1538,7 @@ app.get('/api/checklists', async (req, res) => {
       data: checklists,
       debug: {
         checklists: checklists.length,
+        includeEquipment: true,
         listIds: listIds.length,
         deptEquipment: deptEquipment.length,
         otEquipment: otEquipment.length,
@@ -2245,7 +2263,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + excludeImages=1)`);
   console.log(` OT Custom Equip:  /api/ot-custom-equipment (SAFE + excludeImages=1)`);
   console.log(` OT Equip Images:  /api/ot-equipment-images/:listId (LIGHT)`);
-  console.log(` Checklist Bulk:   /api/checklists (BULK — no N+1, no images)`);
+  console.log(` Checklists:       /api/checklists (BULK + includeEquipment=true|false)`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
   console.log(` 🚑 Fix orphans:   POST /api/ot-fix-orphan-lists  [protected]`);
   console.log(` 🚑 Fix missing:   POST /api/ot-fix-missing-deptcode [protected]`);
