@@ -94,7 +94,6 @@ const ADMIN_DEBUG_TOKEN = process.env.ADMIN_DEBUG_TOKEN || null;
 
 // ✅ Middleware لحماية routes الـdebug
 function requireDebugToken(req, res, next) {
-  // في development نسمح بدون token
   if (process.env.NODE_ENV !== 'production' && !ADMIN_DEBUG_TOKEN) {
     return next();
   }
@@ -598,9 +597,10 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
     let allEquip = [];
     if (listIds.length > 0) {
       try {
+        // ✅ projection: بدون صور
         allEquip = await withTimeout(
           otCustomEquipmentCollection
-            .find({ listId: { $in: listIds } })
+            .find({ listId: { $in: listIds } }, { projection: { image: 0 } })
             .limit(5000)
             .maxTimeMS(5000)
             .toArray(),
@@ -746,26 +746,29 @@ app.post('/api/ot-move-list-to-dept', requireDebugToken, async (req, res) => {
 
 // ============================================================
 // 🚀 OT BOOTSTRAP — endpoint سريع يجلب الأقسام + اللستات فقط
-//    (بدون معدات — تُجلب عند الحاجة لتجنب البطء)
 // ============================================================
 app.get('/api/ot-bootstrap', async (req, res) => {
   const startedAt = Date.now();
   try {
     console.log("🚀 GET /api/ot-bootstrap");
 
-    // ✅ فقط الأقسام + اللستات (بدون معدات)
     const [depts, lists] = await Promise.all([
       withTimeout(
         otDepartmentsCollection.find({}).sort({ createdAt: 1 }).maxTimeMS(5000).toArray(),
         8000, "bootstrap: departments"
       ),
       withTimeout(
-        otCustomListsCollection.find({}).sort({ createdAt: -1 }).limit(1000).maxTimeMS(5000).toArray(),
+        // ✅ projection: بدون image من اللستة نفسها
+        otCustomListsCollection
+          .find({}, { projection: { image: 0 } })
+          .sort({ createdAt: -1 })
+          .limit(1000)
+          .maxTimeMS(5000)
+          .toArray(),
         8000, "bootstrap: lists"
       ),
     ]);
 
-    // تجميع اللستات حسب deptCode (بدون معدات)
     const listsByDept = {};
     for (const list of lists) {
       const deptCode = list.deptCode || "General";
@@ -1464,8 +1467,9 @@ app.get('/api/checklists', async (req, res) => {
 
     const [deptEquipment, otEquipment] = await Promise.all([
       withTimeout(
+        // ✅ projection: بدون صور
         deptEquipmentCollection
-          .find({ listId: { $in: listIds } })
+          .find({ listId: { $in: listIds } }, { projection: { image: 0 } })
           .maxTimeMS(8000)
           .toArray(),
         12000,
@@ -1475,8 +1479,9 @@ app.get('/api/checklists', async (req, res) => {
         return [];
       }),
       withTimeout(
+        // ✅ projection: بدون صور
         otCustomEquipmentCollection
-          .find({ listId: { $in: listIds } })
+          .find({ listId: { $in: listIds } }, { projection: { image: 0 } })
           .maxTimeMS(8000)
           .toArray(),
         12000,
@@ -1534,25 +1539,30 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES — SAFE VERSION
+// ✅ OT CUSTOM LISTS ROUTES — SAFE + FAST VERSION
+//    يدعم ?excludeImages=1 لتسريع الرد (للأدوات)
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   const startedAt = Date.now();
 
   try {
-    const { roomId, deptCode } = req.query;
+    const { roomId, deptCode, excludeImages } = req.query;
     const match = {};
     if (roomId) match.roomId = roomId;
     if (deptCode) match.deptCode = deptCode;
 
+    // ✅ projection: نستثني image من اللستة نفسها إلا لو مطلوب
+    const excludeImagesFlag = excludeImages === '1';
+    const listProjection = excludeImagesFlag ? { image: 0 } : {};
+
     console.log("==============================================");
     console.log("GET /api/ot-custom-lists");
-    console.log("Query:", match);
+    console.log("Query:", match, "| excludeImages:", excludeImagesFlag);
 
     console.log("1️⃣ Fetching lists...");
     const lists = await withTimeout(
       otCustomListsCollection
-        .find(match)
+        .find(match, { projection: listProjection })
         .sort({ createdAt: -1 })
         .limit(500)
         .maxTimeMS(5000)
@@ -1576,9 +1586,11 @@ app.get('/api/ot-custom-lists', async (req, res) => {
     let allEquipment = [];
     if (listIds.length > 0) {
       try {
+        // ✅ projection: نستثني الصور عند excludeImages=1
+        const eqProjection = excludeImagesFlag ? { image: 0 } : {};
         allEquipment = await withTimeout(
           otCustomEquipmentCollection
-            .find({ listId: { $in: listIds } })
+            .find({ listId: { $in: listIds } }, { projection: eqProjection })
             .limit(5000)
             .maxTimeMS(5000)
             .toArray(),
@@ -1613,6 +1625,7 @@ app.get('/api/ot-custom-lists', async (req, res) => {
       debug: {
         lists: lists.length,
         equipment: allEquipment.length,
+        excludeImages: excludeImagesFlag,
         timeMs: Date.now() - startedAt
       }
     });
@@ -1734,13 +1747,21 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
 // ============================================================
 // OT CUSTOM EQUIPMENT ROUTES
 // ============================================================
+
+// ✅ GET equipment by listId — يدعم ?excludeImages=1 لسرعة أكبر
 app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
-    console.log(` GET /api/ot-custom-equipment/${listId}`);
+    const excludeImages = req.query.excludeImages === '1';
+
+    console.log(` GET /api/ot-custom-equipment/${listId} (excludeImages=${excludeImages})`);
+
+    // ✅ projection: نستثني الصور إلا لو مطلوبة
+    const projection = excludeImages ? { image: 0 } : {};
+
     const equipment = await withTimeout(
       otCustomEquipmentCollection
-        .find({ listId })
+        .find({ listId }, { projection })
         .sort({ _id: 1 })
         .limit(1000)
         .maxTimeMS(5000)
@@ -1752,6 +1773,57 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
     res.json({ success: true, data: equipment });
   } catch (error) {
     console.error(' Error fetching custom equipment:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET صور الأدوات فقط (خفيف جداً) — id + image
+app.get('/api/ot-equipment-images/:listId', async (req, res) => {
+  try {
+    const { listId } = req.params;
+    console.log(` GET /api/ot-equipment-images/${listId}`);
+
+    const images = await withTimeout(
+      otCustomEquipmentCollection
+        .find(
+          { listId, image: { $ne: null } },
+          { projection: { id: 1, _id: 1, image: 1 } }
+        )
+        .limit(2000)
+        .maxTimeMS(5000)
+        .toArray(),
+      8000,
+      "Fetching equipment images"
+    );
+
+    // ✅ نحوّلها map للوصول السريع
+    const imageMap = {};
+    for (const item of images) {
+      const key = item.id || item._id?.toString();
+      if (key && item.image) imageMap[key] = item.image;
+    }
+
+    console.log(` Found ${Object.keys(imageMap).length} images for list ${listId}`);
+    res.json({ success: true, data: imageMap });
+  } catch (error) {
+    console.error(' Error fetching equipment images:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET صورة معدة واحدة
+app.get('/api/ot-custom-equipment/:id/image', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const equipment = await otCustomEquipmentCollection.findOne(
+      { id },
+      { projection: { image: 1 } }
+    );
+    if (!equipment) {
+      return res.status(404).json({ success: false, message: "Equipment not found" });
+    }
+    res.json({ success: true, data: { id, image: equipment.image || null } });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -2170,9 +2242,10 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` Debug token: ${ADMIN_DEBUG_TOKEN ? 'SET' : 'NOT SET (debug routes protected by env only)'}`);
   console.log(` OT Bootstrap:     /api/ot-bootstrap (FAST — depts + lists only)`);
   console.log(` OT Departments:   /api/ot-departments`);
-  console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + withTimeout)`);
-  console.log(` OT Custom Equip:  /api/ot-custom-equipment`);
-  console.log(` Checklists:       /api/checklists (BULK — no N+1)`);
+  console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + excludeImages=1)`);
+  console.log(` OT Custom Equip:  /api/ot-custom-equipment (SAFE + excludeImages=1)`);
+  console.log(` OT Equip Images:  /api/ot-equipment-images/:listId (LIGHT)`);
+  console.log(` Checklist Bulk:   /api/checklists (BULK — no N+1, no images)`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
   console.log(` 🚑 Fix orphans:   POST /api/ot-fix-orphan-lists  [protected]`);
   console.log(` 🚑 Fix missing:   POST /api/ot-fix-missing-deptcode [protected]`);

@@ -72,6 +72,11 @@ function OTDepartment() {
   const [selectedListId, setSelectedListId] = useState(qrListId || null);
 
   const [equipment, setEquipment] = useState({});
+  // ✅ NEW: صور المعدات (id → base64) لكل لستة
+  const [equipmentImages, setEquipmentImages] = useState({});
+  // ✅ NEW: مؤشر تحميل المعدات
+  const [equipmentLoading, setEquipmentLoading] = useState(false);
+
   const [newEquipment, setNewEquipment] = useState({
     name: "",
     code: "",
@@ -316,26 +321,38 @@ function OTDepartment() {
       setSelectedListId(qrListId);
       fetchEquipment(qrListId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
+  // ✅ getItemImage — helper موحّد للصورة
+  //    الأولوية: equipmentImages map → item.image → null
+  // ============================================================
+  const getItemImage = (item, listId) => {
+    if (!item) return null;
+    const lid = listId || selectedListId;
+    if (lid && equipmentImages[lid]) {
+      const key = item.id || item._id?.toString();
+      if (key && equipmentImages[lid][key]) return equipmentImages[lid][key];
+    }
+    return item.image || null;
+  };
+
+  // ============================================================
   // ✅ loadDepartments — يستخدم /api/ot-bootstrap السريع
-  //    (يجلب الأقسام + اللستات فقط بدون معدات)
   // ============================================================
   const loadDepartments = async () => {
     try {
       setLoading(true);
       setServerError(null);
 
-      // ✅ request واحد سريع بدل 13
       const data = await apiFetch(`${API_BASE}/ot-bootstrap`);
 
       if (data.success) {
         const { departments: depts, listsByDept } = data.data;
-
         setDepartments(depts);
         setLists(listsByDept);
-        // ✅ المعدات تُجلب عند الحاجة (عند اختيار لستة أو QR scan)
+        // ✅ المعدات والصور تُجلب عند الحاجة فقط
       }
     } catch (err) {
       console.error("Error loading departments:", err.message);
@@ -346,41 +363,33 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists — fallback عند الحاجة (بعد QR scan مثلاً)
+  // ✅ fetchLists — طلب واحد فقط بدون N+1
+  //    (يجيب اللستات + كل المعدات بدون صور)
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
+      // ✅ excludeImages=1 → رد خفيف جداً (بدون صور)
       const data = await apiFetch(
-        `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}`
+        `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}&excludeImages=1`
       );
 
-      if (data.success) {
-        const listsArr = data.data || [];
+      if (!data.success) return;
 
-        // نفصل equipment عن list لتخزينه في state منفصل
-        const listsForState = listsArr.map(({ equipment, ...rest }) => rest);
-        setLists(prev => ({ ...prev, [deptId]: listsForState }));
+      const listsArr = data.data || [];
 
-        // ✅ نستخدم equipment المرفق من response مباشرة
-        const equipmentFromResponse = {};
-        const listsNeedingFetch = [];
+      // نحفظ اللستات (بدون equipment مضمّن)
+      const listsForState = listsArr.map(({ equipment, ...rest }) => rest);
+      setLists(prev => ({ ...prev, [deptId]: listsForState }));
 
-        for (const list of listsArr) {
-          if (Array.isArray(list.equipment) && list.equipment.length > 0) {
-            equipmentFromResponse[list.id] = list.equipment;
-          } else {
-            listsNeedingFetch.push(list.id);
-          }
+      // ✅ نجمع كل المعدات من الرد مباشرة (بدون أي طلب إضافي)
+      const equipmentFromResponse = {};
+      for (const list of listsArr) {
+        if (Array.isArray(list.equipment)) {
+          equipmentFromResponse[list.id] = list.equipment;
         }
-
-        if (Object.keys(equipmentFromResponse).length > 0) {
-          setEquipment(prev => ({ ...prev, ...equipmentFromResponse }));
-        }
-
-        // نجلب فقط الlists التي لم يرجع لها equipment (fallback)
-        if (listsNeedingFetch.length > 0) {
-          await Promise.all(listsNeedingFetch.map(id => fetchEquipment(id)));
-        }
+      }
+      if (Object.keys(equipmentFromResponse).length > 0) {
+        setEquipment(prev => ({ ...prev, ...equipmentFromResponse }));
       }
     } catch (err) {
       console.error("Error fetching lists for", deptId, ":", err.message);
@@ -389,23 +398,49 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment — يُستدعى عند اختيار لستة أو QR scan
+  // ✅ fetchEquipment — يجيب معدة معينة (بدون صور) + صور بالتوازي
   // ============================================================
   const fetchEquipment = async (listId) => {
+    setEquipmentLoading(true);
     try {
+      // ✅ بدون صور — رد سريع جداً
       const data = await apiFetch(
-        `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}`
+        `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}?excludeImages=1`
       );
+
       if (data.success) {
         setEquipment(prev => ({ ...prev, [listId]: data.data || [] }));
       }
+
+      // ✅ نجلب الصور بالتوازي (لا ننتظرها)
+      fetchEquipmentImages(listId);
     } catch (err) {
       console.error("Error fetching equipment:", err.message);
+      setEquipment(prev => ({ ...prev, [listId]: prev[listId] || [] }));
+    } finally {
+      setEquipmentLoading(false);
     }
   };
 
   // ============================================================
-  // ✅ DEPARTMENT CRUD — عبر API + تحديث state مباشرة
+  // ✅ fetchEquipmentImages — طلب خفيف يجيب كل الصور للستة
+  // ============================================================
+  const fetchEquipmentImages = async (listId) => {
+    try {
+      const data = await apiFetch(
+        `${API_BASE}/ot-equipment-images/${encodeURIComponent(listId)}`
+      );
+      if (data.success) {
+        setEquipmentImages(prev => ({ ...prev, [listId]: data.data || {} }));
+      }
+    } catch (err) {
+      // لا نعرض خطأ — الصور غير حرجة
+      console.warn("Error fetching equipment images:", err.message);
+    }
+  };
+
+  // ============================================================
+  // ✅ DEPARTMENT CRUD
   // ============================================================
   const handleAddDept = async () => {
     if (!newDept.name.trim()) return alert("Please enter department name");
@@ -420,7 +455,6 @@ function OTDepartment() {
             description: newDept.description.trim()
           })
         });
-        // ✅ تحديث state مباشرة
         setDepartments(prev => prev.map(d =>
           d.id === editingDeptId
             ? { ...d, name: newDept.name.trim(), description: newDept.description.trim() }
@@ -438,7 +472,6 @@ function OTDepartment() {
             description: newDept.description.trim()
           })
         });
-        // ✅ إضافة للـ state مباشرة بدل إعادة التحميل
         if (data.data) {
           setDepartments(prev => [...prev, data.data]);
           setLists(prev => ({ ...prev, [deptId]: [] }));
@@ -464,14 +497,17 @@ function OTDepartment() {
     try {
       await apiFetch(`${API_BASE}/ot-departments/${id}`, { method: "DELETE" });
 
-      // ✅ حذف من state مباشرة (لا حاجة لإعادة تحميل)
       setDepartments(prev => prev.filter(d => d.id !== id));
       setLists(prev => { const c = { ...prev }; delete c[id]; return c; });
 
-      // حذف كل المعدات المرتبطة بلستات هذا القسم
       const deptLists = lists[id] || [];
       const listIds = deptLists.map(l => l.id);
       setEquipment(prev => {
+        const c = { ...prev };
+        listIds.forEach(lid => delete c[lid]);
+        return c;
+      });
+      setEquipmentImages(prev => {
         const c = { ...prev };
         listIds.forEach(lid => delete c[lid]);
         return c;
@@ -516,7 +552,6 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ تحديث state مباشرة بدل fetchLists
       if (editingListId) {
         setLists(prev => ({
           ...prev,
@@ -560,13 +595,17 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Delete failed");
 
-      // ✅ حذف من state مباشرة
       setLists(prev => ({
         ...prev,
         [selectedDeptId]: (prev[selectedDeptId] || []).filter(l => l.id !== listId)
       }));
 
       setEquipment(prev => {
+        const copy = { ...prev };
+        delete copy[listId];
+        return copy;
+      });
+      setEquipmentImages(prev => {
         const copy = { ...prev };
         delete copy[listId];
         return copy;
@@ -612,7 +651,7 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ تحديث state مباشرة بدل re-fetch
+      // ✅ تحديث state مباشرة
       if (editingEquipId && data.data) {
         setEquipment(prev => ({
           ...prev,
@@ -625,8 +664,17 @@ function OTDepartment() {
           ...prev,
           [selectedListId]: [...(prev[selectedListId] || []), data.data]
         }));
-      } else {
-        await fetchEquipment(selectedListId);
+      }
+
+      // ✅ نحدّث images map فوراً لو في صورة
+      if (data.data?.id && data.data?.image) {
+        setEquipmentImages(prev => ({
+          ...prev,
+          [selectedListId]: {
+            ...(prev[selectedListId] || {}),
+            [data.data.id]: data.data.image
+          }
+        }));
       }
 
       resetEquipmentForm();
@@ -639,14 +687,15 @@ function OTDepartment() {
   };
 
   const handleEditEquipment = (item) => {
+    const img = getItemImage(item, selectedListId);
     setEditingEquipId(item.id);
     setNewEquipment({
       name: item.name,
       code: item.code,
       quantity: item.quantity,
-      image: item.image || null
+      image: img || null
     });
-    setImagePreview(item.image || null);
+    setImagePreview(img || null);
   };
 
   const handleDeleteEquipment = async (id, name) => {
@@ -659,11 +708,17 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Delete failed");
 
-      // ✅ حذف من state مباشرة
       setEquipment(prev => ({
         ...prev,
         [selectedListId]: (prev[selectedListId] || []).filter(eq => eq.id !== id)
       }));
+
+      // ✅ احذف الصورة من map
+      setEquipmentImages(prev => {
+        const listImgs = { ...(prev[selectedListId] || {}) };
+        delete listImgs[id];
+        return { ...prev, [selectedListId]: listImgs };
+      });
     } catch (err) {
       console.error("Error deleting equipment:", err);
       alert("❌ فشل حذف المعدة: " + err.message);
@@ -777,6 +832,11 @@ function OTDepartment() {
 
     setCheckListImage(selectedListObj?.image || null);
     setCheckMode(true);
+
+    // ✅ تأكدي من وجود الصور
+    if (!equipmentImages[selectedListId]) {
+      fetchEquipmentImages(selectedListId);
+    }
   };
 
   const updateCheckPresent = (itemId, delta, maxQty) => {
@@ -1534,6 +1594,7 @@ function OTDepartment() {
                     const data = checkData[item.id] || { present: item.quantity, damaged: false, damagedQuantity: 0, note: "" };
                     const status = getItemStatus(item);
                     const rowBg = status === "missing" ? "#fdf2f2" : status === "damaged" || status === "damaged-zero" ? "#fff7ed" : "#ffffff";
+                    const itemImg = getItemImage(item, selectedListId);
 
                     return (
                       <tr key={item.id} style={{ background: rowBg }}>
@@ -1554,11 +1615,11 @@ function OTDepartment() {
                         <td style={{ ...checkTdStyle, fontWeight: "600", color: "#1f2937" }}>{item.name}</td>
                         <td style={{ ...checkTdStyle, textAlign: "center" }}>
                           <span className="no-print">
-                            {item.image ? (
+                            {itemImg ? (
                               <img
-                                src={item.image}
+                                src={itemImg}
                                 alt={item.name}
-                                onClick={() => setImageModal(item.image)}
+                                onClick={() => setImageModal(itemImg)}
                                 style={{ width: isMobile ? "30px" : "34px", height: isMobile ? "30px" : "34px", objectFit: "cover", borderRadius: "6px", cursor: "pointer", border: "1px solid #e5e7eb" }}
                                 onError={(e) => {
                                   e.target.style.display = 'none';
@@ -2039,47 +2100,50 @@ function OTDepartment() {
                     </tr>
                   </thead>
                   <tbody>
-                    {simpleEquipment.map((item, idx) => (
-                      <tr key={item.id || item._id} style={{ background: idx % 2 === 0 ? '#ffffff' : '#fafcfb' }}>
-                        <td style={{ ...tdStyle, textAlign: 'center', color: '#6b7280' }}>{idx + 1}</td>
-                        <td className="image-column" style={{ ...tdStyle, textAlign: 'center' }}>
-                          {item.image ? (
-                            <img
-                              src={item.image}
-                              style={{
+                    {simpleEquipment.map((item, idx) => {
+                      const itemImg = getItemImage(item, qrListId);
+                      return (
+                        <tr key={item.id || item._id} style={{ background: idx % 2 === 0 ? '#ffffff' : '#fafcfb' }}>
+                          <td style={{ ...tdStyle, textAlign: 'center', color: '#6b7280' }}>{idx + 1}</td>
+                          <td className="image-column" style={{ ...tdStyle, textAlign: 'center' }}>
+                            {itemImg ? (
+                              <img
+                                src={itemImg}
+                                style={{
+                                  width: isMobile ? "28px" : "36px",
+                                  height: isMobile ? "28px" : "36px",
+                                  objectFit: 'cover',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  border: '1px solid #e5e7eb'
+                                }}
+                                onClick={() => setImageModal(itemImg)}
+                                alt={item.name}
+                              />
+                            ) : (
+                              <div style={{
                                 width: isMobile ? "28px" : "36px",
                                 height: isMobile ? "28px" : "36px",
-                                objectFit: 'cover',
+                                background: '#f3f4f6',
                                 borderRadius: '6px',
-                                cursor: 'pointer',
-                                border: '1px solid #e5e7eb'
-                              }}
-                              onClick={() => setImageModal(item.image)}
-                              alt={item.name}
-                            />
-                          ) : (
-                            <div style={{
-                              width: isMobile ? "28px" : "36px",
-                              height: isMobile ? "28px" : "36px",
-                              background: '#f3f4f6',
-                              borderRadius: '6px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: isMobile ? "14px" : "15px",
-                              border: '1px solid #e5e7eb',
-                              margin: '0 auto'
-                            }}>
-                              📷
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ ...tdStyle, fontWeight: '600', color: '#1f2937' }}>{item.name}</td>
-                        <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#4b5563' }}>{item.code || '-'}</td>
-                        <td style={{ ...tdStyle, textAlign: 'center', fontWeight: '700', color: '#004d32' }}>{item.quantity || 0}</td>
-                        <td style={{ ...tdStyle, textAlign: 'center', color: '#c8cdd3', fontSize: isMobile ? "14px" : "15px" }}>☐</td>
-                      </tr>
-                    ))}
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: isMobile ? "14px" : "15px",
+                                border: '1px solid #e5e7eb',
+                                margin: '0 auto'
+                              }}>
+                                📷
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ ...tdStyle, fontWeight: '600', color: '#1f2937' }}>{item.name}</td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#4b5563' }}>{item.code || '-'}</td>
+                          <td style={{ ...tdStyle, textAlign: 'center', fontWeight: '700', color: '#004d32' }}>{item.quantity || 0}</td>
+                          <td style={{ ...tdStyle, textAlign: 'center', color: '#c8cdd3', fontSize: isMobile ? "14px" : "15px" }}>☐</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2170,7 +2234,6 @@ function OTDepartment() {
     );
   }
 
-  // ✅ رسالة خطأ الاتصال بالسيرفر
   if (serverError && departments.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", maxWidth: "600px", margin: "0 auto" }}>
@@ -2518,7 +2581,13 @@ function OTDepartment() {
                       }}
                       onClick={() => {
                         setSelectedListId(list.id);
-                        fetchEquipment(list.id);
+                        // ✅ جلب المعدات فقط إذا لم تكن موجودة (تجنب طلبات مكررة)
+                        if (!equipment[list.id]) {
+                          fetchEquipment(list.id);
+                        } else if (!equipmentImages[list.id]) {
+                          // موجودة لكن بدون صور → جلب الصور فقط
+                          fetchEquipmentImages(list.id);
+                        }
                       }}
                     >
                       <Icons.list />
@@ -2605,6 +2674,17 @@ function OTDepartment() {
             <div style={{ textAlign: "center", padding: "40px 20px", color: "#9ca3af" }}>
               <div style={{ marginBottom: "16px" }}><Icons.equipment /></div>
               <p style={{ fontSize: isMobile ? "14px" : "16px" }}>Select a list from the left panel to manage equipment</p>
+            </div>
+          ) : equipmentLoading && currentEquipment.length === 0 ? (
+            // ✅ مؤشر تحميل المعدات
+            <div style={{ textAlign: "center", padding: "60px 20px", color: "#6b7280" }}>
+              <Icons.loading />
+              <p style={{ fontSize: isMobile ? "14px" : "16px", marginTop: "16px", color: "#004d32", fontWeight: "600" }}>
+                Loading equipment...
+              </p>
+              <p style={{ fontSize: isMobile ? "12px" : "13px", marginTop: "4px" }}>
+                هذا قد يستغرق لحظة
+              </p>
             </div>
           ) : (
             <>
@@ -2974,77 +3054,80 @@ function OTDepartment() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredAndSortedEquipment.map((item, idx) => (
-                          <tr key={item.id} style={{ background: idx % 2 === 0 ? "#ffffff" : "#f5f5f5" }}>
-                            <td style={{ ...equipTdStyle, textAlign: "center" }}>{idx + 1}</td>
-                            <td style={{ ...equipTdStyle, textAlign: "center" }}>
-                              {item.image ? (
-                                <img
-                                  src={item.image}
-                                  alt={item.name}
-                                  onClick={() => setImageModal(item.image)}
-                                  style={{
-                                    width: isMobile ? "30px" : "40px",
-                                    height: isMobile ? "30px" : "40px",
-                                    objectFit: "cover",
-                                    borderRadius: "6px",
-                                    cursor: "pointer",
-                                    border: "1px solid #e5e7eb"
-                                  }}
-                                  onError={(e) => {
-                                    e.target.style.display = 'none';
-                                    e.target.parentElement.innerHTML = `<span style="font-size:20px;color:#9ca3af;">📷</span>`;
-                                  }}
-                                />
-                              ) : (
-                                <span style={{ fontSize: "20px", color: "#9ca3af" }}>📷</span>
-                              )}
-                            </td>
-                            <td style={{ ...equipTdStyle, fontWeight: "600" }}>{item.name}</td>
-                            <td style={{ ...equipTdStyle, fontFamily: "monospace" }}>{item.code}</td>
-                            <td style={{ ...equipTdStyle, textAlign: "center", fontWeight: "700" }}>{item.quantity}</td>
-                            {isAdmin && (
+                        {filteredAndSortedEquipment.map((item, idx) => {
+                          const itemImg = getItemImage(item, selectedListId);
+                          return (
+                            <tr key={item.id} style={{ background: idx % 2 === 0 ? "#ffffff" : "#f5f5f5" }}>
+                              <td style={{ ...equipTdStyle, textAlign: "center" }}>{idx + 1}</td>
                               <td style={{ ...equipTdStyle, textAlign: "center" }}>
-                                <div style={{ display: "flex", gap: "4px", justifyContent: "center" }}>
-                                  <button
-                                    onClick={() => handleEditEquipment(item)}
-                                    title="Edit"
+                                {itemImg ? (
+                                  <img
+                                    src={itemImg}
+                                    alt={item.name}
+                                    onClick={() => setImageModal(itemImg)}
                                     style={{
-                                      padding: "4px 6px",
-                                      background: "#c9a84c",
-                                      color: "#004d32",
-                                      border: "none",
-                                      borderRadius: "4px",
+                                      width: isMobile ? "30px" : "40px",
+                                      height: isMobile ? "30px" : "40px",
+                                      objectFit: "cover",
+                                      borderRadius: "6px",
                                       cursor: "pointer",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center"
+                                      border: "1px solid #e5e7eb"
                                     }}
-                                  >
-                                    <Icons.edit />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteEquipment(item.id, item.name)}
-                                    title="Delete"
-                                    style={{
-                                      padding: "4px 6px",
-                                      background: "#fee2e2",
-                                      color: "#991b1b",
-                                      border: "none",
-                                      borderRadius: "4px",
-                                      cursor: "pointer",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center"
+                                    onError={(e) => {
+                                      e.target.style.display = 'none';
+                                      e.target.parentElement.innerHTML = `<span style="font-size:20px;color:#9ca3af;">📷</span>`;
                                     }}
-                                  >
-                                    <Icons.delete />
-                                  </button>
-                                </div>
+                                  />
+                                ) : (
+                                  <span style={{ fontSize: "20px", color: "#9ca3af" }}>📷</span>
+                                )}
                               </td>
-                            )}
-                          </tr>
-                        ))}
+                              <td style={{ ...equipTdStyle, fontWeight: "600" }}>{item.name}</td>
+                              <td style={{ ...equipTdStyle, fontFamily: "monospace" }}>{item.code}</td>
+                              <td style={{ ...equipTdStyle, textAlign: "center", fontWeight: "700" }}>{item.quantity}</td>
+                              {isAdmin && (
+                                <td style={{ ...equipTdStyle, textAlign: "center" }}>
+                                  <div style={{ display: "flex", gap: "4px", justifyContent: "center" }}>
+                                    <button
+                                      onClick={() => handleEditEquipment(item)}
+                                      title="Edit"
+                                      style={{
+                                        padding: "4px 6px",
+                                        background: "#c9a84c",
+                                        color: "#004d32",
+                                        border: "none",
+                                        borderRadius: "4px",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center"
+                                      }}
+                                    >
+                                      <Icons.edit />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteEquipment(item.id, item.name)}
+                                      title="Delete"
+                                      style={{
+                                        padding: "4px 6px",
+                                        background: "#fee2e2",
+                                        color: "#991b1b",
+                                        border: "none",
+                                        borderRadius: "4px",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center"
+                                      }}
+                                    >
+                                      <Icons.delete />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
