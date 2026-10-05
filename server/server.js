@@ -116,16 +116,16 @@ function requireDebugToken(req, res, next) {
 // ✅ MongoDB Client — إعدادات محسّنة لـ M0 Shared Tier
 // ============================================================
 const client = new MongoClient(MONGODB_URI, {
-  serverSelectionTimeoutMS: 30000,   // وقت أطول لاختيار server
-  socketTimeoutMS: 45000,            // وقت أطول للـ socket
-  connectTimeoutMS: 30000,           // وقت أطول للاتصال الأول
-  maxPoolSize: 5,                    // ✅ ألطف على M0 (كان 10)
-  minPoolSize: 0,                    // ✅ لا نحتفظ باتصالات فاضية (كان 1)
-  maxIdleTimeMS: 30000,              // ✅ يحرر الاتصالات الخاملة بعد 30s
-  waitQueueTimeoutMS: 20000,         // ✅ لا ننتظر أكثر من 20s للحصول على connection
+  serverSelectionTimeoutMS: 30000,
+  socketTimeoutMS: 60000,          // ✅ زدناها من 45000 إلى 60000 (للصور الكبيرة)
+  connectTimeoutMS: 30000,
+  maxPoolSize: 5,
+  minPoolSize: 0,
+  maxIdleTimeMS: 30000,
+  waitQueueTimeoutMS: 20000,
   retryWrites: true,
   retryReads: true,
-  heartbeatFrequencyMS: 15000,       // ✅ heartbeat أقل تكراراً (كان 10000)
+  heartbeatFrequencyMS: 15000,
 });
 
 // ============================================================
@@ -267,7 +267,7 @@ async function ensureConnection() {
     const startTime = Date.now();
     await client.connect();
     console.log(`✅ MongoDB TCP connected in ${Date.now() - startTime}ms`);
-    
+
     db = client.db("medical_equipment");
 
     equipmentCollection = db.collection("equipment");
@@ -302,7 +302,7 @@ async function ensureConnection() {
       () => otCustomEquipmentCollection.createIndex({ id: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1, _id: 1 }),
-      // ✅ جديد: index على listId + image لتسريع استعلام الصور
+      // ✅ index على listId + image لتسريع استعلام الصور
       () => otCustomEquipmentCollection.createIndex({ listId: 1, image: 1 }),
       () => otDepartmentsCollection.createIndex({ id: 1 }, { unique: true }),
       () => otDepartmentsCollection.createIndex({ createdAt: 1 }),
@@ -609,7 +609,6 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
     let allEquip = [];
     if (listIds.length > 0) {
       try {
-        // ✅ projection: بدون صور
         allEquip = await withTimeout(
           otCustomEquipmentCollection
             .find({ listId: { $in: listIds } }, { projection: { image: 0 } })
@@ -770,7 +769,6 @@ app.get('/api/ot-bootstrap', async (req, res) => {
         8000, "bootstrap: departments"
       ),
       withTimeout(
-        // ✅ projection: بدون image من اللستة نفسها
         otCustomListsCollection
           .find({}, { projection: { image: 0 } })
           .sort({ createdAt: -1 })
@@ -1372,7 +1370,6 @@ app.get('/api/checklist/:listId', async (req, res) => {
   }
 });
 
-// ✅ محسّن: timeout protection على كل استعلام
 app.post('/api/checklist/save', async (req, res) => {
   const startedAt = Date.now();
   try {
@@ -1384,8 +1381,7 @@ app.post('/api/checklist/save', async (req, res) => {
     console.log(`📝 POST /api/checklist/save listId=${listId}`);
 
     let equipmentList = [];
-    
-    // ✅ محاولة dept_equipment مع timeout
+
     try {
       const itemsFromDept = await withTimeout(
         deptEquipmentCollection.find({ listId }).maxTimeMS(3000).toArray(),
@@ -1399,8 +1395,7 @@ app.post('/api/checklist/save', async (req, res) => {
     } catch (e) {
       console.warn("   dept_equipment lookup failed:", e.message);
     }
-    
-    // ✅ fallback إلى ot_custom_equipment
+
     if (equipmentList.length === 0) {
       try {
         equipmentList = await withTimeout(
@@ -1478,7 +1473,7 @@ app.post('/api/checklist/save', async (req, res) => {
 });
 
 // ============================================================
-// ✅ FIXED: /api/checklists — Bulk fetch + includeEquipment param
+// /api/checklists — Bulk fetch + includeEquipment param
 // ============================================================
 app.get('/api/checklists', async (req, res) => {
   const startedAt = Date.now();
@@ -1508,7 +1503,6 @@ app.get('/api/checklists', async (req, res) => {
       });
     }
 
-    // ✅ Fast path: بدون معدات (رد صغير وسريع)
     if (!includeEquipment) {
       console.log(`✅ Fast path: ${checklists.length} checklists (no equipment) in ${Date.now() - startedAt}ms`);
       console.log("==============================================");
@@ -1523,7 +1517,6 @@ app.get('/api/checklists', async (req, res) => {
       });
     }
 
-    // ===== المسار البطيء: مع المعدات =====
     const listIds = [...new Set(checklists.map(c => c.listId).filter(Boolean))];
     console.log(`2️⃣ Unique listIds: ${listIds.length}`);
 
@@ -1600,7 +1593,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES
+// OT CUSTOM LISTS ROUTES
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   const startedAt = Date.now();
@@ -1812,7 +1805,7 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
     const { listId } = req.params;
     const excludeImages = req.query.excludeImages === '1';
 
-    console.log(` GET /api/ot-custom-equipment/${listId} (excludeImages=${excludeImages})`);
+    console.log(`📦 GET /api/ot-custom-equipment/${listId} (excludeImages=${excludeImages})`);
 
     const projection = excludeImages ? { image: 0 } : {};
 
@@ -1826,45 +1819,47 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
       8000,
       "Fetching custom equipment"
     );
-    console.log(` Found ${equipment.length} items for list ${listId}`);
+    console.log(`   Found ${equipment.length} items for list ${listId}`);
     res.json({ success: true, data: equipment });
   } catch (error) {
-    console.error(' Error fetching custom equipment:', error);
+    console.error('   Error fetching custom equipment:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ✅✅✅ FIXED: GET صور الأدوات فقط — limit 50 + إرجاع {} عند الفشل
+// ============================================================
+// ✅✅✅ FIXED: GET كل صور الأدوات — بدون limit + timeout 45s
+// ============================================================
 app.get('/api/ot-equipment-images/:listId', async (req, res) => {
+  const startedAt = Date.now();
   try {
     const { listId } = req.params;
-    console.log(` GET /api/ot-equipment-images/${listId}`);
+    console.log(`🖼️  GET /api/ot-equipment-images/${listId}`);
 
-    // ✅ حد أقصى 50 صورة بدل 2000 (كانت تسبب 500 + timeout)
-    const images = await withTimeout(
-      otCustomEquipmentCollection
-        .find(
-          { listId, image: { $exists: true, $ne: null } },
-          { projection: { id: 1, _id: 1, image: 1 } }
-        )
-        .limit(50)
-        .maxTimeMS(3000)
-        .toArray(),
-      6000,
-      "Fetching equipment images"
-    );
+    // ✅ بدون limit — نجيب كل الصور
+    const images = await otCustomEquipmentCollection
+      .find(
+        { listId, image: { $exists: true, $ne: null } },
+        { projection: { id: 1, _id: 1, image: 1 } }
+      )
+      .maxTimeMS(45000)
+      .toArray();
 
     const imageMap = {};
+    let totalSizeKB = 0;
     for (const item of images) {
       const key = item.id || item._id?.toString();
-      if (key && item.image) imageMap[key] = item.image;
+      if (key && item.image) {
+        imageMap[key] = item.image;
+        totalSizeKB += Math.round((item.image.length * 3) / 4 / 1024);
+      }
     }
 
-    console.log(`✅ Found ${Object.keys(imageMap).length} images for list ${listId}`);
+    console.log(`✅ Found ${Object.keys(imageMap).length} images (~${totalSizeKB}KB) in ${Date.now() - startedAt}ms`);
     res.json({ success: true, data: imageMap });
   } catch (error) {
-    console.error('⚠️ Error fetching equipment images:', error.message);
-    // ✅ لا نرجع 500 — نرجع {} عشان الفرونت يكمل بدون تعطل
+    console.error(`⚠️ Error fetching images for ${req.params.listId}:`, error.message);
+    // ✅ نرجع {} عند الفشل عشان الفرونت يكمل بدون تعطل
     res.json({ success: true, data: {}, warning: error.message });
   }
 });
@@ -2303,7 +2298,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` OT Departments:   /api/ot-departments`);
   console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + excludeImages=1)`);
   console.log(` OT Custom Equip:  /api/ot-custom-equipment (SAFE + excludeImages=1)`);
-  console.log(` OT Equip Images:  /api/ot-equipment-images/:listId (LIGHT — limit 50)`);
+  console.log(` OT Equip Images:  /api/ot-equipment-images/:listId (NO LIMIT, timeout=45s)`);
   console.log(` Checklists:       /api/checklists (BULK + includeEquipment=true|false)`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
   console.log(` Health Check:     /api/health`);
