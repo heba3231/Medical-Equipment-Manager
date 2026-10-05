@@ -362,37 +362,39 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅✅✅ getItemImage — helper موحّد مع fallbacks متعددة
+  // ✅✅✅ FIXED: getItemImage — الأولوية لـ item.image
   // ============================================================
   const getItemImage = (item, listId) => {
     if (!item) return null;
+
     const lid = listId || selectedListId;
 
-    // 1) حاول من equipmentImages cache
+    // 1️⃣ أهم شيء: الصورة الموجودة داخل item نفسه
+    if (item.image) {
+      return item.image;
+    }
+
+    // 2️⃣ البحث داخل equipmentImages cache
     if (lid && equipmentImages[lid]) {
       const imgMap = equipmentImages[lid];
 
-      // جرّب item.id أولاً
+      // حسب id
       if (item.id && imgMap[item.id]) {
         return imgMap[item.id];
       }
 
-      // جرّب _id كـ string
-      if (item._id && imgMap[String(item._id)]) {
-        return imgMap[String(item._id)];
-      }
-
-      // جرّب ObjectId.toString()
+      // حسب MongoDB _id
       if (item._id) {
-        const idStr = typeof item._id === 'object' && item._id.toString
-          ? item._id.toString()
-          : String(item._id);
-        if (imgMap[idStr]) return imgMap[idStr];
+        const idStr =
+          typeof item._id === "object" && item._id.toString
+            ? item._id.toString()
+            : String(item._id);
+
+        if (imgMap[idStr]) {
+          return imgMap[idStr];
+        }
       }
     }
-
-    // 2) fallback: item.image مباشرة
-    if (item.image) return item.image;
 
     return null;
   };
@@ -452,7 +454,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ FIXED: fetchEquipment — ينتظر جلب الصور
+  // ✅ fetchEquipment — ينتظر جلب الصور
   // ============================================================
   const fetchEquipment = async (listId) => {
     setEquipmentLoading(true);
@@ -477,7 +479,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ FIXED: fetchEquipmentImages — 60s timeout + retry + logging
+  // ✅✅✅ FIXED: fetchEquipmentImages — يدمج الصور داخل equipment items
   // ============================================================
   const fetchEquipmentImages = async (listId, retryCount = 0) => {
     setImagesLoading(true);
@@ -509,14 +511,57 @@ function OTDepartment() {
       const data = await response.json();
 
       if (data.success && data.data) {
-        const imageCount = Object.keys(data.data).length;
+        const imageMap = data.data;
+        const imageCount = Object.keys(imageMap).length;
+
         console.log(`✅ Loaded ${imageCount} images for ${listId}`);
 
         if (imageCount > 0) {
-          console.log(`🔑 Image keys sample:`, Object.keys(data.data).slice(0, 5));
+          console.log(
+            `🔑 Image keys sample:`,
+            Object.keys(imageMap).slice(0, 5)
+          );
         }
 
-        setEquipmentImages(prev => ({ ...prev, [listId]: data.data }));
+        // ==========================================================
+        // 1️⃣ حفظ الصور في الـ cache
+        // ==========================================================
+        setEquipmentImages(prev => ({
+          ...prev,
+          [listId]: imageMap
+        }));
+
+        // ==========================================================
+        // 2️⃣ دمج الصورة داخل كل equipment item نفسه
+        // ==========================================================
+        setEquipment(prev => ({
+          ...prev,
+          [listId]: (prev[listId] || []).map(item => {
+            let image = item.image || null;
+
+            // البحث باستخدام id
+            if (!image && item.id && imageMap[item.id]) {
+              image = imageMap[item.id];
+            }
+
+            // البحث باستخدام MongoDB _id
+            if (!image && item._id) {
+              const idStr =
+                typeof item._id === "object" && item._id.toString
+                  ? item._id.toString()
+                  : String(item._id);
+
+              if (imageMap[idStr]) {
+                image = imageMap[idStr];
+              }
+            }
+
+            return {
+              ...item,
+              image
+            };
+          })
+        }));
       } else if (data.warning) {
         console.warn(`⚠️ Images warning for ${listId}:`, data.warning);
       }
@@ -716,7 +761,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ EQUIPMENT CRUD
+  // ✅✅✅ FIXED: handleAddEquipment — يدمج الصورة في equipment item
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -748,30 +793,49 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      if (editingEquipId && data.data) {
-        setEquipment(prev => ({
-          ...prev,
-          [selectedListId]: (prev[selectedListId] || []).map(eq =>
-            eq.id === editingEquipId ? data.data : eq
-          )
-        }));
-      } else if (data.data) {
-        setEquipment(prev => ({
-          ...prev,
-          [selectedListId]: [...(prev[selectedListId] || []), data.data]
-        }));
-      }
+      // ==========================================================
+      // ✅ دمج الصورة داخل equipment item مباشرة
+      // ==========================================================
+      if (data.data) {
+        const savedEquipment = {
+          ...data.data,
+          image: data.data.image || newEquipment.image || null
+        };
 
-      // ✅ حدّث images map فوراً
-      if (data.data?.id && data.data?.image) {
-        setEquipmentImages(prev => ({
-          ...prev,
-          [selectedListId]: {
-            ...(prev[selectedListId] || {}),
-            [data.data.id]: data.data.image
+        setEquipment(prev => {
+          const currentList = prev[selectedListId] || [];
+
+          if (editingEquipId) {
+            return {
+              ...prev,
+              [selectedListId]: currentList.map(eq =>
+                eq.id === editingEquipId
+                  ? savedEquipment
+                  : eq
+              )
+            };
           }
-        }));
-        console.log(`✅ Image saved in cache for ${data.data.id}`);
+
+          return {
+            ...prev,
+            [selectedListId]: [
+              ...currentList,
+              savedEquipment
+            ]
+          };
+        });
+
+        // تحديث image cache أيضًا
+        if (savedEquipment.id && savedEquipment.image) {
+          setEquipmentImages(prev => ({
+            ...prev,
+            [selectedListId]: {
+              ...(prev[selectedListId] || {}),
+              [savedEquipment.id]: savedEquipment.image
+            }
+          }));
+          console.log(`✅ Image saved in cache for ${savedEquipment.id}`);
+        }
       }
 
       resetEquipmentForm();
