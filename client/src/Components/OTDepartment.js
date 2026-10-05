@@ -17,7 +17,7 @@ function useWindowSize() {
 const API_BASE = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000/api`;
 
 // ============================================================
-// ✅ API Helper — يفحص response.ok ويرمي خطأ واضح
+// ✅ API Helper
 // ============================================================
 async function apiFetch(url, options = {}) {
   const response = await fetch(url, {
@@ -29,7 +29,7 @@ async function apiFetch(url, options = {}) {
   try {
     data = await response.json();
   } catch {
-    // مش JSON
+    // not JSON
   }
 
   if (!response.ok) {
@@ -45,9 +45,9 @@ async function apiFetch(url, options = {}) {
 }
 
 // ============================================================
-// ✅ ضغط الصور — 600px + quality 0.6
+// ✅ ضغط الصور — 500px + quality 0.5
 // ============================================================
-function compressImage(file, maxWidth = 600, quality = 0.6) {
+function compressImage(file, maxWidth = 500, quality = 0.5) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = reject;
@@ -88,7 +88,7 @@ function OTDepartment() {
   const userRole = localStorage.getItem("userRole");
   const isAdmin = userRole === "admin";
 
-  // ========== CHECK FOR SIMPLE VIEW (QR SCAN) ==========
+  // ========== SIMPLE VIEW (QR SCAN) ==========
   const queryParams = new URLSearchParams(location.search);
   const isSimpleView = queryParams.get("view") === "simple";
   const qrDeptCode = queryParams.get("deptCode");
@@ -125,15 +125,15 @@ function OTDepartment() {
   const [imagePreview, setImagePreview] = useState(null);
   const [imageModal, setImageModal] = useState(null);
 
-  // ========== SEARCH & SORT STATE ==========
+  // ========== SEARCH & SORT ==========
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("name");
 
-  // ========== QR CODE STATE ==========
+  // ========== QR CODE ==========
   const [showQRModal, setShowQRModal] = useState(false);
   const [serverIP, setServerIP] = useState(window.location.hostname);
 
-  // ========== CHECK (Checklist) STATE ==========
+  // ========== CHECK MODE ==========
   const [checkMode, setCheckMode] = useState(false);
   const [checkData, setCheckData] = useState({});
   const [checkMeta, setCheckMeta] = useState({ technician: "", startedAt: null });
@@ -227,13 +227,6 @@ function OTDepartment() {
         <circle cx="9" cy="7" r="4" />
         <path d="M23 21v-2a4 4 0 00-3-3.87" />
         <path d="M16 3.13a4 4 0 010 7.75" />
-      </svg>
-    ),
-    qty: () => (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#004d32" strokeWidth="2">
-        <rect x="2" y="2" width="20" height="20" rx="2" />
-        <line x1="8" y1="12" x2="16" y2="12" />
-        <line x1="12" y1="8" x2="12" y2="16" />
       </svg>
     ),
     search: () => (
@@ -337,7 +330,7 @@ function OTDepartment() {
     ),
   };
 
-  // ========== GET SERVER IP FOR QR ==========
+  // ========== SERVER IP FOR QR ==========
   useEffect(() => {
     const currentHostname = window.location.hostname;
     if (currentHostname === 'localhost' || currentHostname === '127.0.0.1') {
@@ -362,28 +355,26 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅✅✅ FIXED: getItemImage — الأولوية لـ item.image
+  // ✅ getItemImage — أولوية لـ item.image
   // ============================================================
   const getItemImage = (item, listId) => {
     if (!item) return null;
 
     const lid = listId || selectedListId;
 
-    // 1️⃣ أهم شيء: الصورة الموجودة داخل item نفسه
+    // 1️⃣ صورة داخل item مباشرة (الأولوية)
     if (item.image) {
       return item.image;
     }
 
-    // 2️⃣ البحث داخل equipmentImages cache
+    // 2️⃣ cache
     if (lid && equipmentImages[lid]) {
       const imgMap = equipmentImages[lid];
 
-      // حسب id
       if (item.id && imgMap[item.id]) {
         return imgMap[item.id];
       }
 
-      // حسب MongoDB _id
       if (item._id) {
         const idStr =
           typeof item._id === "object" && item._id.toString
@@ -454,7 +445,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment — ينتظر جلب الصور
+  // ✅✅✅ fetchEquipment — ينتظر جلب الصور
   // ============================================================
   const fetchEquipment = async (listId) => {
     setEquipmentLoading(true);
@@ -468,7 +459,7 @@ function OTDepartment() {
         console.log(`📦 Loaded ${(data.data || []).length} equipment items for ${listId}`);
       }
 
-      // ✅ انتظر جلب الصور قبل إخفاء loading
+      // ✅ انتظر جلب الصور ودمجها
       await fetchEquipmentImages(listId);
     } catch (err) {
       console.error("Error fetching equipment:", err.message);
@@ -479,13 +470,13 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ FIXED: fetchEquipmentImages — يدمج الصور داخل equipment items
+  // ✅✅✅ fetchEquipmentImages — بسيط وآمن + دمج
   // ============================================================
-  const fetchEquipmentImages = async (listId, retryCount = 0) => {
+  const fetchEquipmentImages = async (listId) => {
     setImagesLoading(true);
-    try {
-      console.log(`🖼️  Fetching images for ${listId} (attempt ${retryCount + 1})`);
+    console.log(`🖼️  Fetching images for ${listId}`);
 
+    try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000);
 
@@ -501,10 +492,6 @@ function OTDepartment() {
 
       if (!response.ok) {
         console.warn(`⚠️ Images endpoint returned ${response.status} for ${listId}`);
-        if (retryCount === 0 && response.status >= 500) {
-          await new Promise(r => setTimeout(r, 2000));
-          return fetchEquipmentImages(listId, 1);
-        }
         return;
       }
 
@@ -517,34 +504,25 @@ function OTDepartment() {
         console.log(`✅ Loaded ${imageCount} images for ${listId}`);
 
         if (imageCount > 0) {
-          console.log(
-            `🔑 Image keys sample:`,
-            Object.keys(imageMap).slice(0, 5)
-          );
+          console.log(`🔑 Image keys sample:`, Object.keys(imageMap).slice(0, 5));
         }
 
-        // ==========================================================
-        // 1️⃣ حفظ الصور في الـ cache
-        // ==========================================================
+        // 1️⃣ حفظ في cache
         setEquipmentImages(prev => ({
           ...prev,
           [listId]: imageMap
         }));
 
-        // ==========================================================
-        // 2️⃣ دمج الصورة داخل كل equipment item نفسه
-        // ==========================================================
+        // 2️⃣ دمج الصور داخل equipment items
         setEquipment(prev => ({
           ...prev,
           [listId]: (prev[listId] || []).map(item => {
             let image = item.image || null;
 
-            // البحث باستخدام id
             if (!image && item.id && imageMap[item.id]) {
               image = imageMap[item.id];
             }
 
-            // البحث باستخدام MongoDB _id
             if (!image && item._id) {
               const idStr =
                 typeof item._id === "object" && item._id.toString
@@ -556,10 +534,7 @@ function OTDepartment() {
               }
             }
 
-            return {
-              ...item,
-              image
-            };
+            return { ...item, image };
           })
         }));
       } else if (data.warning) {
@@ -568,11 +543,6 @@ function OTDepartment() {
     } catch (err) {
       if (err.name === 'AbortError') {
         console.warn(`⚠️ Images fetch timed out for ${listId}`);
-        if (retryCount === 0) {
-          console.log(`🔄 Retrying images fetch for ${listId}...`);
-          await new Promise(r => setTimeout(r, 2000));
-          return fetchEquipmentImages(listId, 1);
-        }
       } else {
         console.warn("⚠️ Error fetching equipment images:", err.message);
       }
@@ -761,7 +731,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ FIXED: handleAddEquipment — يدمج الصورة في equipment item
+  // ✅✅✅ handleAddEquipment — يدمج الصورة في item مباشرة
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -771,13 +741,26 @@ function OTDepartment() {
 
     setSaving(true);
     try {
+      // ✅ استخدم imagePreview كـ fallback
+      const imageToSave = newEquipment.image || imagePreview || null;
+
+      console.log(`📷 Saving equipment:`, {
+        hasImagePreview: !!imagePreview,
+        hasNewEquipmentImage: !!newEquipment.image,
+        finalImageLength: imageToSave?.length || 0
+      });
+
+      if (!imageToSave) {
+        console.warn(`⚠️ No image selected — will save without image`);
+      }
+
       const equipData = {
         id: editingEquipId || `eq_${Date.now()}`,
         listId: selectedListId,
         name: newEquipment.name.trim(),
         code: newEquipment.code.trim(),
         quantity: parseInt(newEquipment.quantity) || 1,
-        image: newEquipment.image || null
+        image: imageToSave
       };
 
       const url = editingEquipId
@@ -793,13 +776,17 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ==========================================================
-      // ✅ دمج الصورة داخل equipment item مباشرة
-      // ==========================================================
+      console.log(`✅ Server response:`, {
+        hasId: !!data.data?.id,
+        hasImage: !!data.data?.image,
+        imageLength: data.data?.image?.length || 0
+      });
+
+      // ✅ دمج الصورة داخل equipment item
       if (data.data) {
         const savedEquipment = {
           ...data.data,
-          image: data.data.image || newEquipment.image || null
+          image: data.data.image || imageToSave || null
         };
 
         setEquipment(prev => {
@@ -809,23 +796,17 @@ function OTDepartment() {
             return {
               ...prev,
               [selectedListId]: currentList.map(eq =>
-                eq.id === editingEquipId
-                  ? savedEquipment
-                  : eq
+                eq.id === editingEquipId ? savedEquipment : eq
               )
             };
           }
 
           return {
             ...prev,
-            [selectedListId]: [
-              ...currentList,
-              savedEquipment
-            ]
+            [selectedListId]: [...currentList, savedEquipment]
           };
         });
 
-        // تحديث image cache أيضًا
         if (savedEquipment.id && savedEquipment.image) {
           setEquipmentImages(prev => ({
             ...prev,
@@ -834,7 +815,7 @@ function OTDepartment() {
               [savedEquipment.id]: savedEquipment.image
             }
           }));
-          console.log(`✅ Image saved in cache for ${savedEquipment.id}`);
+          console.log(`✅ Image cached for ${savedEquipment.id}`);
         }
       }
 
@@ -902,9 +883,10 @@ function OTDepartment() {
       return;
     }
     try {
-      const compressed = await compressImage(file, 600, 0.6);
+      const compressed = await compressImage(file, 500, 0.5);
       setImagePreview(compressed);
       setNewEquipment(prev => ({ ...prev, image: compressed }));
+      console.log(`✅ Image set in state (${compressed.length} chars)`);
     } catch (err) {
       console.error("Compression failed:", err);
       alert("Failed to process image: " + err.message);
@@ -924,9 +906,10 @@ function OTDepartment() {
         return;
       }
       try {
-        const compressed = await compressImage(file, 600, 0.6);
+        const compressed = await compressImage(file, 500, 0.5);
         setImagePreview(compressed);
         setNewEquipment(prev => ({ ...prev, image: compressed }));
+        console.log(`✅ Photo captured and set (${compressed.length} chars)`);
       } catch (err) {
         console.error("Compression failed:", err);
         alert("Failed to process image: " + err.message);
@@ -941,7 +924,7 @@ function OTDepartment() {
     return `${window.location.protocol}//${serverIP}${currentPort}${window.location.pathname}?view=simple&deptCode=${selectedDeptId}&listId=${selectedListId}`;
   };
 
-  // ========== COMPUTED VALUES ==========
+  // ========== COMPUTED ==========
   const currentLists = selectedDeptId ? lists[selectedDeptId] || [] : [];
   const currentEquipment = selectedListId ? equipment[selectedListId] || [] : [];
   const selectedListObj = currentLists.find(l => l.id === selectedListId) || null;
@@ -1098,7 +1081,7 @@ function OTDepartment() {
   }, [currentEquipment, checkData]);
 
   // ============================================================
-  // ✅ handleApproveAndSend — مع retry
+  // ✅ handleApproveAndSend
   // ============================================================
   const handleApproveAndSend = async () => {
     if (!selectedListId) {
@@ -1204,7 +1187,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ handleCheckListImageUpload — مع ضغط
+  // ✅ handleCheckListImageUpload
   // ============================================================
   const handleCheckListImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -1387,7 +1370,7 @@ function OTDepartment() {
     printWindow.onload = () => { printWindow.print(); };
   };
 
-  // ========== TABLE CELL STYLES ==========
+  // ========== STYLES ==========
   const equipThStyle = {
     padding: isMobile ? "8px 6px" : "10px 8px",
     border: "2px solid #000000",
@@ -1679,8 +1662,7 @@ function OTDepartment() {
               gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, auto)",
               gap: isMobile ? "8px" : "26px",
               flex: 1,
-              width: isMobile ? "100%" : "auto",
-              justifyContent: isMobile ? "space-between" : "space-between"
+              width: isMobile ? "100%" : "auto"
             }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#9ca3af", fontSize: "12px", marginBottom: "4px" }}>
@@ -1830,9 +1812,6 @@ function OTDepartment() {
                             ) : (
                               <span style={{ color: "#d1d5db", fontSize: "20px" }}>📷</span>
                             )}
-                          </span>
-                          <span className="print-only" style={{ display: "none", fontSize: "18px", color: "#004d32" }}>
-                            ✓
                           </span>
                         </td>
                         <td style={{ ...checkTdStyle, textAlign: "center", fontWeight: "700", color: "#374151" }}>{item.quantity}</td>
@@ -1986,9 +1965,6 @@ function OTDepartment() {
                             }}
                             className="no-print"
                           />
-                          <span className="print-only" style={{ display: "none", fontSize: "12px", color: "#1f2937" }}>
-                            {data.note || "—"}
-                          </span>
                         </td>
                       </tr>
                     );
@@ -2113,17 +2089,11 @@ function OTDepartment() {
         <style>{`
           @media print {
             .no-print { display: none !important; }
-            .print-only { display: inline !important; }
             body { background: #ffffff !important; }
-            .ot-print-sheet { box-shadow: none !important; border: none !important; }
             table { border-collapse: collapse !important; }
             th, td { border: 1px solid #000 !important; }
             @page { margin: 0.5in; size: portrait; }
-            .print-header, .print-footer { display: none !important; }
             table { width: 100% !important; }
-          }
-          @media screen {
-            .print-only { display: none !important; }
           }
         `}</style>
 
@@ -2466,7 +2436,7 @@ function OTDepartment() {
       background: "#f5f7f6",
       minHeight: "100vh"
     }}>
-      {/* ===== HEADER ===== */}
+      {/* HEADER */}
       <div style={{
         display: "flex",
         flexDirection: isMobile ? "column" : "row",
@@ -2507,16 +2477,16 @@ function OTDepartment() {
         </span>
       </div>
 
-      {/* ===== TWO COLUMN LAYOUT ===== */}
+      {/* TWO COLUMN LAYOUT */}
       <div style={{
         display: "grid",
         gridTemplateColumns: isMobile ? "1fr" : (isTablet ? "1fr 1.5fr" : "380px 1fr"),
         gap: "20px",
         alignItems: "start"
       }}>
-        {/* ===== LEFT COLUMN ===== */}
+        {/* LEFT COLUMN */}
         <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          {/* DEPARTMENTS SECTION */}
+          {/* DEPARTMENTS */}
           <div style={{
             background: "white",
             borderRadius: "16px",
@@ -2536,12 +2506,7 @@ function OTDepartment() {
             </h2>
 
             {isAdmin && (
-              <div style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "6px",
-                marginBottom: "12px"
-              }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
                 <input
                   type="text"
                   placeholder="Department name..."
@@ -2667,7 +2632,7 @@ function OTDepartment() {
             </div>
           </div>
 
-          {/* LISTS SECTION */}
+          {/* LISTS */}
           {selectedDeptId && (
             <div style={{
               background: "white",
@@ -2688,12 +2653,7 @@ function OTDepartment() {
               </h2>
 
               {isAdmin && (
-                <div style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "6px",
-                  marginBottom: "12px"
-                }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
                   <input
                     type="text"
                     placeholder="List name..."
@@ -2825,7 +2785,7 @@ function OTDepartment() {
           )}
         </div>
 
-        {/* ===== RIGHT COLUMN: EQUIPMENT ===== */}
+        {/* RIGHT COLUMN: EQUIPMENT */}
         <div style={{
           background: "white",
           borderRadius: "16px",
@@ -2886,9 +2846,6 @@ function OTDepartment() {
               <Icons.loading />
               <p style={{ fontSize: isMobile ? "14px" : "16px", marginTop: "16px", color: "#004d32", fontWeight: "600" }}>
                 Loading equipment...
-              </p>
-              <p style={{ fontSize: isMobile ? "12px" : "13px", marginTop: "4px" }}>
-                هذا قد يستغرق لحظة
               </p>
             </div>
           ) : (
