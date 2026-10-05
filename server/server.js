@@ -81,7 +81,6 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // ============================================================
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
-// ✅ ملاحظة أمنية: احذف tlsAllowInvalidCertificates — خطر وغير ضروري
 const MONGODB_URI = process.env.MONGODB_URI ||
   "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
@@ -553,7 +552,7 @@ app.post('/api/ot-fix-missing-deptcode', requireDebugToken, async (req, res) => 
   }
 });
 
-// ✅ محمي: clean-orphans (يقوم بحذف بيانات!)
+// ✅ محمي: clean-orphans
 app.post('/api/debug/clean-orphans', requireDebugToken, async (req, res) => {
   try {
     console.log(' Starting orphan cleanup...');
@@ -590,7 +589,6 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
     console.log("==============================================");
     console.log("🚑 GET /api/ot-custom-lists-all");
 
-    console.log("1️⃣ Fetching all lists...");
     const lists = await withTimeout(
       otCustomListsCollection
         .find({})
@@ -604,7 +602,6 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
 
     const listIds = lists.map(l => l.id).filter(Boolean);
 
-    console.log("2️⃣ Fetching equipment...");
     let allEquip = [];
     if (listIds.length > 0) {
       try {
@@ -624,7 +621,6 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
       }
     }
 
-    console.log("3️⃣ Fetching departments...");
     const depts = await withTimeout(
       otDepartmentsCollection.find({}).maxTimeMS(5000).toArray(),
       8000,
@@ -643,7 +639,6 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
     const validLists = lists.filter(list => deptIds.has(list.deptCode));
 
     console.log(`✅ Diagnostic completed in ${Date.now() - startedAt}ms`);
-    console.log("==============================================");
 
     return res.json({
       success: true,
@@ -664,7 +659,6 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
     });
   } catch (error) {
     console.error("❌ /api/ot-custom-lists-all ERROR:", error);
-    console.log("==============================================");
     return res.status(500).json({
       success: false,
       message: error.message,
@@ -673,7 +667,7 @@ app.get('/api/ot-custom-lists-all', async (req, res) => {
   }
 });
 
-// ✅ محمي: fix orphan lists (يعدّل بيانات)
+// ✅ محمي: fix orphan lists
 app.post('/api/ot-fix-orphan-lists', requireDebugToken, async (req, res) => {
   try {
     const { targetDeptCode, dryRun = false } = req.body;
@@ -724,7 +718,7 @@ app.post('/api/ot-fix-orphan-lists', requireDebugToken, async (req, res) => {
   }
 });
 
-// ✅ محمي: move list (يعدّل بيانات)
+// ✅ محمي: move list
 app.post('/api/ot-move-list-to-dept', requireDebugToken, async (req, res) => {
   try {
     const { listId, targetDeptCode } = req.body;
@@ -755,7 +749,7 @@ app.post('/api/ot-move-list-to-dept', requireDebugToken, async (req, res) => {
 });
 
 // ============================================================
-// 🚀 OT BOOTSTRAP — endpoint سريع يجلب الأقسام + اللستات فقط
+// 🚀 OT BOOTSTRAP
 // ============================================================
 app.get('/api/ot-bootstrap', async (req, res) => {
   const startedAt = Date.now();
@@ -1471,9 +1465,6 @@ app.post('/api/checklist/save', async (req, res) => {
   }
 });
 
-// ============================================================
-// /api/checklists — Bulk fetch + includeEquipment param
-// ============================================================
 app.get('/api/checklists', async (req, res) => {
   const startedAt = Date.now();
   try {
@@ -1504,7 +1495,6 @@ app.get('/api/checklists', async (req, res) => {
 
     if (!includeEquipment) {
       console.log(`✅ Fast path: ${checklists.length} checklists (no equipment) in ${Date.now() - startedAt}ms`);
-      console.log("==============================================");
       return res.json({
         success: true,
         data: checklists,
@@ -1566,7 +1556,6 @@ app.get('/api/checklists', async (req, res) => {
     }
 
     console.log(`✅ Completed /api/checklists (with equipment) in ${Date.now() - startedAt}ms`);
-    console.log("==============================================");
 
     res.json({
       success: true,
@@ -1582,7 +1571,6 @@ app.get('/api/checklists', async (req, res) => {
     });
   } catch (error) {
     console.error("❌ /api/checklists ERROR:", error);
-    console.log("==============================================");
     res.status(500).json({
       success: false,
       message: error.message,
@@ -1667,7 +1655,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
     }
 
     console.log(`✅ Completed /api/ot-custom-lists in ${Date.now() - startedAt}ms`);
-    console.log("==============================================");
 
     return res.json({
       success: true,
@@ -1681,7 +1668,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
     });
   } catch (error) {
     console.error("❌ /api/ot-custom-lists ERROR:", error);
-    console.log("==============================================");
     return res.status(500).json({
       success: false,
       message: error.message,
@@ -1798,8 +1784,7 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
 // OT CUSTOM EQUIPMENT ROUTES
 // ============================================================
 
-// ✅✅✅ FIXED: GET equipment by listId — timeout 45s للصور الكبيرة
-//    يدعم ?excludeImages=1 لتسريع الرد
+// ✅ GET equipment by listId — timeout 45s
 app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
   const startedAt = Date.now();
   try {
@@ -1810,7 +1795,6 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
 
     const projection = excludeImages ? { image: 0 } : {};
 
-    // ✅ timeout 45 ثانية — يكفي للصور الكبيرة
     const equipment = await withTimeout(
       otCustomEquipmentCollection
         .find({ listId }, { projection })
@@ -1822,7 +1806,6 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
       "Fetching custom equipment"
     );
 
-    // ✅ احسب عدد الصور والحجم
     let withImages = 0;
     let totalSizeKB = 0;
     for (const item of equipment) {
@@ -1833,21 +1816,33 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
     }
 
     console.log(`   Found ${equipment.length} items, ${withImages} with images (~${totalSizeKB}KB) in ${Date.now() - startedAt}ms`);
-    res.json({ success: true, data: equipment });
+    res.json({
+      success: true,
+      data: equipment,
+      debug: {
+        count: equipment.length,
+        withImages,
+        excludeImages,
+        timeMs: Date.now() - startedAt,
+      }
+    });
   } catch (error) {
     console.error('   Error fetching custom equipment:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ✅ GET صور الأدوات فقط — endpoint منفصل (احتياطي)
+// ============================================================
+// ✅✅✅ FIXED: GET صور الأدوات — يبحث في كلتا المجموعتين
+// ============================================================
 app.get('/api/ot-equipment-images/:listId', async (req, res) => {
   const startedAt = Date.now();
   try {
     const { listId } = req.params;
     console.log(`🖼️  GET /api/ot-equipment-images/${listId}`);
 
-    const images = await withTimeout(
+    // ✅ ابحث في ot_custom_equipment أولاً
+    let images = await withTimeout(
       otCustomEquipmentCollection
         .find(
           { listId, image: { $exists: true, $ne: null } },
@@ -1856,24 +1851,117 @@ app.get('/api/ot-equipment-images/:listId', async (req, res) => {
         .maxTimeMS(45000)
         .toArray(),
       45000,
-      "Fetching equipment images"
+      "Fetching equipment images (ot_custom)"
     );
 
-    const imageMap = {};
-    let totalSizeKB = 0;
-    for (const item of images) {
-      const key = item.id || item._id?.toString();
-      if (key && item.image) {
-        imageMap[key] = item.image;
-        totalSizeKB += Math.round((item.image.length * 3) / 4 / 1024);
+    console.log(`   ot_custom_equipment: ${images.length} items with images`);
+
+    // ✅ fallback: إذا لم نجد، ابحث في dept_equipment
+    if (images.length === 0) {
+      try {
+        const deptImages = await withTimeout(
+          deptEquipmentCollection
+            .find(
+              { listId, image: { $exists: true, $ne: null } },
+              { projection: { id: 1, _id: 1, image: 1 } }
+            )
+            .maxTimeMS(45000)
+            .toArray(),
+          45000,
+          "Fetching equipment images (dept)"
+        );
+        if (deptImages.length > 0) {
+          console.log(`   dept_equipment: ${deptImages.length} items with images`);
+          images = deptImages;
+        }
+      } catch (e) {
+        console.warn("   dept_equipment images lookup failed:", e.message);
       }
     }
 
-    console.log(`✅ Found ${Object.keys(imageMap).length} images (~${totalSizeKB}KB) in ${Date.now() - startedAt}ms`);
-    res.json({ success: true, data: imageMap });
+    // ✅ ابنِ imageMap بمفاتيح متعددة (id + _id)
+    const imageMap = {};
+    let totalSizeKB = 0;
+
+    for (const item of images) {
+      if (!item.image) continue;
+
+      const sizeKB = Math.round((item.image.length * 3) / 4 / 1024);
+      totalSizeKB += sizeKB;
+
+      // ✅ خزّن بمفتاح id إذا موجود
+      if (item.id) {
+        imageMap[item.id] = item.image;
+      }
+
+      // ✅ خزّن أيضاً بمفتاح _id (string)
+      if (item._id) {
+        const idStr = item._id.toString();
+        imageMap[idStr] = item.image;
+      }
+    }
+
+    console.log(`✅ Found ${images.length} images (${Object.keys(imageMap).length} keys, ~${totalSizeKB}KB) in ${Date.now() - startedAt}ms`);
+
+    res.json({
+      success: true,
+      data: imageMap,
+      debug: {
+        itemsWithImages: images.length,
+        keys: Object.keys(imageMap).length,
+        sizeKB: totalSizeKB,
+        timeMs: Date.now() - startedAt,
+      }
+    });
   } catch (error) {
     console.error(`⚠️ Error fetching images for ${req.params.listId}:`, error.message);
     res.json({ success: true, data: {}, warning: error.message });
+  }
+});
+
+// ============================================================
+// ✅ NEW: Debug endpoint لفحص الصور
+// ============================================================
+app.get('/api/ot-images-debug/:listId', async (req, res) => {
+  try {
+    const { listId } = req.params;
+
+    const [otItems, deptItems] = await Promise.all([
+      otCustomEquipmentCollection
+        .find({ listId }, { projection: { id: 1, _id: 1, name: 1, image: 1 } })
+        .maxTimeMS(10000)
+        .toArray(),
+      deptEquipmentCollection
+        .find({ listId }, { projection: { id: 1, _id: 1, name: 1, image: 1 } })
+        .maxTimeMS(10000)
+        .toArray(),
+    ]);
+
+    const analyze = (items) => items.map(it => ({
+      id: it.id || null,
+      _id: it._id?.toString() || null,
+      name: it.name || null,
+      hasImage: !!it.image,
+      imageSizeKB: it.image ? Math.round((it.image.length * 3) / 4 / 1024) : 0,
+      imagePrefix: it.image ? it.image.slice(0, 40) : null,
+    }));
+
+    res.json({
+      success: true,
+      listId,
+      ot_custom_equipment: {
+        count: otItems.length,
+        withImages: otItems.filter(i => i.image).length,
+        items: analyze(otItems),
+      },
+      dept_equipment: {
+        count: deptItems.length,
+        withImages: deptItems.filter(i => i.image).length,
+        items: analyze(deptItems),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -1997,6 +2085,90 @@ app.delete('/api/ot-custom-equipment/:id', async (req, res) => {
   } catch (error) {
     console.error(' Error deleting custom equipment:', error);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ============================================================
+// ✅ NEW: إحصائيات الصور (محمي)
+// ============================================================
+app.get('/api/debug/images-stats', requireDebugToken, async (req, res) => {
+  try {
+    const [otStats, deptStats] = await Promise.all([
+      otCustomEquipmentCollection.aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            withImages: {
+              $sum: { $cond: [{ $ifNull: ['$image', false] }, 1, 0] }
+            }
+          }
+        }
+      ]).toArray(),
+      deptEquipmentCollection.aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            withImages: {
+              $sum: { $cond: [{ $ifNull: ['$image', false] }, 1, 0] }
+            }
+          }
+        }
+      ]).toArray(),
+    ]);
+
+    res.json({
+      success: true,
+      ot_custom_equipment: {
+        total: otStats[0]?.total || 0,
+        withImages: otStats[0]?.withImages || 0,
+      },
+      dept_equipment: {
+        total: deptStats[0]?.total || 0,
+        withImages: deptStats[0]?.withImages || 0,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============================================================
+// ✅ NEW: ترحيل الصور من dept_equipment إلى ot_custom_equipment
+// ============================================================
+app.post('/api/debug/migrate-images', requireDebugToken, async (req, res) => {
+  try {
+    let migrated = 0;
+    let skipped = 0;
+
+    const deptItems = await deptEquipmentCollection
+      .find({ image: { $exists: true, $ne: null } })
+      .toArray();
+
+    for (const deptItem of deptItems) {
+      const match = await otCustomEquipmentCollection.findOne({
+        $or: [
+          { id: deptItem.id },
+          { _id: deptItem._id },
+          { name: deptItem.name, listId: deptItem.listId },
+        ]
+      });
+
+      if (match && !match.image) {
+        await otCustomEquipmentCollection.updateOne(
+          { _id: match._id },
+          { $set: { image: deptItem.image, updatedAt: new Date() } }
+        );
+        migrated++;
+      } else {
+        skipped++;
+      }
+    }
+
+    res.json({ success: true, migrated, skipped, total: deptItems.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -2311,11 +2483,14 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` OT Departments:   /api/ot-departments`);
   console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + excludeImages=1)`);
   console.log(` OT Custom Equip:  /api/ot-custom-equipment (WITH IMAGES, timeout=45s)`);
-  console.log(` OT Equip Images:  /api/ot-equipment-images/:listId (fallback endpoint)`);
+  console.log(` OT Equip Images:  /api/ot-equipment-images/:listId (ot_custom + dept fallback)`);
+  console.log(` OT Images Debug:  /api/ot-images-debug/:listId (NEW)`);
   console.log(` Checklists:       /api/checklists (BULK + includeEquipment=true|false)`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
   console.log(` Health Check:     /api/health`);
   console.log(` Debug Info:       /api/debug/info`);
+  console.log(` Images Stats:     /api/debug/images-stats (protected)`);
+  console.log(` Migrate Images:   POST /api/debug/migrate-images (protected)`);
   console.log(` Allowed origins:  ${allowedOrigins.join(', ')}`);
   console.log(` Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
   console.log('═══════════════════════════════════════════════════════');

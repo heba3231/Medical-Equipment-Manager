@@ -112,6 +112,7 @@ function OTDepartment() {
   const [equipment, setEquipment] = useState({});
   const [equipmentImages, setEquipmentImages] = useState({});
   const [equipmentLoading, setEquipmentLoading] = useState(false);
+  const [imagesLoading, setImagesLoading] = useState(false);
 
   const [newEquipment, setNewEquipment] = useState({
     name: "",
@@ -361,27 +362,36 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ getItemImage — helper موحّد مع fallbacks متعددة
+  // ✅✅✅ getItemImage — helper موحّد مع fallbacks متعددة
   // ============================================================
   const getItemImage = (item, listId) => {
     if (!item) return null;
     const lid = listId || selectedListId;
 
+    // 1) حاول من equipmentImages cache
     if (lid && equipmentImages[lid]) {
-      const keys = [
-        item.id,
-        item._id?.toString(),
-        String(item.id || ''),
-        String(item._id || '')
-      ].filter(Boolean);
+      const imgMap = equipmentImages[lid];
 
-      for (const key of keys) {
-        if (equipmentImages[lid][key]) {
-          return equipmentImages[lid][key];
-        }
+      // جرّب item.id أولاً
+      if (item.id && imgMap[item.id]) {
+        return imgMap[item.id];
+      }
+
+      // جرّب _id كـ string
+      if (item._id && imgMap[String(item._id)]) {
+        return imgMap[String(item._id)];
+      }
+
+      // جرّب ObjectId.toString()
+      if (item._id) {
+        const idStr = typeof item._id === 'object' && item._id.toString
+          ? item._id.toString()
+          : String(item._id);
+        if (imgMap[idStr]) return imgMap[idStr];
       }
     }
 
+    // 2) fallback: item.image مباشرة
     if (item.image) return item.image;
 
     return null;
@@ -442,7 +452,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment
+  // ✅✅✅ FIXED: fetchEquipment — ينتظر جلب الصور
   // ============================================================
   const fetchEquipment = async (listId) => {
     setEquipmentLoading(true);
@@ -456,7 +466,8 @@ function OTDepartment() {
         console.log(`📦 Loaded ${(data.data || []).length} equipment items for ${listId}`);
       }
 
-      fetchEquipmentImages(listId);
+      // ✅ انتظر جلب الصور قبل إخفاء loading
+      await fetchEquipmentImages(listId);
     } catch (err) {
       console.error("Error fetching equipment:", err.message);
       setEquipment(prev => ({ ...prev, [listId]: prev[listId] || [] }));
@@ -466,14 +477,14 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ FIXED: fetchEquipmentImages — 60s timeout + retry
+  // ✅✅✅ FIXED: fetchEquipmentImages — 60s timeout + retry + logging
   // ============================================================
   const fetchEquipmentImages = async (listId, retryCount = 0) => {
+    setImagesLoading(true);
     try {
       console.log(`🖼️  Fetching images for ${listId} (attempt ${retryCount + 1})`);
 
       const controller = new AbortController();
-      // ✅ 60 ثانية بدل 20 — يكفي للصور الكبيرة
       const timeoutId = setTimeout(() => controller.abort(), 60000);
 
       const response = await fetch(
@@ -501,7 +512,10 @@ function OTDepartment() {
         const imageCount = Object.keys(data.data).length;
         console.log(`✅ Loaded ${imageCount} images for ${listId}`);
 
-        // ✅ دائماً حدّث — حتى لو 0 صور
+        if (imageCount > 0) {
+          console.log(`🔑 Image keys sample:`, Object.keys(data.data).slice(0, 5));
+        }
+
         setEquipmentImages(prev => ({ ...prev, [listId]: data.data }));
       } else if (data.warning) {
         console.warn(`⚠️ Images warning for ${listId}:`, data.warning);
@@ -517,6 +531,8 @@ function OTDepartment() {
       } else {
         console.warn("⚠️ Error fetching equipment images:", err.message);
       }
+    } finally {
+      setImagesLoading(false);
     }
   };
 
@@ -923,7 +939,6 @@ function OTDepartment() {
     setCheckListImage(selectedListObj?.image || null);
     setCheckMode(true);
 
-    // ✅ دائماً اجلب الصور عند بدء الفحص
     fetchEquipmentImages(selectedListId);
   };
 
@@ -3021,6 +3036,11 @@ function OTDepartment() {
                     margin: "4px 0 0"
                   }}>
                     Total Instruments: <strong style={{ color: "#004d32" }}>{filteredAndSortedEquipment.length}</strong>
+                    {imagesLoading && (
+                      <span style={{ marginLeft: "8px", color: "#c9a84c", fontSize: "11px" }}>
+                        ⏳ loading images...
+                      </span>
+                    )}
                   </p>
                 </div>
 
