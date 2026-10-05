@@ -45,9 +45,9 @@ async function apiFetch(url, options = {}) {
 }
 
 // ============================================================
-// ✅ ضغط الصور قبل الإرسال (يقلل الحجم 80-90%)
+// ✅ ضغط الصور بقوة — 600px + quality 0.6 (حجم أقل بكثير)
 // ============================================================
-function compressImage(file, maxWidth = 800, quality = 0.7) {
+function compressImage(file, maxWidth = 600, quality = 0.6) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = reject;
@@ -71,7 +71,10 @@ function compressImage(file, maxWidth = 800, quality = 0.7) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
 
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        const result = canvas.toDataURL('image/jpeg', quality);
+        const sizeKB = Math.round((result.length * 3) / 4 / 1024);
+        console.log(`📸 Compressed image: ${width}x${height}, ~${sizeKB}KB`);
+        resolve(result);
       };
       img.src = e.target.result;
     };
@@ -360,16 +363,32 @@ function OTDepartment() {
   }, [qrListId, qrDeptCode]);
 
   // ============================================================
-  // ✅ getItemImage — helper موحّد للصورة
+  // ✅ getItemImage — helper موحّد مع fallbacks متعددة
   // ============================================================
   const getItemImage = (item, listId) => {
     if (!item) return null;
     const lid = listId || selectedListId;
+
+    // 1. من الـ equipmentImages map
     if (lid && equipmentImages[lid]) {
-      const key = item.id || item._id?.toString();
-      if (key && equipmentImages[lid][key]) return equipmentImages[lid][key];
+      const keys = [
+        item.id,
+        item._id?.toString(),
+        String(item.id || ''),
+        String(item._id || '')
+      ].filter(Boolean);
+
+      for (const key of keys) {
+        if (equipmentImages[lid][key]) {
+          return equipmentImages[lid][key];
+        }
+      }
     }
-    return item.image || null;
+
+    // 2. من الـ item مباشرة
+    if (item.image) return item.image;
+
+    return null;
   };
 
   // ============================================================
@@ -427,7 +446,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment — بدون صور، ونجلب الصور بالتوازي
+  // ✅ fetchEquipment — بدون صور + نجلب الصور بعده مباشرة
   // ============================================================
   const fetchEquipment = async (listId) => {
     setEquipmentLoading(true);
@@ -438,9 +457,10 @@ function OTDepartment() {
 
       if (data.success) {
         setEquipment(prev => ({ ...prev, [listId]: data.data || [] }));
+        console.log(`📦 Loaded ${(data.data || []).length} equipment items for ${listId}`);
       }
 
-      // ✅ نجلب الصور بالتوازي (لا ننتظرها — ولا تفشل العملية لو فشلت)
+      // ✅ نجلب الصور — وننتظرها
       fetchEquipmentImages(listId);
     } catch (err) {
       console.error("Error fetching equipment:", err.message);
@@ -451,38 +471,58 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ FIXED: fetchEquipmentImages — لا يرمي خطأ + timeout 15s
+  // ✅ fetchEquipmentImages — مع logging مفصل + retry واحد
   // ============================================================
-  const fetchEquipmentImages = async (listId) => {
+  const fetchEquipmentImages = async (listId, retryCount = 0) => {
     try {
+      console.log(`🖼️  Fetching images for ${listId} (attempt ${retryCount + 1})`);
+
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
 
       const response = await fetch(
         `${API_BASE}/ot-equipment-images/${encodeURIComponent(listId)}`,
         {
           signal: controller.signal,
           cache: 'no-store',
+          headers: { 'Accept': 'application/json' }
         }
       );
       clearTimeout(timeoutId);
 
-      // ✅ لا نعتبر HTTP error خطأً قاتلاً
       if (!response.ok) {
-        console.warn(`Images endpoint returned ${response.status} for ${listId}`);
+        console.warn(`⚠️ Images endpoint returned ${response.status} for ${listId}`);
+        // retry مرة واحدة للأخطاء 500/502/503/504
+        if (retryCount === 0 && response.status >= 500) {
+          await new Promise(r => setTimeout(r, 2000));
+          return fetchEquipmentImages(listId, 1);
+        }
         return;
       }
 
       const data = await response.json();
+
       if (data.success && data.data) {
-        setEquipmentImages(prev => ({ ...prev, [listId]: data.data }));
+        const imageCount = Object.keys(data.data).length;
+        console.log(`✅ Loaded ${imageCount} images for ${listId}`);
+
+        if (imageCount > 0) {
+          setEquipmentImages(prev => ({ ...prev, [listId]: data.data }));
+        }
+      } else if (data.warning) {
+        console.warn(`⚠️ Images warning for ${listId}:`, data.warning);
       }
     } catch (err) {
-      // ✅ صمت تام — الصور غير حرجة
       if (err.name === 'AbortError') {
-        console.warn(`Images fetch aborted (timeout) for ${listId}`);
+        console.warn(`⚠️ Images fetch timed out for ${listId}`);
+        // retry مرة واحدة عند timeout
+        if (retryCount === 0) {
+          console.log(`🔄 Retrying images fetch for ${listId}...`);
+          await new Promise(r => setTimeout(r, 2000));
+          return fetchEquipmentImages(listId, 1);
+        }
       } else {
-        console.warn("Error fetching equipment images:", err.message);
+        console.warn("⚠️ Error fetching equipment images:", err.message);
       }
     }
   };
@@ -713,6 +753,7 @@ function OTDepartment() {
         }));
       }
 
+      // ✅ حدّث images map فوراً
       if (data.data?.id && data.data?.image) {
         setEquipmentImages(prev => ({
           ...prev,
@@ -721,6 +762,7 @@ function OTDepartment() {
             [data.data.id]: data.data.image
           }
         }));
+        console.log(`✅ Image saved in cache for ${data.data.id}`);
       }
 
       resetEquipmentForm();
@@ -777,7 +819,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ IMAGE HANDLING — يستخدم compressImage لتقليل الحجم
+  // ✅ IMAGE HANDLING — يستخدم compressImage
   // ============================================================
   const handleImageChange = async (e) => {
     const file = e.target.files[0];
@@ -787,7 +829,7 @@ function OTDepartment() {
       return;
     }
     try {
-      const compressed = await compressImage(file, 800, 0.7);
+      const compressed = await compressImage(file, 600, 0.6);
       setImagePreview(compressed);
       setNewEquipment(prev => ({ ...prev, image: compressed }));
     } catch (err) {
@@ -809,7 +851,7 @@ function OTDepartment() {
         return;
       }
       try {
-        const compressed = await compressImage(file, 800, 0.7);
+        const compressed = await compressImage(file, 600, 0.6);
         setImagePreview(compressed);
         setNewEquipment(prev => ({ ...prev, image: compressed }));
       } catch (err) {
@@ -888,9 +930,8 @@ function OTDepartment() {
     setCheckListImage(selectedListObj?.image || null);
     setCheckMode(true);
 
-    if (!equipmentImages[selectedListId]) {
-      fetchEquipmentImages(selectedListId);
-    }
+    // ✅ دائماً اجلب الصور عند بدء الفحص
+    fetchEquipmentImages(selectedListId);
   };
 
   const updateCheckPresent = (itemId, delta, maxQty) => {
@@ -985,7 +1026,7 @@ function OTDepartment() {
   }, [currentEquipment, checkData]);
 
   // ============================================================
-  // ✅✅✅ FIXED: handleApproveAndSend — مع retry عند فشل الشبكة
+  // ✅ handleApproveAndSend — مع retry عند فشل الشبكة
   // ============================================================
   const handleApproveAndSend = async () => {
     if (!selectedListId) {
@@ -1074,7 +1115,6 @@ function OTDepartment() {
         console.warn(`Attempt ${attempt} failed:`, err.message);
 
         if (attempt < maxAttempts) {
-          // انتظر قبل إعادة المحاولة (1.5s, 3s)
           await new Promise(r => setTimeout(r, 1500 * attempt));
         }
       }
@@ -1109,8 +1149,7 @@ function OTDepartment() {
     setIsUploadingImage(true);
 
     try {
-      // ✅ ضغط الصورة
-      const imageData = await compressImage(file, 1000, 0.7);
+      const imageData = await compressImage(file, 800, 0.6);
       setCheckListImage(imageData);
 
       const listData = {
@@ -1703,10 +1742,20 @@ function OTDepartment() {
                                 src={itemImg}
                                 alt={item.name}
                                 onClick={() => setImageModal(itemImg)}
-                                style={{ width: isMobile ? "30px" : "34px", height: isMobile ? "30px" : "34px", objectFit: "cover", borderRadius: "6px", cursor: "pointer", border: "1px solid #e5e7eb" }}
+                                loading="lazy"
+                                style={{
+                                  width: isMobile ? "30px" : "36px",
+                                  height: isMobile ? "30px" : "36px",
+                                  objectFit: "cover",
+                                  borderRadius: "6px",
+                                  cursor: "pointer",
+                                  border: "1px solid #e5e7eb"
+                                }}
                                 onError={(e) => {
                                   e.target.style.display = 'none';
-                                  e.target.parentElement.innerHTML = `<span style="color:#d1d5db;font-size:20px;">📷</span>`;
+                                  if (e.target.parentElement) {
+                                    e.target.parentElement.innerHTML = `<span style="color:#d1d5db;font-size:20px;">📷</span>`;
+                                  }
                                 }}
                               />
                             ) : (
@@ -2192,6 +2241,7 @@ function OTDepartment() {
                             {itemImg ? (
                               <img
                                 src={itemImg}
+                                loading="lazy"
                                 style={{
                                   width: isMobile ? "28px" : "36px",
                                   height: isMobile ? "28px" : "36px",
@@ -2202,6 +2252,12 @@ function OTDepartment() {
                                 }}
                                 onClick={() => setImageModal(itemImg)}
                                 alt={item.name}
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  if (e.target.parentElement) {
+                                    e.target.parentElement.innerHTML = `<div style="width:${isMobile ? 28 : 36}px;height:${isMobile ? 28 : 36}px;background:#f3f4f6;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;border:1px solid #e5e7eb;margin:0 auto;">📷</div>`;
+                                  }
+                                }}
                               />
                             ) : (
                               <div style={{
@@ -3145,17 +3201,22 @@ function OTDepartment() {
                                     src={itemImg}
                                     alt={item.name}
                                     onClick={() => setImageModal(itemImg)}
+                                    loading="lazy"
                                     style={{
-                                      width: isMobile ? "30px" : "40px",
-                                      height: isMobile ? "30px" : "40px",
+                                      width: isMobile ? "32px" : "42px",
+                                      height: isMobile ? "32px" : "42px",
                                       objectFit: "cover",
                                       borderRadius: "6px",
                                       cursor: "pointer",
-                                      border: "1px solid #e5e7eb"
+                                      border: "1px solid #e5e7eb",
+                                      background: "#f3f4f6"
                                     }}
                                     onError={(e) => {
+                                      console.warn(`⚠️ Image failed to load for ${item.name}`);
                                       e.target.style.display = 'none';
-                                      e.target.parentElement.innerHTML = `<span style="font-size:20px;color:#9ca3af;">📷</span>`;
+                                      if (e.target.parentElement) {
+                                        e.target.parentElement.innerHTML = `<span style="font-size:20px;color:#9ca3af;">📷</span>`;
+                                      }
                                     }}
                                   />
                                 ) : (
