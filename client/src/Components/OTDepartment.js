@@ -44,6 +44,41 @@ async function apiFetch(url, options = {}) {
   return data;
 }
 
+// ============================================================
+// ✅ ضغط الصور قبل الإرسال (يقلل الحجم 80-90%)
+// ============================================================
+function compressImage(file, maxWidth = 800, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+
+        if (width > height && width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        } else if (height > maxWidth) {
+          width = Math.round((width * maxWidth) / height);
+          height = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function OTDepartment() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,9 +107,9 @@ function OTDepartment() {
   const [selectedListId, setSelectedListId] = useState(qrListId || null);
 
   const [equipment, setEquipment] = useState({});
-  // ✅ NEW: صور المعدات (id → base64) لكل لستة
+  // ✅ صور المعدات (id → base64) لكل لستة
   const [equipmentImages, setEquipmentImages] = useState({});
-  // ✅ NEW: مؤشر تحميل المعدات
+  // ✅ مؤشر تحميل المعدات
   const [equipmentLoading, setEquipmentLoading] = useState(false);
 
   const [newEquipment, setNewEquipment] = useState({
@@ -326,7 +361,6 @@ function OTDepartment() {
 
   // ============================================================
   // ✅ getItemImage — helper موحّد للصورة
-  //    الأولوية: equipmentImages map → item.image → null
   // ============================================================
   const getItemImage = (item, listId) => {
     if (!item) return null;
@@ -352,7 +386,6 @@ function OTDepartment() {
         const { departments: depts, listsByDept } = data.data;
         setDepartments(depts);
         setLists(listsByDept);
-        // ✅ المعدات والصور تُجلب عند الحاجة فقط
       }
     } catch (err) {
       console.error("Error loading departments:", err.message);
@@ -364,11 +397,9 @@ function OTDepartment() {
 
   // ============================================================
   // ✅ fetchLists — طلب واحد فقط بدون N+1
-  //    (يجيب اللستات + كل المعدات بدون صور)
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
-      // ✅ excludeImages=1 → رد خفيف جداً (بدون صور)
       const data = await apiFetch(
         `${API_BASE}/ot-custom-lists?deptCode=${encodeURIComponent(deptId)}&excludeImages=1`
       );
@@ -377,11 +408,9 @@ function OTDepartment() {
 
       const listsArr = data.data || [];
 
-      // نحفظ اللستات (بدون equipment مضمّن)
       const listsForState = listsArr.map(({ equipment, ...rest }) => rest);
       setLists(prev => ({ ...prev, [deptId]: listsForState }));
 
-      // ✅ نجمع كل المعدات من الرد مباشرة (بدون أي طلب إضافي)
       const equipmentFromResponse = {};
       for (const list of listsArr) {
         if (Array.isArray(list.equipment)) {
@@ -398,12 +427,11 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipment — يجيب معدة معينة (بدون صور) + صور بالتوازي
+  // ✅ fetchEquipment — بدون صور، ونجلب الصور بالتوازي
   // ============================================================
   const fetchEquipment = async (listId) => {
     setEquipmentLoading(true);
     try {
-      // ✅ بدون صور — رد سريع جداً
       const data = await apiFetch(
         `${API_BASE}/ot-custom-equipment/${encodeURIComponent(listId)}?excludeImages=1`
       );
@@ -412,7 +440,7 @@ function OTDepartment() {
         setEquipment(prev => ({ ...prev, [listId]: data.data || [] }));
       }
 
-      // ✅ نجلب الصور بالتوازي (لا ننتظرها)
+      // ✅ نجلب الصور بالتوازي (لا ننتظرها — ولا تفشل العملية لو فشلت)
       fetchEquipmentImages(listId);
     } catch (err) {
       console.error("Error fetching equipment:", err.message);
@@ -423,19 +451,39 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchEquipmentImages — طلب خفيف يجيب كل الصور للستة
+  // ✅✅✅ FIXED: fetchEquipmentImages — لا يرمي خطأ + timeout 15s
   // ============================================================
   const fetchEquipmentImages = async (listId) => {
     try {
-      const data = await apiFetch(
-        `${API_BASE}/ot-equipment-images/${encodeURIComponent(listId)}`
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const response = await fetch(
+        `${API_BASE}/ot-equipment-images/${encodeURIComponent(listId)}`,
+        {
+          signal: controller.signal,
+          cache: 'no-store',
+        }
       );
-      if (data.success) {
-        setEquipmentImages(prev => ({ ...prev, [listId]: data.data || {} }));
+      clearTimeout(timeoutId);
+
+      // ✅ لا نعتبر HTTP error خطأً قاتلاً
+      if (!response.ok) {
+        console.warn(`Images endpoint returned ${response.status} for ${listId}`);
+        return;
+      }
+
+      const data = await response.json();
+      if (data.success && data.data) {
+        setEquipmentImages(prev => ({ ...prev, [listId]: data.data }));
       }
     } catch (err) {
-      // لا نعرض خطأ — الصور غير حرجة
-      console.warn("Error fetching equipment images:", err.message);
+      // ✅ صمت تام — الصور غير حرجة
+      if (err.name === 'AbortError') {
+        console.warn(`Images fetch aborted (timeout) for ${listId}`);
+      } else {
+        console.warn("Error fetching equipment images:", err.message);
+      }
     }
   };
 
@@ -651,7 +699,6 @@ function OTDepartment() {
 
       if (!data.success) throw new Error(data.message || "Unknown error");
 
-      // ✅ تحديث state مباشرة
       if (editingEquipId && data.data) {
         setEquipment(prev => ({
           ...prev,
@@ -666,7 +713,6 @@ function OTDepartment() {
         }));
       }
 
-      // ✅ نحدّث images map فوراً لو في صورة
       if (data.data?.id && data.data?.image) {
         setEquipmentImages(prev => ({
           ...prev,
@@ -713,7 +759,6 @@ function OTDepartment() {
         [selectedListId]: (prev[selectedListId] || []).filter(eq => eq.id !== id)
       }));
 
-      // ✅ احذف الصورة من map
       setEquipmentImages(prev => {
         const listImgs = { ...(prev[selectedListId] || {}) };
         delete listImgs[id];
@@ -731,17 +776,23 @@ function OTDepartment() {
     setEditingEquipId(null);
   };
 
-  // ========== IMAGE HANDLING ==========
-  const handleImageChange = (e) => {
+  // ============================================================
+  // ✅ IMAGE HANDLING — يستخدم compressImage لتقليل الحجم
+  // ============================================================
+  const handleImageChange = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) { alert("Image too large! Maximum 5MB"); return; }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-        setNewEquipment(prev => ({ ...prev, image: reader.result }));
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Image too large! Maximum 10MB before compression");
+      return;
+    }
+    try {
+      const compressed = await compressImage(file, 800, 0.7);
+      setImagePreview(compressed);
+      setNewEquipment(prev => ({ ...prev, image: compressed }));
+    } catch (err) {
+      console.error("Compression failed:", err);
+      alert("Failed to process image: " + err.message);
     }
   };
 
@@ -750,16 +801,20 @@ function OTDepartment() {
     input.type = 'file';
     input.accept = 'image/*';
     input.capture = 'environment';
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = e.target.files[0];
-      if (file) {
-        if (file.size > 5 * 1024 * 1024) { alert("Image too large! Maximum 5MB"); return; }
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setImagePreview(reader.result);
-          setNewEquipment(prev => ({ ...prev, image: reader.result }));
-        };
-        reader.readAsDataURL(file);
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) {
+        alert("Image too large! Maximum 10MB before compression");
+        return;
+      }
+      try {
+        const compressed = await compressImage(file, 800, 0.7);
+        setImagePreview(compressed);
+        setNewEquipment(prev => ({ ...prev, image: compressed }));
+      } catch (err) {
+        console.error("Compression failed:", err);
+        alert("Failed to process image: " + err.message);
       }
     };
     input.click();
@@ -833,7 +888,6 @@ function OTDepartment() {
     setCheckListImage(selectedListObj?.image || null);
     setCheckMode(true);
 
-    // ✅ تأكدي من وجود الصور
     if (!equipmentImages[selectedListId]) {
       fetchEquipmentImages(selectedListId);
     }
@@ -930,6 +984,9 @@ function OTDepartment() {
     };
   }, [currentEquipment, checkData]);
 
+  // ============================================================
+  // ✅✅✅ FIXED: handleApproveAndSend — مع retry عند فشل الشبكة
+  // ============================================================
   const handleApproveAndSend = async () => {
     if (!selectedListId) {
       alert("No list selected.");
@@ -988,81 +1045,107 @@ function OTDepartment() {
       expiryDate: expiryDate ? expiryDate.toISOString() : null,
     };
 
-    try {
-      setSaving(true);
-      const data = await apiFetch(`${API_BASE}/checklist/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+    setSaving(true);
 
-      if (!data.success) throw new Error(data.message || "Unknown error");
+    // ✅ Retry logic — 3 محاولات مع تأخير متزايد
+    const maxAttempts = 3;
+    let lastError = null;
 
-      alert('✅ Checklist submitted successfully!');
-      setCheckMode(false);
-      navigate('/reports', { state: { refresh: true } });
-    } catch (err) {
-      console.error('Error submitting checklist:', err);
-      alert('❌ Error submitting checklist: ' + err.message);
-    } finally {
-      setSaving(false);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        console.log(`📤 Checklist submit attempt ${attempt}/${maxAttempts}...`);
+
+        const data = await apiFetch(`${API_BASE}/checklist/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!data.success) throw new Error(data.message || "Unknown error");
+
+        // ✅ نجح
+        alert('✅ Checklist submitted successfully!');
+        setCheckMode(false);
+        navigate('/reports', { state: { refresh: true } });
+        setSaving(false);
+        return;
+      } catch (err) {
+        lastError = err;
+        console.warn(`Attempt ${attempt} failed:`, err.message);
+
+        if (attempt < maxAttempts) {
+          // انتظر قبل إعادة المحاولة (1.5s, 3s)
+          await new Promise(r => setTimeout(r, 1500 * attempt));
+        }
+      }
     }
+
+    // ❌ فشلت كل المحاولات
+    console.error('❌ All attempts failed:', lastError);
+    alert(
+      `❌ Error submitting checklist after ${maxAttempts} attempts:\n\n` +
+      `${lastError?.message || 'Unknown error'}\n\n` +
+      `Try again in a few seconds. If the problem persists, the server may be restarting.`
+    );
+    setSaving(false);
   };
 
   const handleReportShortage = () => {
     alert("📢 Shortage notification sent to room administrator");
   };
 
-  const handleCheckListImageUpload = (e) => {
+  // ============================================================
+  // ✅ handleCheckListImageUpload — مع ضغط الصورة
+  // ============================================================
+  const handleCheckListImageUpload = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert("⚠️ Image too large! Maximum 5MB");
-        return;
-      }
-      setIsUploadingImage(true);
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const imageData = reader.result;
-        setCheckListImage(imageData);
+    if (!file) return;
 
-        try {
-          const listData = {
-            name: selectedListObj?.name || "",
-            description: selectedListObj?.description || "",
-            image: imageData,
-            deptCode: selectedDeptId,
-            roomId: null
-          };
+    if (file.size > 10 * 1024 * 1024) {
+      alert("⚠️ Image too large! Maximum 10MB before compression");
+      return;
+    }
 
-          const result = await apiFetch(`${API_BASE}/ot-custom-lists/${selectedListId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(listData)
-          });
+    setIsUploadingImage(true);
 
-          if (result.success) {
-            setLists(prev => {
-              const updatedLists = { ...prev };
-              if (updatedLists[selectedDeptId]) {
-                updatedLists[selectedDeptId] = updatedLists[selectedDeptId].map(list =>
-                  list.id === selectedListId ? { ...list, image: imageData } : list
-                );
-              }
-              return updatedLists;
-            });
-          } else {
-            alert("❌ Failed to save image: " + (result.message || "Unknown error"));
-            setCheckListImage(null);
-          }
-        } catch (err) {
-          alert("❌ Error saving image: " + err.message);
-          setCheckListImage(null);
-        } finally {
-          setIsUploadingImage(false);
-        }
+    try {
+      // ✅ ضغط الصورة
+      const imageData = await compressImage(file, 1000, 0.7);
+      setCheckListImage(imageData);
+
+      const listData = {
+        name: selectedListObj?.name || "",
+        description: selectedListObj?.description || "",
+        image: imageData,
+        deptCode: selectedDeptId,
+        roomId: null
       };
-      reader.readAsDataURL(file);
+
+      const result = await apiFetch(`${API_BASE}/ot-custom-lists/${selectedListId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(listData)
+      });
+
+      if (result.success) {
+        setLists(prev => {
+          const updatedLists = { ...prev };
+          if (updatedLists[selectedDeptId]) {
+            updatedLists[selectedDeptId] = updatedLists[selectedDeptId].map(list =>
+              list.id === selectedListId ? { ...list, image: imageData } : list
+            );
+          }
+          return updatedLists;
+        });
+      } else {
+        alert("❌ Failed to save image: " + (result.message || "Unknown error"));
+        setCheckListImage(null);
+      }
+    } catch (err) {
+      alert("❌ Error saving image: " + err.message);
+      setCheckListImage(null);
+    } finally {
+      setIsUploadingImage(false);
     }
   };
 
@@ -2581,11 +2664,9 @@ function OTDepartment() {
                       }}
                       onClick={() => {
                         setSelectedListId(list.id);
-                        // ✅ جلب المعدات فقط إذا لم تكن موجودة (تجنب طلبات مكررة)
                         if (!equipment[list.id]) {
                           fetchEquipment(list.id);
                         } else if (!equipmentImages[list.id]) {
-                          // موجودة لكن بدون صور → جلب الصور فقط
                           fetchEquipmentImages(list.id);
                         }
                       }}
@@ -2676,7 +2757,6 @@ function OTDepartment() {
               <p style={{ fontSize: isMobile ? "14px" : "16px" }}>Select a list from the left panel to manage equipment</p>
             </div>
           ) : equipmentLoading && currentEquipment.length === 0 ? (
-            // ✅ مؤشر تحميل المعدات
             <div style={{ textAlign: "center", padding: "60px 20px", color: "#6b7280" }}>
               <Icons.loading />
               <p style={{ fontSize: isMobile ? "14px" : "16px", marginTop: "16px", color: "#004d32", fontWeight: "600" }}>

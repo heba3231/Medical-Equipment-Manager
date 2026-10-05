@@ -15,8 +15,8 @@ import dotenv from 'dotenv';
 // تحميل متغيرات البيئة
 dotenv.config();
 
-// Force Google DNS
-dns.setServers(["8.8.8.8", "8.8.4.4"]);
+// ✅ Force Google + Cloudflare DNS (أكثر استقراراً على Render)
+dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -81,7 +81,9 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // ============================================================
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_medical_equipment_system_2024";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?appName=Cluster0&tls=true&tlsAllowInvalidCertificates=true";
+// ✅ ملاحظة أمنية: احذف tlsAllowInvalidCertificates — خطر وغير ضروري
+const MONGODB_URI = process.env.MONGODB_URI ||
+  "mongodb+srv://admin:admin@cluster0.4ascplg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
 console.log(' MongoDB URI:', MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'));
 
@@ -110,16 +112,20 @@ function requireDebugToken(req, res, next) {
   next();
 }
 
-// ✅ إعدادات محسّنة — فشل سريع بدل انتظار طويل
+// ============================================================
+// ✅ MongoDB Client — إعدادات محسّنة لـ M0 Shared Tier
+// ============================================================
 const client = new MongoClient(MONGODB_URI, {
-  serverSelectionTimeoutMS: 10000,
-  socketTimeoutMS: 15000,
-  connectTimeoutMS: 10000,
-  maxPoolSize: 10,
-  minPoolSize: 1,
+  serverSelectionTimeoutMS: 30000,   // وقت أطول لاختيار server
+  socketTimeoutMS: 45000,            // وقت أطول للـ socket
+  connectTimeoutMS: 30000,           // وقت أطول للاتصال الأول
+  maxPoolSize: 5,                    // ✅ ألطف على M0 (كان 10)
+  minPoolSize: 0,                    // ✅ لا نحتفظ باتصالات فاضية (كان 1)
+  maxIdleTimeMS: 30000,              // ✅ يحرر الاتصالات الخاملة بعد 30s
+  waitQueueTimeoutMS: 20000,         // ✅ لا ننتظر أكثر من 20s للحصول على connection
   retryWrites: true,
   retryReads: true,
-  heartbeatFrequencyMS: 10000,
+  heartbeatFrequencyMS: 15000,       // ✅ heartbeat أقل تكراراً (كان 10000)
 });
 
 // ============================================================
@@ -257,8 +263,11 @@ async function ensureConnection() {
 
   isConnecting = true;
   try {
-    console.log(' Connecting to MongoDB...');
+    console.log('🔄 Connecting to MongoDB...');
+    const startTime = Date.now();
     await client.connect();
+    console.log(`✅ MongoDB TCP connected in ${Date.now() - startTime}ms`);
+    
     db = client.db("medical_equipment");
 
     equipmentCollection = db.collection("equipment");
@@ -293,6 +302,8 @@ async function ensureConnection() {
       () => otCustomEquipmentCollection.createIndex({ id: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1, createdAt: 1 }),
       () => otCustomEquipmentCollection.createIndex({ listId: 1, _id: 1 }),
+      // ✅ جديد: index على listId + image لتسريع استعلام الصور
+      () => otCustomEquipmentCollection.createIndex({ listId: 1, image: 1 }),
       () => otDepartmentsCollection.createIndex({ id: 1 }, { unique: true }),
       () => otDepartmentsCollection.createIndex({ createdAt: 1 }),
     ];
@@ -329,10 +340,11 @@ async function ensureConnection() {
     await seedDefaultDepartments();
     await migrateLegacyLists();
 
-    console.log(" MongoDB connected successfully");
+    console.log(`✅ MongoDB connected successfully in ${Date.now() - startTime}ms`);
     return true;
   } catch (error) {
-    console.error(" MongoDB connection error:", error.message);
+    console.error("❌ MongoDB connection error:", error.message);
+    console.error("   Name:", error.name, "| Code:", error.code);
     db = null;
     return false;
   } finally {
@@ -1360,19 +1372,46 @@ app.get('/api/checklist/:listId', async (req, res) => {
   }
 });
 
+// ✅ محسّن: timeout protection على كل استعلام
 app.post('/api/checklist/save', async (req, res) => {
+  const startedAt = Date.now();
   try {
     const {
       listId, deptCode, listName, submitted, submittedAt, submittedBy, userRole, expiryDate,
       availableQuantities, damagedQuantities, missingQuantities, checkedItems, damagedItems
     } = req.body;
 
+    console.log(`📝 POST /api/checklist/save listId=${listId}`);
+
     let equipmentList = [];
-    let itemsFromDept = await deptEquipmentCollection.find({ listId }).toArray();
-    if (itemsFromDept.length > 0) {
-      equipmentList = itemsFromDept;
-    } else {
-      equipmentList = await otCustomEquipmentCollection.find({ listId }).toArray();
+    
+    // ✅ محاولة dept_equipment مع timeout
+    try {
+      const itemsFromDept = await withTimeout(
+        deptEquipmentCollection.find({ listId }).maxTimeMS(3000).toArray(),
+        5000,
+        "dept_equipment lookup"
+      );
+      if (itemsFromDept.length > 0) {
+        equipmentList = itemsFromDept;
+        console.log(`   Found ${itemsFromDept.length} items in dept_equipment`);
+      }
+    } catch (e) {
+      console.warn("   dept_equipment lookup failed:", e.message);
+    }
+    
+    // ✅ fallback إلى ot_custom_equipment
+    if (equipmentList.length === 0) {
+      try {
+        equipmentList = await withTimeout(
+          otCustomEquipmentCollection.find({ listId }).maxTimeMS(3000).toArray(),
+          5000,
+          "ot_custom_equipment lookup"
+        );
+        console.log(`   Found ${equipmentList.length} items in ot_custom_equipment`);
+      } catch (e) {
+        console.warn("   ot_custom_equipment lookup failed:", e.message);
+      }
     }
 
     let totalItems = equipmentList.length;
@@ -1424,11 +1463,16 @@ app.post('/api/checklist/save', async (req, res) => {
       createdAt: new Date()
     };
 
-    const result = await checklistsCollection.insertOne(newChecklist);
-    console.log(` Checklist saved: ${result.insertedId}`);
+    const result = await withTimeout(
+      checklistsCollection.insertOne(newChecklist),
+      8000,
+      "inserting checklist"
+    );
+    console.log(`✅ Checklist saved in ${Date.now() - startedAt}ms: ${result.insertedId}`);
     res.json({ success: true, data: { ...newChecklist, _id: result.insertedId } });
   } catch (error) {
-    console.error(' Error saving checklist:', error);
+    console.error('❌ Error saving checklist:', error.message);
+    console.error('   Stack:', error.stack);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -1439,7 +1483,6 @@ app.post('/api/checklist/save', async (req, res) => {
 app.get('/api/checklists', async (req, res) => {
   const startedAt = Date.now();
   try {
-    // ✅ احترام includeEquipment=false لتسريع التحميل الأولي
     const includeEquipment = req.query.includeEquipment !== 'false';
 
     console.log("==============================================");
@@ -1480,7 +1523,7 @@ app.get('/api/checklists', async (req, res) => {
       });
     }
 
-    // ===== المسار البطيء: مع المعدات (عند فتح Modal فقط) =====
+    // ===== المسار البطيء: مع المعدات =====
     const listIds = [...new Set(checklists.map(c => c.listId).filter(Boolean))];
     console.log(`2️⃣ Unique listIds: ${listIds.length}`);
 
@@ -1557,8 +1600,7 @@ app.get('/api/checklists', async (req, res) => {
 });
 
 // ============================================================
-// ✅ OT CUSTOM LISTS ROUTES — SAFE + FAST VERSION
-//    يدعم ?excludeImages=1 لتسريع الرد (للأدوات)
+// ✅ OT CUSTOM LISTS ROUTES
 // ============================================================
 app.get('/api/ot-custom-lists', async (req, res) => {
   const startedAt = Date.now();
@@ -1569,7 +1611,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
     if (roomId) match.roomId = roomId;
     if (deptCode) match.deptCode = deptCode;
 
-    // ✅ projection: نستثني image من اللستة نفسها إلا لو مطلوب
     const excludeImagesFlag = excludeImages === '1';
     const listProjection = excludeImagesFlag ? { image: 0 } : {};
 
@@ -1604,7 +1645,6 @@ app.get('/api/ot-custom-lists', async (req, res) => {
     let allEquipment = [];
     if (listIds.length > 0) {
       try {
-        // ✅ projection: نستثني الصور عند excludeImages=1
         const eqProjection = excludeImagesFlag ? { image: 0 } : {};
         allEquipment = await withTimeout(
           otCustomEquipmentCollection
@@ -1766,7 +1806,7 @@ app.delete('/api/ot-custom-lists/:id', async (req, res) => {
 // OT CUSTOM EQUIPMENT ROUTES
 // ============================================================
 
-// ✅ GET equipment by listId — يدعم ?excludeImages=1 لسرعة أكبر
+// ✅ GET equipment by listId — يدعم ?excludeImages=1
 app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
@@ -1774,7 +1814,6 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
 
     console.log(` GET /api/ot-custom-equipment/${listId} (excludeImages=${excludeImages})`);
 
-    // ✅ projection: نستثني الصور إلا لو مطلوبة
     const projection = excludeImages ? { image: 0 } : {};
 
     const equipment = await withTimeout(
@@ -1795,37 +1834,38 @@ app.get('/api/ot-custom-equipment/:listId', async (req, res) => {
   }
 });
 
-// ✅ GET صور الأدوات فقط (خفيف جداً) — id + image
+// ✅✅✅ FIXED: GET صور الأدوات فقط — limit 50 + إرجاع {} عند الفشل
 app.get('/api/ot-equipment-images/:listId', async (req, res) => {
   try {
     const { listId } = req.params;
     console.log(` GET /api/ot-equipment-images/${listId}`);
 
+    // ✅ حد أقصى 50 صورة بدل 2000 (كانت تسبب 500 + timeout)
     const images = await withTimeout(
       otCustomEquipmentCollection
         .find(
-          { listId, image: { $ne: null } },
+          { listId, image: { $exists: true, $ne: null } },
           { projection: { id: 1, _id: 1, image: 1 } }
         )
-        .limit(2000)
-        .maxTimeMS(5000)
+        .limit(50)
+        .maxTimeMS(3000)
         .toArray(),
-      8000,
+      6000,
       "Fetching equipment images"
     );
 
-    // ✅ نحوّلها map للوصول السريع
     const imageMap = {};
     for (const item of images) {
       const key = item.id || item._id?.toString();
       if (key && item.image) imageMap[key] = item.image;
     }
 
-    console.log(` Found ${Object.keys(imageMap).length} images for list ${listId}`);
+    console.log(`✅ Found ${Object.keys(imageMap).length} images for list ${listId}`);
     res.json({ success: true, data: imageMap });
   } catch (error) {
-    console.error(' Error fetching equipment images:', error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('⚠️ Error fetching equipment images:', error.message);
+    // ✅ لا نرجع 500 — نرجع {} عشان الفرونت يكمل بدون تعطل
+    res.json({ success: true, data: {}, warning: error.message });
   }
 });
 
@@ -2258,19 +2298,16 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` Admin staff_no: ${DEFAULT_ADMIN_STAFF_NO}`);
   console.log(` Admin password: ${process.env.DEFAULT_ADMIN_PASSWORD ? '********' : '(default from code — change in prod!)'}`);
   console.log(` Debug token: ${ADMIN_DEBUG_TOKEN ? 'SET' : 'NOT SET (debug routes protected by env only)'}`);
+  console.log(` MongoDB pool: max=5, min=0, idle=30s`);
   console.log(` OT Bootstrap:     /api/ot-bootstrap (FAST — depts + lists only)`);
   console.log(` OT Departments:   /api/ot-departments`);
   console.log(` OT Custom Lists:  /api/ot-custom-lists (SAFE + excludeImages=1)`);
   console.log(` OT Custom Equip:  /api/ot-custom-equipment (SAFE + excludeImages=1)`);
-  console.log(` OT Equip Images:  /api/ot-equipment-images/:listId (LIGHT)`);
+  console.log(` OT Equip Images:  /api/ot-equipment-images/:listId (LIGHT — limit 50)`);
   console.log(` Checklists:       /api/checklists (BULK + includeEquipment=true|false)`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
-  console.log(` 🚑 Fix orphans:   POST /api/ot-fix-orphan-lists  [protected]`);
-  console.log(` 🚑 Fix missing:   POST /api/ot-fix-missing-deptcode [protected]`);
-  console.log(` 🚑 Move list:     POST /api/ot-move-list-to-dept [protected]`);
   console.log(` Health Check:     /api/health`);
   console.log(` Debug Info:       /api/debug/info`);
-  console.log(` Collections:      /api/debug/collections-stats [protected]`);
   console.log(` Allowed origins:  ${allowedOrigins.join(', ')}`);
   console.log(` Serving frontend: ${hasBuild ? 'YES' : 'NO'}`);
   console.log('═══════════════════════════════════════════════════════');
