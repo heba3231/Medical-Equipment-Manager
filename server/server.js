@@ -514,6 +514,84 @@ app.get('/api/debug/collections-stats', requireDebugToken, async (req, res) => {
   }
 });
 
+// ============================================================
+// 🚑 NEW DIAGNOSTIC: فحص معدات لستة معينة
+// ============================================================
+app.get('/api/debug/list-equipment/:listId', async (req, res) => {
+  try {
+    const { listId } = req.params;
+    
+    const [list, otEquip, deptEquip] = await Promise.all([
+      otCustomListsCollection.findOne({ id: listId }),
+      otCustomEquipmentCollection.find({ listId }).toArray(),
+      deptEquipmentCollection.find({ listId }).toArray(),
+    ]);
+
+    res.json({
+      success: true,
+      listId,
+      listExists: !!list,
+      list: list ? { 
+        id: list.id, 
+        name: list.name, 
+        deptCode: list.deptCode,
+        hasImage: !!list.image,
+      } : null,
+      otCustomEquipment: {
+        count: otEquip.length,
+        withImages: otEquip.filter(e => e.image).length,
+        totalImagesSizeKB: otEquip
+          .filter(e => e.image)
+          .reduce((sum, e) => sum + Math.round((e.image.length * 3) / 4 / 1024), 0),
+        items: otEquip.map(e => ({
+          id: e.id,
+          name: e.name,
+          code: e.code,
+          quantity: e.quantity,
+          hasImage: !!e.image,
+          imageSizeKB: e.image ? Math.round((e.image.length * 3) / 4 / 1024) : 0,
+        })),
+      },
+      deptEquipment: {
+        count: deptEquip.length,
+        withImages: deptEquip.filter(e => e.image).length,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============================================================
+// 🚑 NEW DIAGNOSTIC: كل اللستات + عدد الأدوات
+// ============================================================
+app.get('/api/debug/all-lists-equipment-count', async (req, res) => {
+  try {
+    const lists = await otCustomListsCollection.find({}).toArray();
+    
+    const counts = await Promise.all(lists.map(async (list) => {
+      const count = await otCustomEquipmentCollection.countDocuments({ listId: list.id });
+      return {
+        listId: list.id,
+        listName: list.name,
+        deptCode: list.deptCode,
+        equipmentCount: count,
+      };
+    }));
+
+    const totalEquipment = counts.reduce((sum, c) => sum + c.equipmentCount, 0);
+
+    res.json({
+      success: true,
+      totalLists: lists.length,
+      totalEquipment,
+      lists: counts.sort((a, b) => b.equipmentCount - a.equipmentCount),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 app.post('/api/ot-fix-missing-deptcode', requireDebugToken, async (req, res) => {
   try {
     const { targetDeptCode } = req.body;
@@ -1984,6 +2062,16 @@ app.post('/api/ot-custom-equipment', async (req, res) => {
       return res.status(400).json({ success: false, message: "id, listId, name, and code are required" });
     }
 
+    // ✅ تحقق من وجود اللستة
+    const listExists = await otCustomListsCollection.findOne({ id: listId });
+    if (!listExists) {
+      console.warn(`⚠️ List ${listId} not found!`);
+      return res.status(404).json({ 
+        success: false, 
+        message: `List ${listId} not found. Cannot add equipment.` 
+      });
+    }
+
     const existing = await otCustomEquipmentCollection.findOne({ id });
     if (existing) {
       console.warn(` Equipment ID collision: ${id}`);
@@ -2521,6 +2609,8 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` OT Images Debug:  /api/ot-images-debug/:listId`);
   console.log(` Checklists:       /api/checklists`);
   console.log(` 🚑 Diagnose:      GET  /api/ot-custom-lists-all`);
+  console.log(` 🚑 List Equipment: GET  /api/debug/list-equipment/:listId`);
+  console.log(` 🚑 All Counts:    GET  /api/debug/all-lists-equipment-count`);
   console.log(` Health Check:     /api/health`);
   console.log(` Debug Info:       /api/debug/info`);
   console.log(` Images Stats:     /api/debug/images-stats (protected)`);

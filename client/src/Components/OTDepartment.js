@@ -414,7 +414,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists
+  // ✅ fetchLists — مبسّط (بدون تعبئة equipment مسبقاً)
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -426,18 +426,9 @@ function OTDepartment() {
 
       const listsArr = data.data || [];
 
+      // ✅ فقط قائمة اللستات — بدون تعبئة equipment مسبقاً
       const listsForState = listsArr.map(({ equipment, ...rest }) => rest);
       setLists(prev => ({ ...prev, [deptId]: listsForState }));
-
-      const equipmentFromResponse = {};
-      for (const list of listsArr) {
-        if (Array.isArray(list.equipment)) {
-          equipmentFromResponse[list.id] = list.equipment;
-        }
-      }
-      if (Object.keys(equipmentFromResponse).length > 0) {
-        setEquipment(prev => ({ ...prev, ...equipmentFromResponse }));
-      }
     } catch (err) {
       console.error("Error fetching lists for", deptId, ":", err.message);
       setLists(prev => ({ ...prev, [deptId]: prev[deptId] || [] }));
@@ -731,7 +722,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ handleAddEquipment — يدمج الصورة في item مباشرة
+  // ✅✅✅ handleAddEquipment — مع إعادة جلب من السيرفر
   // ============================================================
   const handleAddEquipment = async () => {
     if (!newEquipment.name.trim() || !newEquipment.code.trim()) {
@@ -752,6 +743,16 @@ function OTDepartment() {
 
       if (!imageToSave) {
         console.warn(`⚠️ No image selected — will save without image`);
+      }
+
+      // ✅ تحقق من حجم الصورة
+      if (imageToSave) {
+        const sizeKB = Math.round((imageToSave.length * 3) / 4 / 1024);
+        console.log(`📷 Image size: ${sizeKB}KB`);
+        if (sizeKB > 5000) {
+          setSaving(false);
+          return alert(`⚠️ الصورة كبيرة جداً (${sizeKB}KB). الحد الأقصى 5MB.`);
+        }
       }
 
       const equipData = {
@@ -782,7 +783,7 @@ function OTDepartment() {
         imageLength: data.data?.image?.length || 0
       });
 
-      // ✅ دمج الصورة داخل equipment item
+      // ✅ دمج فوري في الواجهة
       if (data.data) {
         const savedEquipment = {
           ...data.data,
@@ -820,6 +821,15 @@ function OTDepartment() {
       }
 
       resetEquipmentForm();
+
+      // ✅✅✅ إعادة الجلب من السيرفر للتأكد من التزامن
+      try {
+        await fetchEquipment(selectedListId);
+        console.log(`✅ Re-fetched equipment after save for ${selectedListId}`);
+      } catch (refetchErr) {
+        console.warn("⚠️ Re-fetch after save failed (non-critical):", refetchErr.message);
+      }
+
     } catch (err) {
       console.error("Error saving equipment:", err);
       alert("❌ فشل حفظ المعدة: " + err.message);
@@ -2749,11 +2759,8 @@ function OTDepartment() {
                       }}
                       onClick={() => {
                         setSelectedListId(list.id);
-                        if (!equipment[list.id]) {
-                          fetchEquipment(list.id);
-                        } else if (!equipmentImages[list.id]) {
-                          fetchEquipmentImages(list.id);
-                        }
+                        // ✅✅✅ الإصلاح الرئيسي: دائماً اجلب المعدات
+                        fetchEquipment(list.id);
                       }}
                     >
                       <Icons.list />
