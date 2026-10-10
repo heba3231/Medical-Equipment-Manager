@@ -414,7 +414,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅ fetchLists — مبسّط (بدون تعبئة equipment مسبقاً)
+  // ✅ fetchLists — ✅✅✅ محسّن: يحافظ على الصور القديمة في state
   // ============================================================
   const fetchLists = async (deptId) => {
     try {
@@ -426,9 +426,20 @@ function OTDepartment() {
 
       const listsArr = data.data || [];
 
-      // ✅ فقط قائمة اللستات — بدون تعبئة equipment مسبقاً
+      // ✅ احفظ الصور القديمة من الـ state قبل الاستبدال
       const listsForState = listsArr.map(({ equipment, ...rest }) => rest);
-      setLists(prev => ({ ...prev, [deptId]: listsForState }));
+      setLists(prev => {
+        const oldImages = {};
+        (prev[deptId] || []).forEach(l => {
+          if (l.image) oldImages[l.id] = l.image;
+        });
+        return {
+          ...prev,
+          [deptId]: listsForState.map(l =>
+            oldImages[l.id] ? { ...l, image: oldImages[l.id] } : l
+          ),
+        };
+      });
     } catch (err) {
       console.error("Error fetching lists for", deptId, ":", err.message);
       setLists(prev => ({ ...prev, [deptId]: prev[deptId] || [] }));
@@ -436,7 +447,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ fetchEquipment — ينتظر جلب الصور
+  // ✅ fetchEquipment — ينتظر جلب الصور
   // ============================================================
   const fetchEquipment = async (listId) => {
     setEquipmentLoading(true);
@@ -461,7 +472,7 @@ function OTDepartment() {
   };
 
   // ============================================================
-  // ✅✅✅ fetchEquipmentImages — بسيط وآمن + دمج
+  // ✅ fetchEquipmentImages — بسيط وآمن + دمج
   // ============================================================
   const fetchEquipmentImages = async (listId) => {
     setImagesLoading(true);
@@ -539,6 +550,36 @@ function OTDepartment() {
       }
     } finally {
       setImagesLoading(false);
+    }
+  };
+
+  // ============================================================
+  // ✅✅✅ loadListImage — دالة جديدة لجلب صورة اللستة من السيرفر
+  // ============================================================
+  const loadListImage = async (listId) => {
+    try {
+      const data = await apiFetch(
+        `${API_BASE}/ot-custom-lists/${encodeURIComponent(listId)}/image`
+      );
+      const img = data?.data?.image || null;
+      if (img) {
+        setCheckListImage(img);
+        // ✅ خزّنها في state اللستات عشان ما نجلبها مرة ثانية
+        setLists(prev => {
+          const updated = { ...prev };
+          Object.keys(updated).forEach(deptId => {
+            updated[deptId] = (updated[deptId] || []).map(l =>
+              l.id === listId ? { ...l, image: img } : l
+            );
+          });
+          return updated;
+        });
+        console.log(`✅ List image loaded for ${listId}`);
+      } else {
+        console.log(`ℹ️ No image found for list ${listId}`);
+      }
+    } catch (err) {
+      console.warn("⚠️ Failed to load list image:", err.message);
     }
   };
 
@@ -968,6 +1009,7 @@ function OTDepartment() {
   }, [currentEquipment, searchTerm, sortBy]);
 
   // ========== CHECK LOGIC ==========
+  // ✅✅✅ startCheck — محسّن: يجلب الصورة من السيرفر لو مو موجودة في state
   const startCheck = () => {
     if (!selectedListId) return alert("Please select a list first");
     const initial = {};
@@ -993,7 +1035,16 @@ function OTDepartment() {
     today.setMonth(today.getMonth() + 6);
     setExpiryDate(today);
 
-    setCheckListImage(selectedListObj?.image || null);
+    // ✅✅✅ جلب الصورة: من state أولاً، ولو مو موجودة من السيرفر
+    const existingImage = selectedListObj?.image || null;
+    setCheckListImage(existingImage);
+    if (!existingImage) {
+      console.log(`🔍 List image not in state — fetching from server...`);
+      loadListImage(selectedListId);
+    } else {
+      console.log(`✅ List image found in state`);
+    }
+
     setCheckMode(true);
 
     fetchEquipmentImages(selectedListId);

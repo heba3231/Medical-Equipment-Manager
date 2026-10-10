@@ -515,7 +515,7 @@ app.get('/api/debug/collections-stats', requireDebugToken, async (req, res) => {
 });
 
 // ============================================================
-// 🚑 NEW DIAGNOSTIC: فحص معدات لستة معينة
+// 🚑 DIAGNOSTIC: فحص معدات لستة معينة
 // ============================================================
 app.get('/api/debug/list-equipment/:listId', async (req, res) => {
   try {
@@ -563,7 +563,7 @@ app.get('/api/debug/list-equipment/:listId', async (req, res) => {
 });
 
 // ============================================================
-// 🚑 NEW DIAGNOSTIC: كل اللستات + عدد الأدوات
+// 🚑 DIAGNOSTIC: كل اللستات + عدد الأدوات
 // ============================================================
 app.get('/api/debug/all-lists-equipment-count', async (req, res) => {
   try {
@@ -1739,6 +1739,24 @@ app.get('/api/ot-custom-lists', async (req, res) => {
   }
 });
 
+// ✅✅✅ جلب صورة لستة معينة فقط (endpoint جديد)
+app.get('/api/ot-custom-lists/:id/image', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const list = await otCustomListsCollection.findOne(
+      { id },
+      { projection: { image: 1, _id: 0 } }
+    );
+    if (!list) {
+      return res.status(404).json({ success: false, message: "List not found" });
+    }
+    res.json({ success: true, data: { id, image: list.image || null } });
+  } catch (error) {
+    console.error('❌ /api/ot-custom-lists/:id/image error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.post('/api/ot-custom-lists', async (req, res) => {
   try {
     const { id, name, description, deptCode, roomId, createdBy, image } = req.body;
@@ -2604,6 +2622,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` OT Bootstrap:     /api/ot-bootstrap`);
   console.log(` OT Departments:   /api/ot-departments`);
   console.log(` OT Custom Lists:  /api/ot-custom-lists`);
+  console.log(` OT List Image:    /api/ot-custom-lists/:id/image (NEW ✅)`);
   console.log(` OT Custom Equip:  /api/ot-custom-equipment (WITH logging)`);
   console.log(` OT Equip Images:  /api/ot-equipment-images/:listId (ot_custom + dept fallback)`);
   console.log(` OT Images Debug:  /api/ot-images-debug/:listId`);
